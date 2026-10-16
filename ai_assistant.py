@@ -1,6 +1,6 @@
 """
-ម៉ូឌុល AI Conversational Assistant សម្រាប់ Team ស្មោះស្នេហ៍
-គាំទ្រ Google Gemini និង OpenAI ជាមួយប្រព័ន្ធ Context Memory និង Cost Control
+ម៉ូឌុល AI Conversational Assistant សម្រាប់ Team ស្មោះស្នេហ៍ (Luxury & Production Grade)
+គាំទ្រ Google Gemini (gemini-2.0-flash / fallback gemini-1.5-flash) និង OpenAI
 """
 import asyncio
 import time
@@ -22,16 +22,13 @@ _user_last_query_time: Dict[int, float] = {}
 _gemini_throttle_lock = asyncio.Lock()
 _gemini_last_request_at = 0.0
 
-# គំរូ Gemini លំនាំដើម និងគំរូជំនួស (Fast & Free Tier compatible)
 DEFAULT_GEMINI_MODEL = getattr(config, "AI_MODEL", None) or "gemini-2.0-flash"
 FALLBACK_GEMINI_MODEL = "gemini-1.5-flash"
 GEMINI_MAX_ATTEMPTS = 3
 GEMINI_MAX_RETRY_AFTER_SECONDS = 15.0
 
-# Persistent HTTP Client Connection Pool សម្រាប់ reuse TCP/TLS keep-alive
 _shared_client: Optional[httpx.AsyncClient] = None
 _shared_client_loop: Optional[asyncio.AbstractEventLoop] = None
-_client_lock = asyncio.Lock()
 
 
 async def get_shared_http_client() -> httpx.AsyncClient:
@@ -53,7 +50,7 @@ async def get_shared_http_client() -> httpx.AsyncClient:
             except Exception:
                 pass
         _shared_client = httpx.AsyncClient(
-            timeout=httpx.Timeout(30.0, connect=10.0),
+            timeout=httpx.Timeout(25.0, connect=8.0),
             limits=httpx.Limits(
                 max_connections=50,
                 max_keepalive_connections=20,
@@ -77,31 +74,34 @@ async def close_shared_http_client() -> None:
 
 
 def get_system_instruction(user_name: Optional[str] = None) -> str:
-    display_name = user_name if user_name else "មិត្តភក្តិ"
+    display_name = user_name if user_name else "មិត្តភក្តិដ៏មានតម្លៃ"
     return (
-        f"You are Cooler Bot, the official AI Assistant of 'Team ស្មោះស្នេហ៍' (ក្រុម Team ស្មោះស្នេហ៍), "
-        f"a Cambodian community founded on love, solidarity, friendship, and mutual sharing. You are currently chatting with {display_name}.\n"
-        "Special Identity & Addressing Rule:\n"
-        "- The main creator and founder of this bot is Chan Taravid Net (ប៉ា). If the user chatting is Chan Taravid Net or if specifically addressed as Papa, acknowledge and address them respectfully as Papa (ប៉ា).\n"
-        "- For all other general members, guests, or visitors chatting with you, address them politely and naturally by their actual name. DO NOT call regular guests or women 'Papa' or 'ប៉ា'. Treat everyone with polite, professional, and welcoming Khmer hospitality.\n"
-        "Guidelines:\n"
-        "1. When asked what your name is, always proudly introduce yourself as Cooler Bot (ជំនួយការ Cooler Bot) របស់ Team ស្មោះស្នេហ៍.\n"
-        "2. Address the user politely and naturally by their name.\n"
-        "3. Always respond in polite, warm, and natural Khmer (ភាសាខ្មែរ) by default.\n"
-        "4. If the user asks in English or requests another language, respond accurately in that language.\n"
-        "5. Assist members with general knowledge, writing, translation, science, technology, summaries, problem solving, and daily questions.\n"
-        "6. Maintain a supportive, respectful, and encouraging tone representing Team ស្មោះស្នេហ៍.\n"
-        "7. Format responses cleanly for Telegram (using clear paragraphs and bullet points where helpful).\n"
-        "8. Keep answers concise unless a detailed explanation is explicitly requested.\n"
-        "9. When members ask how to create, edit, generate, or transform photos with AI (AI Photo Studio), explain warmly and clearly in Khmer that they should upload/send a photo directly to this Telegram bot, and then select one of the available styles from the interactive menu."
+        f"You are Cooler Bot, the elite, highly sophisticated, and official AI Assistant of 'Team ស្មោះស្នេហ៍' (ក្រុម Team ស្មោះស្នេហ៍).\n"
+        f"This prestigious Cambodian community is anchored in solidarity, deep loyalty, mutual prosperity, and aristocratic warmth. "
+        f"You are currently conversing with {display_name}.\n\n"
+        
+        "⚜️ SPECIAL IDENTITY & HONORIFIC PROTOCOL:\n"
+        "- The esteemed founder, visionary, and creator of Team ស្មោះស្នេហ៍ is Chan Taravid Net (ប៉ា).\n"
+        "- IF the user chatting is identified as Chan Taravid Net, or explicitly introduces themselves as Papa (ប៉ា), "
+        "address them with utmost reverence, filial respect, and warmth as 'Papa' (ប៉ា) or 'លោកប៉ា'.\n"
+        "- For all other esteemed members, VIP guests, and visitors, address them with refined elegance, warmth, and respect using their name "
+        "(e.g., 'លោក/អ្នកនាង/បង/មិត្តភក្តិ {display_name}'). NEVER refer to regular users or women as 'Papa' or 'ប៉ា'.\n\n"
+        
+        "👑 ARISTOCRATIC TONE & COMMUNICATION STANDARDS:\n"
+        "1. Identity: When asked who you are, introduce yourself proudly and elegantly as 'Cooler Bot ជំនួយការ AI វៃឆ្លាតផ្លូវការប្រចាំ Team ស្មោះស្នេហ៍'.\n"
+        "2. Language & Elegance: Default to polite, articulate, culturally respectful, and natural Khmer (ភាសាខ្មែរ). "
+        "If addressed in English or another language, reply with impeccable professional fluency in that language.\n"
+        "3. High-Class Hospitality: Maintain an executive, inspiring, polished, and encouraging tone. Reflect high status and prestige without being arrogant.\n"
+        "4. Intellectual Mastery: Deliver top-tier insights on business, technology, creative writing, productivity, culture, science, and life wisdom.\n"
+        "5. Telegram Formatting: Structure replies cleanly for mobile screens using elegant emojis (✨, ⚜️, 👑, 💎), clear paragraphs, bold highlights, and neat bullet points. Avoid cluttered walls of text.\n"
+        "6. Brevity & Depth: Keep everyday answers concise, crisp, and direct. When deep analysis or long answers are sought, deliver comprehensive masterclasses.\n"
+        "7. AI Photo Studio Guidance: If users inquire about transforming portraits, editing photos, or creating high-fashion avatars, "
+        "warmly guide them to send a clear portrait photo directly into this chat to activate the AI Photo Studio 9 Luxury Styles menu."
     )
 
 
 def check_rate_limit(user_id: int) -> Tuple[bool, int]:
-    """
-    ពិនិត្យមើលថាតើ User សួរញឹកញាប់ពេកដែរឬទេ (Cooldown)
-    ត្រឡប់៖ (is_allowed, seconds_left_to_wait)
-    """
+    """ពិនិត្យមើលថាតើ User សួរញឹកញាប់ពេកដែរឬទេ (Cooldown)"""
     now = time.monotonic()
     last_time = _user_last_query_time.get(user_id, 0.0)
     cooldown = getattr(config, "AI_RATE_LIMIT_SECONDS", 3)
@@ -115,11 +115,39 @@ def check_rate_limit(user_id: int) -> Tuple[bool, int]:
 
 
 async def _wait_for_gemini_request_slot() -> None:
-    """កំណត់ចន្លោះសំណើ Gemini ទូទាំង User ទាំងអស់ក្នុង process មួយ។"""
+    """កំណត់ចន្លោះសំណើ Gemini ទូទាំង User ទាំងអស់ក្នុង process មួយ"""
     global _gemini_last_request_at
-
     spacing = getattr(config, "AI_GLOBAL_RATE_LIMIT_SECONDS", 0.5)
     if spacing <= 0:
         return
 
-    async with _gemini_throttle_lock
+    async with _gemini_throttle_lock:
+        elapsed = time.monotonic() - _gemini_last_request_at
+        if elapsed < spacing:
+            await asyncio.sleep(spacing - elapsed)
+        _gemini_last_request_at = time.monotonic()
+
+
+def _retry_after_seconds(response: httpx.Response) -> Optional[float]:
+    retry_after = response.headers.get("Retry-After", "").strip()
+    if retry_after:
+        try:
+            return max(0.0, float(retry_after))
+        except ValueError:
+            try:
+                retry_at = parsedate_to_datetime(retry_after)
+                return max(0.0, retry_at.timestamp() - time.time())
+            except Exception:
+                pass
+    return None
+
+
+def _backoff_delay(attempt: int, response: Optional[httpx.Response] = None) -> float:
+    base_delay = min(0.6 * (2.0 ** attempt), 2.5)
+    server_delay = _retry_after_seconds(response) if response is not None else None
+    delay = max(base_delay, server_delay or 0.0)
+    return delay + random.uniform(0.05, 0.2)
+
+
+def clean_markdown_for_telegram(text: str) -> str:
+    """ការពារកុំឱ្យ Telegram

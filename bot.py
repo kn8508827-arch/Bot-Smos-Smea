@@ -206,7 +206,9 @@ def handle_voice(message):
             user_id=user_id,
             audio_bytes=downloaded_voice,
             mime_type="audio/ogg",
-            user_name=user_name
+            user_name=user_name,
+            last_name=message.from_user.last_name,
+            username=message.from_user.username
         ))
     except Exception as e:
         logger.error(f"Error handling voice message: {e}")
@@ -242,7 +244,9 @@ def echo_all(message):
         reply = asyncio.run(ai_assistant.ask_ai(
             user_id=user_id, 
             user_message=user_text, 
-            user_name=user_name
+            user_name=user_name,
+            last_name=message.from_user.last_name,
+            username=message.from_user.username
         ))
     except Exception as e:
         logger.error(f"Error handling AI message: {e}")

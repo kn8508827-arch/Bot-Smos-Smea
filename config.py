@@ -22,4 +22,8 @@ admin_ids_raw = os.getenv("ADMIN_IDS", "")
 ADMIN_IDS = [int(x.strip()) for x in admin_ids_raw.split(",") if x.strip().isdigit()]
 # Numeric Telegram user ID of the bot owner ("Papa"). Set via environment variable; 0 means unset.
 OWNER_ID = int(os.getenv("OWNER_ID", "0") or 0)
+# Lowercase keywords: a Telegram first name, last name or username containing any of these
+# (ignoring case, spaces and hyphens) is treated as Papa. Name checks can be spoofed, so
+# OWNER_ID remains the stronger check.
+PAPA_NAME_KEYWORDS = ["vidcooler"]
 DRY_RUN_MODE = os.getenv("DRY_RUN_MODE", "False").lower() in ("true", "1", "yes")

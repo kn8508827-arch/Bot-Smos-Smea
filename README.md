@@ -17,4 +17,6 @@ TeamSmaohSnehaBot/
 ├── ai_assistant.py     # ម៉ូឌុល AI (Gemini 2.0 Flash / Fallback 1.5 Flash, Rate Limiting)
 ├── messages.py         # អត្ថបទសារឆ្លើយតបជាភាសាខ្មែរទាំងអស់
 ├── bot.py              # ចំណុចចាប់ផ្តើមចម្បងសម្រាប់ដំណើរការ Bot (Main Entry Point)
+├── railway.json        # ការកំណត់ Deployment លើ Railway (Start Command & Auto Restart)
+├── test_local.py       # ឈុតតេស្តសុវត្ថិភាពស្វ័យប្រវត្តិ (Offline Tests)
 └── README.md           # សៀវភៅណែនាំគម្រោងនេះ

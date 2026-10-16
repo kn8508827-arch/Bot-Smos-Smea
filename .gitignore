@@ -1,75 +1,25 @@
-# ==========================================
-# គម្រោង Team ស្មោះស្នេហ៍ Telegram Bot
-# ==========================================
-
-# Database & SQLite Files (សំខាន់បំផុតដើម្បីការពារទិន្នន័យ User)
+# Database & SQLite
 *.db
 *.db-journal
 *.db-wal
 *.db-shm
-*.sqlite
 *.sqlite3
-bot_database.db
-test_bot_database.db
 
-# បណ្តុំរូបភាពបណ្តោះអាសន្ន និងឯកសារ Media
-test_temp_photos/
-temp_photos/
-downloads/
-*.jpg
-*.jpeg
-*.png
-*.webp
-
-# ឯកសារសម្ងាត់ និង Environment Variables
-.env
-.env.*
-!.env.example
-*.key
-*.pem
-
-# ==========================================
-# Python Standard Ignores
-# ==========================================
-
-# Byte-compiled / optimized / DLL files
+# Byte-compiled / Python
 __pycache__/
 *.py[cod]
 *$py.class
 
-# C extensions
-*.so
+# Environment variables & secrets
+.env
+.env.*
+!.env.example
 
-# Distribution / packaging
-build/
-dist/
-*.egg-info/
-.installed.cfg
-*.egg
-
-# Unit test / coverage reports
-.pytest_cache/
-.coverage
-htmlcov/
-
-# Logs
+# Temp and logs
+temp_photos/
+test_temp_photos/
 *.log
-pip-log.txt
-
-# Environments
-.venv/
-venv/
-env/
-ENV/
-
-# IDEs & Editors
 .vscode/
 .idea/
-*.sublime-project
-*.sublime-workspace
-tempCodeRunnerFile.py
-
-# OS Generated Files
-.DS_Store
-Thumbs.db
-desktop.ini
+.venv/
+venv/

@@ -18,7 +18,7 @@ import messages
 
 logger = logging.getLogger(__name__)
 
-# កត់ត្រាពេលវេលាសំណួរចុងក្រោយរបស់ User (In-memory Rate Limiting)
+# In-memory Rate Limiting
 _user_last_query_time: Dict[int, float] = {}
 _gemini_throttle_lock = asyncio.Lock()
 _gemini_last_request_at = 0.0
@@ -33,7 +33,7 @@ _shared_client_loop: Optional[asyncio.AbstractEventLoop] = None
 
 
 async def get_shared_http_client() -> httpx.AsyncClient:
-    """ទទួលបាន ឬបង្កើត httpx.AsyncClient ដែលចែករំលែកសម្រាប់ការតភ្ជាប់លឿន (Connection Pooling & Keep-Alive)"""
+    """ទទួលបាន ឬបង្កើត httpx.AsyncClient Connection Pool សម្រាប់ការតភ្ជាប់លឿន"""
     global _shared_client, _shared_client_loop
     try:
         current_loop = asyncio.get_running_loop()
@@ -95,14 +95,11 @@ def get_system_instruction(user_name: Optional[str] = None) -> str:
         "3. High-Class Hospitality: Maintain an executive, inspiring, polished, and encouraging tone. Reflect high status and prestige without being arrogant.\n"
         "4. Intellectual Mastery: Deliver top-tier insights on business, technology, creative writing, productivity, culture, science, and life wisdom.\n"
         "5. Telegram Formatting: Structure replies cleanly for mobile screens using elegant emojis (✨, ⚜️, 👑, 💎), clear paragraphs, bold highlights, and neat bullet points. Avoid cluttered walls of text.\n"
-        "6. Brevity & Depth: Keep everyday answers concise, crisp, and direct. When deep analysis or long answers are sought, deliver comprehensive masterclasses.\n"
-        "7. AI Photo Studio Guidance: If users inquire about transforming portraits, editing photos, or creating high-fashion avatars, "
-        "warmly guide them to send a clear portrait photo directly into this chat to activate the AI Photo Studio 9 Luxury Styles menu."
+        "6. Brevity & Depth: Keep everyday answers concise, crisp, and direct. When deep analysis or long answers are sought, deliver comprehensive masterclasses."
     )
 
 
 def check_rate_limit(user_id: int) -> Tuple[bool, int]:
-    """ពិនិត្យមើលថាតើ User សួរញឹកញាប់ពេកដែរឬទេ (Cooldown)"""
     now = time.monotonic()
     last_time = _user_last_query_time.get(user_id, 0.0)
     cooldown = getattr(config, "AI_RATE_LIMIT_SECONDS", 3)
@@ -116,7 +113,6 @@ def check_rate_limit(user_id: int) -> Tuple[bool, int]:
 
 
 async def _wait_for_gemini_request_slot() -> None:
-    """កំណត់ចន្លោះសំណើ Gemini ទូទាំង User ទាំងអស់ក្នុង process មួយ"""
     global _gemini_last_request_at
     spacing = getattr(config, "AI_GLOBAL_RATE_LIMIT_SECONDS", 0.5)
     if spacing <= 0:
@@ -246,7 +242,126 @@ async def generate_gemini_response(
 
 
 async def ask_ai(user_id: int, user_message: str, user_name: Optional[str] = None, db_path: Optional[str] = None) -> str:
-    """ឆ្លើយតបសំណួរជាអត្ថបទ (Text) ជាមួយ Context Memory និងកូតាប្រចាំថ្ងៃ"""
     cleaned_prompt = user_message.strip()
     if not cleaned_prompt:
-        return
+        return "សូមវាយសំណួរ ឬប្រធានបទដែលអ្នកចង់ឱ្យខ្ញុំជួយ!"
+
+    gemini_key = getattr(config, "GEMINI_API_KEY", "")
+    if not gemini_key:
+        return getattr(messages, "AI_NOT_CONFIGURED", "AI មិនទាន់កំណត់ API Key នៅឡើយទេ។")
+
+    allowed, seconds_left = check_rate_limit(user_id)
+    if not allowed:
+        return getattr(messages, "AI_COOLDOWN", "សូមរង់ចាំ {seconds} វិនាទីសិន!").format(seconds=seconds_left)
+
+    daily_limit = getattr(config, "AI_DAILY_LIMIT_PER_USER", 50)
+    daily_ok, current_count = database.check_and_increment_daily_usage(
+        user_id=user_id,
+        max_daily_limit=daily_limit,
+        db_path=db_path
+    )
+    if not daily_ok:
+        return getattr(messages, "AI_DAILY_LIMIT_REACHED", "អ្នកប្រើអស់កូតាថ្ងៃនេះហើយ ({current_usage}/{max_limit})។").format(
+            current_usage=current_count,
+            max_limit=daily_limit
+        )
+
+    if not user_name:
+        with database.get_db(db_path) as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT first_name FROM users WHERE user_id = ?", (user_id,))
+            row = cursor.fetchone()
+            if row and row["first_name"]:
+                user_name = row["first_name"]
+
+    history = database.get_chat_history(user_id=user_id, limit=6, db_path=db_path)
+
+    try:
+        ai_reply = await generate_gemini_response(
+            api_key=gemini_key,
+            prompt=cleaned_prompt,
+            history=history,
+            user_name=user_name
+        )
+
+        database.add_chat_message(user_id=user_id, role="user", content=cleaned_prompt, db_path=db_path)
+        database.add_chat_message(user_id=user_id, role="assistant", content=ai_reply, db_path=db_path)
+
+        return ai_reply
+
+    except httpx.TimeoutException:
+        return getattr(messages, "AI_TIMEOUT_ERROR", "ប្រព័ន្ធឆ្លើយតបយឺតពេក (Timeout)។")
+    except httpx.HTTPStatusError as e:
+        if e.response.status_code == 429:
+            return getattr(messages, "AI_RATE_LIMIT_ERROR", "សំណើច្រើនពេក សូមរង់ចាំមួយភ្លែត។")
+        return getattr(messages, "AI_GENERIC_ERROR", "មានបញ្ហាបច្ចេកទេស។")
+    except PermissionError:
+        return getattr(messages, "AI_AUTH_ERROR", "API Key មិនត្រឹមត្រូវ។")
+    except Exception as e:
+        logger.error(f"Error AI: {e}")
+        return getattr(messages, "AI_GENERIC_ERROR", "មានបញ្ហាបច្ចេកទេស។")
+
+
+async def ask_ai_with_audio(user_id: int, audio_bytes: bytes, mime_type: str = "audio/ogg", user_name: Optional[str] = None, db_path: Optional[str] = None) -> str:
+    """បញ្ជូនសំឡេង Voice Note ទៅឱ្យ Gemini 2.0 Flash ស្តាប់ផ្ទាល់ (Multimodal)"""
+    gemini_key = getattr(config, "GEMINI_API_KEY", "")
+    if not gemini_key:
+        return getattr(messages, "AI_NOT_CONFIGURED", "AI មិនទាន់កំណត់ API Key នៅឡើយទេ។")
+
+    allowed, seconds_left = check_rate_limit(user_id)
+    if not allowed:
+        return getattr(messages, "AI_COOLDOWN", "សូមរង់ចាំ {seconds} វិនាទីសិន!").format(seconds=seconds_left)
+
+    daily_limit = getattr(config, "AI_DAILY_LIMIT_PER_USER", 50)
+    daily_ok, current_count = database.check_and_increment_daily_usage(user_id, daily_limit, db_path)
+    if not daily_ok:
+        return getattr(messages, "AI_DAILY_LIMIT_REACHED", "អ្នកប្រើអស់កូតាថ្ងៃនេះហើយ ({current_usage}/{max_limit})។").format(
+            current_usage=current_count,
+            max_limit=daily_limit
+        )
+
+    audio_b64 = base64.b64encode(audio_bytes).decode("utf-8")
+    system_inst = get_system_instruction(user_name)
+
+    payload = {
+        "system_instruction": {"parts": [{"text": system_inst}]},
+        "contents": [{
+            "role": "user",
+            "parts": [
+                {
+                    "inline_data": {
+                        "mime_type": mime_type,
+                        "data": audio_b64
+                    }
+                },
+                {
+                    "text": "សូមស្តាប់សារសំឡេងនេះ ហើយឆ្លើយតបទៅកាន់សំណួរ ឬការសន្ទនានេះជាភាសាខ្មែរយ៉ាងរាក់ទាក់ សុជីវធម៌ និងច្បាស់លាស់។"
+                }
+            ]
+        }],
+        "generationConfig": {"temperature": 0.7, "maxOutputTokens": 1024}
+    }
+
+    headers = {"x-goog-api-key": gemini_key, "Content-Type": "application/json"}
+    http_client = await get_shared_http_client()
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/{DEFAULT_GEMINI_MODEL}:generateContent"
+
+    try:
+        response = await http_client.post(url, json=payload, headers=headers)
+        if response.status_code == 200:
+            data = response.json()
+            candidates = data.get("candidates", [])
+            if candidates:
+                parts = candidates[0].get("content", {}).get("parts", [])
+                if parts:
+                    reply = clean_markdown_for_telegram(parts[0].get("text", "").strip())
+                    database.add_chat_message(user_id, "user", "[Voice Message]", db_path)
+                    database.add_chat_message(user_id, "assistant", reply, db_path)
+                    return reply
+            return "សុំទោស ខ្ញុំមិនអាចបង្កើតចម្លើយពីសំឡេងនេះបានទេ។"
+        
+        logger.warning(f"Audio processing status code: {response.status_code}")
+        return "សុំទោស ខ្ញុំមិនអាចស្តាប់សារសំឡេងនេះបានច្បាស់ទេ។"
+    except Exception as e:
+        logger.error(f"Error processing voice message: {e}")
+        return getattr(messages, "AI_GENERIC_ERROR", "មានបញ្ហាក្នុងការស្តាប់សារសំឡេង។")

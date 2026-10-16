@@ -20,4 +20,6 @@ AI_DAILY_LIMIT_PER_USER = int(os.getenv("AI_DAILY_LIMIT_PER_USER", "50"))
 # Admin & Settings
 admin_ids_raw = os.getenv("ADMIN_IDS", "")
 ADMIN_IDS = [int(x.strip()) for x in admin_ids_raw.split(",") if x.strip().isdigit()]
+# Numeric Telegram user ID of the bot owner ("Papa"). Set via environment variable; 0 means unset.
+OWNER_ID = int(os.getenv("OWNER_ID", "0") or 0)
 DRY_RUN_MODE = os.getenv("DRY_RUN_MODE", "False").lower() in ("true", "1", "yes")

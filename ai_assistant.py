@@ -1,12 +1,13 @@
 """
 ម៉ូឌុល AI Conversational Assistant សម្រាប់ Team ស្មោះស្នេហ៍ (Luxury & Production Grade)
-គាំទ្រ Google Gemini (gemini-2.0-flash / fallback gemini-1.5-flash) និង OpenAI
+គាំទ្រ Google Gemini (gemini-2.0-flash / fallback gemini-1.5-flash) ទាំង Text និង Voice
 """
 import asyncio
 import time
 import random
 import logging
 import re
+import base64
 from email.utils import parsedate_to_datetime
 from typing import List, Dict, Optional, Tuple, Any
 import httpx
@@ -150,62 +151,102 @@ def _backoff_delay(attempt: int, response: Optional[httpx.Response] = None) -> f
 
 
 def clean_markdown_for_telegram(text: str) -> str:
-    """ការពារកុំឱ្យ Telegram
-async def ask_ai_with_audio(user_id: int, audio_bytes: bytes, mime_type: str = "audio/ogg", user_name: Optional[str] = None, db_path: Optional[str] = None) -> str:
-    """បញ្ជូនសំឡេង Voice Note ទៅឱ្យ Gemini 2.0 Flash ស្តាប់ផ្ទាល់"""
-    gemini_key = getattr(config, "GEMINI_API_KEY", "")
-    if not gemini_key:
-        return getattr(messages, "AI_NOT_CONFIGURED", "AI មិនទាន់កំណត់ API Key នៅឡើយទេ។")
+    """ការពារកុំឱ្យ Telegram Parse Error ដោយសារសញ្ញា Markdown មិនពេញលេញ"""
+    if not text:
+        return ""
+    if text.count("*") % 2 != 0:
+        text = text.replace("*", "")
+    if text.count("_") % 2 != 0:
+        text = text.replace("_", "")
+    return text.strip()
 
-    allowed, seconds_left = check_rate_limit(user_id)
-    if not allowed:
-        return getattr(messages, "AI_COOLDOWN", "សូមរង់ចាំ {seconds} វិនាទីសិន!").format(seconds=seconds_left)
 
-    daily_limit = getattr(config, "AI_DAILY_LIMIT_PER_USER", 50)
-    daily_ok, current_count = database.check_and_increment_daily_usage(user_id, daily_limit, db_path)
-    if not daily_ok:
-        return getattr(messages, "AI_DAILY_LIMIT_REACHED", "អ្នកប្រើអស់កូតាថ្ងៃនេះហើយ ({current_usage}/{max_limit})។").format(
-            current_usage=current_count,
-            max_limit=daily_limit
-        )
+async def generate_gemini_response(
+    api_key: str,
+    prompt: str,
+    history: List[Dict[str, str]],
+    user_name: Optional[str] = None,
+    model_name: Optional[str] = None,
+    client: Optional[httpx.AsyncClient] = None
+) -> str:
+    primary_model = model_name or getattr(config, "AI_MODEL", None) or DEFAULT_GEMINI_MODEL
+    current_model = primary_model
 
-    # បម្លែងសំឡេងជា base64 ដើម្បីបញ្ជូនតាម Gemini API
-    audio_b64 = base64.b64encode(audio_bytes).decode("utf-8")
+    contents = []
+    trimmed_history = history[-6:]
+    for msg in trimmed_history:
+        role = "user" if msg["role"] == "user" else "model"
+        contents.append({
+            "role": role,
+            "parts": [{"text": msg["content"][:1500]}]
+        })
+    contents.append({
+        "role": "user",
+        "parts": [{"text": prompt}]
+    })
+
     system_inst = get_system_instruction(user_name)
-
     payload = {
         "system_instruction": {"parts": [{"text": system_inst}]},
-        "contents": [{
-            "role": "user",
-            "parts": [
-                {
-                    "inline_data": {
-                        "mime_type": mime_type,
-                        "data": audio_b64
-                    }
-                },
-                {
-                    "text": "សូមស្តាប់សារសំឡេងនេះ ហើយឆ្លើយតបទៅកាន់សំណួរ ឬការសន្ទនានេះជាភាសាខ្មែរយ៉ាងរាក់ទាក់ និងច្បាស់លាស់។"
-                }
-            ]
-        }],
-        "generationConfig": {"temperature": 0.7, "maxOutputTokens": 1024}
+        "contents": contents,
+        "generationConfig": {
+            "temperature": 0.7,
+            "maxOutputTokens": 1024,
+            "topP": 0.95
+        }
     }
 
-    headers = {"x-goog-api-key": gemini_key, "Content-Type": "application/json"}
-    http_client = await get_shared_http_client()
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/{DEFAULT_GEMINI_MODEL}:generateContent"
+    headers = {
+        "x-goog-api-key": api_key,
+        "Content-Type": "application/json"
+    }
 
-    try:
-        response = await http_client.post(url, json=payload, headers=headers)
+    http_client = client or await get_shared_http_client()
+
+    for attempt in range(GEMINI_MAX_ATTEMPTS):
+        await _wait_for_gemini_request_slot()
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/{current_model}:generateContent"
+        try:
+            response = await http_client.post(url, json=payload, headers=headers)
+        except httpx.TransportError:
+            if attempt >= GEMINI_MAX_ATTEMPTS - 1:
+                raise
+            delay = _backoff_delay(attempt)
+            await asyncio.sleep(delay)
+            continue
+
         if response.status_code == 200:
             data = response.json()
-            reply = data["candidates"][0]["content"]["parts"][0]["text"].strip()
-            
-            database.add_chat_message(user_id, "user", "[Voice Message]", db_path)
-            database.add_chat_message(user_id, "assistant", reply, db_path)
-            return reply
-        return "សុំទោស ខ្ញុំមិនអាចស្តាប់សារសំឡេងនេះបានច្បាស់ទេ។"
-    except Exception as e:
-        logger.error(f"Error processing voice message: {e}")
-        return getattr(messages, "AI_GENERIC_ERROR", "មានបញ្ហាក្នុងការស្តាប់សារសំឡេង។")
+            candidates = data.get("candidates", [])
+            if candidates:
+                parts = candidates[0].get("content", {}).get("parts", [])
+                if parts:
+                    raw_text = parts[0].get("text", "").strip()
+                    return clean_markdown_for_telegram(raw_text)
+            return "សុំទោស ខ្ញុំមិនអាចបង្កើតចម្លើយបានទេ។"
+
+        if response.status_code in (404, 500, 502, 503, 504) and current_model != FALLBACK_GEMINI_MODEL:
+            logger.warning(f"Gemini {current_model} error {response.status_code}. Switching to {FALLBACK_GEMINI_MODEL}...")
+            current_model = FALLBACK_GEMINI_MODEL
+            await asyncio.sleep(0.2)
+            continue
+
+        if attempt < GEMINI_MAX_ATTEMPTS - 1 and response.status_code in (408, 429, 500, 502, 503, 504):
+            delay = _backoff_delay(attempt, response)
+            await asyncio.sleep(delay)
+            continue
+
+        if response.status_code == 429:
+            raise httpx.HTTPStatusError("Rate Limit", request=response.request, response=response)
+        elif response.status_code in (401, 403):
+            raise PermissionError("Invalid Key")
+        else:
+            response.raise_for_status()
+            return "មានបញ្ហាមិនប្រក្រតីក្នុងការទាញយកចម្លើយ។"
+
+
+async def ask_ai(user_id: int, user_message: str, user_name: Optional[str] = None, db_path: Optional[str] = None) -> str:
+    """ឆ្លើយតបសំណួរជាអត្ថបទ (Text) ជាមួយ Context Memory និងកូតាប្រចាំថ្ងៃ"""
+    cleaned_prompt = user_message.strip()
+    if not cleaned_prompt:
+        return

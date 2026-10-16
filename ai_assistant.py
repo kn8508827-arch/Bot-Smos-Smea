@@ -23,8 +23,8 @@ _gemini_throttle_lock = asyncio.Lock()
 _gemini_last_request_at = 0.0
 
 # គំរូ Gemini លំនាំដើម និងគំរូជំនួស (Fast & Free Tier compatible)
-DEFAULT_GEMINI_MODEL = getattr(config, "AI_MODEL", None) or "gemini-2.0-flash"
-FALLBACK_GEMINI_MODEL = "gemini-1.5-flash"
+DEFAULT_GEMINI_MODEL = getattr(config, "AI_MODEL", None) or "gemini-3.6-flash"
+FALLBACK_GEMINI_MODEL = "gemini-3.6-flash"
 GEMINI_MAX_ATTEMPTS = 3
 GEMINI_MAX_RETRY_AFTER_SECONDS = 15.0
 

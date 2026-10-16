@@ -151,3 +151,61 @@ def _backoff_delay(attempt: int, response: Optional[httpx.Response] = None) -> f
 
 def clean_markdown_for_telegram(text: str) -> str:
     """ការពារកុំឱ្យ Telegram
+async def ask_ai_with_audio(user_id: int, audio_bytes: bytes, mime_type: str = "audio/ogg", user_name: Optional[str] = None, db_path: Optional[str] = None) -> str:
+    """បញ្ជូនសំឡេង Voice Note ទៅឱ្យ Gemini 2.0 Flash ស្តាប់ផ្ទាល់"""
+    gemini_key = getattr(config, "GEMINI_API_KEY", "")
+    if not gemini_key:
+        return getattr(messages, "AI_NOT_CONFIGURED", "AI មិនទាន់កំណត់ API Key នៅឡើយទេ។")
+
+    allowed, seconds_left = check_rate_limit(user_id)
+    if not allowed:
+        return getattr(messages, "AI_COOLDOWN", "សូមរង់ចាំ {seconds} វិនាទីសិន!").format(seconds=seconds_left)
+
+    daily_limit = getattr(config, "AI_DAILY_LIMIT_PER_USER", 50)
+    daily_ok, current_count = database.check_and_increment_daily_usage(user_id, daily_limit, db_path)
+    if not daily_ok:
+        return getattr(messages, "AI_DAILY_LIMIT_REACHED", "អ្នកប្រើអស់កូតាថ្ងៃនេះហើយ ({current_usage}/{max_limit})។").format(
+            current_usage=current_count,
+            max_limit=daily_limit
+        )
+
+    # បម្លែងសំឡេងជា base64 ដើម្បីបញ្ជូនតាម Gemini API
+    audio_b64 = base64.b64encode(audio_bytes).decode("utf-8")
+    system_inst = get_system_instruction(user_name)
+
+    payload = {
+        "system_instruction": {"parts": [{"text": system_inst}]},
+        "contents": [{
+            "role": "user",
+            "parts": [
+                {
+                    "inline_data": {
+                        "mime_type": mime_type,
+                        "data": audio_b64
+                    }
+                },
+                {
+                    "text": "សូមស្តាប់សារសំឡេងនេះ ហើយឆ្លើយតបទៅកាន់សំណួរ ឬការសន្ទនានេះជាភាសាខ្មែរយ៉ាងរាក់ទាក់ និងច្បាស់លាស់។"
+                }
+            ]
+        }],
+        "generationConfig": {"temperature": 0.7, "maxOutputTokens": 1024}
+    }
+
+    headers = {"x-goog-api-key": gemini_key, "Content-Type": "application/json"}
+    http_client = await get_shared_http_client()
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/{DEFAULT_GEMINI_MODEL}:generateContent"
+
+    try:
+        response = await http_client.post(url, json=payload, headers=headers)
+        if response.status_code == 200:
+            data = response.json()
+            reply = data["candidates"][0]["content"]["parts"][0]["text"].strip()
+            
+            database.add_chat_message(user_id, "user", "[Voice Message]", db_path)
+            database.add_chat_message(user_id, "assistant", reply, db_path)
+            return reply
+        return "សុំទោស ខ្ញុំមិនអាចស្តាប់សារសំឡេងនេះបានច្បាស់ទេ។"
+    except Exception as e:
+        logger.error(f"Error processing voice message: {e}")
+        return getattr(messages, "AI_GENERIC_ERROR", "មានបញ្ហាក្នុងការស្តាប់សារសំឡេង។")

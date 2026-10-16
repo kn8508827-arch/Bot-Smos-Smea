@@ -2,3 +2,4 @@ Flask
 requests
 gunicorn
 pyTelegramBotAPI
+httpx

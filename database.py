@@ -144,6 +144,20 @@ def clear_chat_history(user_id: int, db_path: Optional[str] = None) -> None:
         logger.exception(f"Error clearing chat history for user {user_id}: {e}")
 
 
+def get_daily_usage(user_id: int, db_path: Optional[str] = None) -> int:
+    """Read-only: return today's AI usage count for a user (0 on error)."""
+    today = datetime.now().strftime("%Y-%m-%d")
+    try:
+        with get_db(db_path) as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT count FROM ai_usage WHERE user_id = ? AND date = ?", (user_id, today))
+            row = cursor.fetchone()
+            return row[0] if row else 0
+    except Exception as e:
+        logger.debug(f"Could not read daily usage for user {user_id}: {e}")
+        return 0
+
+
 def check_and_increment_daily_usage(user_id: int, max_daily_limit: int, db_path: Optional[str] = None) -> Tuple[bool, int]:
     today = datetime.now().strftime("%Y-%m-%d")
     with get_db(db_path) as conn:

@@ -1,6 +1,6 @@
 """
-ម៉ូឌុល AI Conversational Assistant សម្រាប់ Team ស្មោះស្នេហ៍ (Luxury & Production Grade)
-គាំទ្រ Google Gemini (gemini-2.0-flash / fallback gemini-1.5-flash) ទាំង Text និង Voice
+ម៉ូឌុល AI Conversational Assistant សម្រាប់ Team ស្មោះស្នេហ៍ (Production-safe upgrade)
+គាំទ្រ Google Gemini (gemini-2.0-flash / fallback gemini-1.5-flash)
 """
 import asyncio
 import time
@@ -42,10 +42,10 @@ async def get_shared_http_client() -> httpx.AsyncClient:
 
     if (
         _shared_client is None
-        or _shared_client.is_closed
+        or getattr(_shared_client, "is_closed", False)
         or _shared_client_loop != current_loop
     ):
-        if _shared_client is not None and not _shared_client.is_closed:
+        if _shared_client is not None and not getattr(_shared_client, "is_closed", False):
             try:
                 await _shared_client.aclose()
             except Exception:
@@ -65,7 +65,7 @@ async def get_shared_http_client() -> httpx.AsyncClient:
 async def close_shared_http_client() -> None:
     """បិទ Shared HTTP Client ពេល bot បិទ ឬ reset"""
     global _shared_client, _shared_client_loop
-    if _shared_client is not None and not _shared_client.is_closed:
+    if _shared_client is not None and not getattr(_shared_client, "is_closed", False):
         try:
             await _shared_client.aclose()
         except Exception:
@@ -75,39 +75,53 @@ async def close_shared_http_client() -> None:
 
 
 def get_system_instruction(user_name: Optional[str] = None) -> str:
-    display_name = user_name if user_name else "មិត្តភក្តិដ៏មានតម្លៃ"
+    """Safer bilingual system instruction: prefer Khmer, but respond in English when user writes English.
+    Do not fabricate facts; ask concise clarifying questions when needed.
+    """
+    display_name = user_name if user_name else "មិត្ត"
     return (
-        f"You are Cooler Bot, the elite, highly sophisticated, and official AI Assistant of 'Team ស្មោះស្នេហ៍' (ក្រុម Team ស្មោះស្នេហ៍).\n"
-        f"This prestigious Cambodian community is anchored in solidarity, deep loyalty, mutual prosperity, and aristocratic warmth. "
-        f"You are currently conversing with {display_name}.\n\n"
-        
-        "⚜️ SPECIAL IDENTITY & HONORIFIC PROTOCOL:\n"
-        "- The esteemed founder, visionary, and creator of Team ស្មោះស្នេហ៍ is Chan Taravid Net (ប៉ា).\n"
-        "- IF the user chatting is identified as Chan Taravid Net, or explicitly introduces themselves as Papa (ប៉ា), "
-        "address them with utmost reverence, filial respect, and warmth as 'Papa' (ប៉ា) or 'លោកប៉ា'.\n"
-        "- For all other esteemed members, VIP guests, and visitors, address them with refined elegance, warmth, and respect using their name "
-        "(e.g., 'លោក/អ្នកនាង/បង/មិត្តភក្តិ {display_name}'). NEVER refer to regular users or women as 'Papa' or 'ប៉ា'.\n\n"
-        
-        "👑 ARISTOCRATIC TONE & COMMUNICATION STANDARDS:\n"
-        "1. Identity: When asked who you are, introduce yourself proudly and elegantly as 'Cooler Bot ជំនួយការ AI វៃឆ្លាតផ្លូវការប្រចាំ Team ស្មោះស្នេហ៍'.\n"
-        "2. Language & Elegance: Default to polite, articulate, culturally respectful, and natural Khmer (ភាសាខ្មែរ). "
-        "If addressed in English or another language, reply with impeccable professional fluency in that language.\n"
-        "3. High-Class Hospitality: Maintain an executive, inspiring, polished, and encouraging tone. Reflect high status and prestige without being arrogant.\n"
-        "4. Intellectual Mastery: Deliver top-tier insights on business, technology, creative writing, productivity, culture, science, and life wisdom.\n"
-        "5. Telegram Formatting: Structure replies cleanly for mobile screens using elegant emojis (✨, ⚜️, 👑, 💎), clear paragraphs, bold highlights, and neat bullet points. Avoid cluttered walls of text.\n"
-        "6. Brevity & Depth: Keep everyday answers concise, crisp, and direct. When deep analysis or long answers are sought, deliver comprehensive masterclasses."
+        f"You are a helpful, polite AI assistant for Team ស្មោះស្នេហ៍. You speak natural Khmer by default and reply in English when the user writes in English. "
+        f"Address the user respectfully as {display_name} when appropriate.\n\n"
+        "Do NOT invent facts, names, or claims about real people or system state. If you are unsure, say you don't know and offer to help find out. Ask short clarifying questions when essential information is missing. Keep replies concise and useful."
     )
+
+
+def normalize_text(text: str) -> str:
+    """Conservative text normalization:
+    - Collapse repeated whitespace
+    - Preserve URLs and code-like tokens
+    - Trim surrounding whitespace
+    """
+    if not text:
+        return text
+    text = text.strip()
+
+    # Preserve URLs by temporarily replacing them
+    urls = {}
+    def _url_repl(m):
+        key = f"__URL_{len(urls)}__"
+        urls[key] = m.group(0)
+        return key
+    text = re.sub(r"https?://\S+", _url_repl, text)
+
+    # Collapse whitespace
+    text = re.sub(r"\s+", " ", text)
+
+    # Restore URLs
+    for k, v in urls.items():
+        text = text.replace(k, v)
+    return text
 
 
 def check_rate_limit(user_id: int) -> Tuple[bool, int]:
     now = time.monotonic()
     last_time = _user_last_query_time.get(user_id, 0.0)
     cooldown = getattr(config, "AI_RATE_LIMIT_SECONDS", 3)
-    
+
     if now - last_time < cooldown:
         remaining = int(cooldown - (now - last_time)) + 1
         return False, remaining
-    
+
     _user_last_query_time[user_id] = now
     return True, 0
 
@@ -157,6 +171,42 @@ def clean_markdown_for_telegram(text: str) -> str:
     return text.strip()
 
 
+def build_context(user_id: int, history: List[Dict[str, str]], db_path: Optional[str] = None) -> List[Dict[str, str]]:
+    """Build a bounded context for the model. Uses recent messages and optional summary.
+    Returns a list of messages in the format expected by generate_gemini_response.
+    """
+    # Normalize and limit messages
+    msg_limit = getattr(config, "AI_CONTEXT_MESSAGE_LIMIT", 8)
+    char_limit = getattr(config, "AI_CONTEXT_CHAR_LIMIT", 4000)
+
+    # Optionally include a stored summary (disabled by default)
+    include_summary = getattr(config, "AI_SUMMARY_ENABLED", False)
+    context: List[Dict[str, str]] = []
+
+    if include_summary:
+        try:
+            summary = database.get_conversation_summary(user_id, db_path=db_path)
+            if summary:
+                context.append({"role": "system", "content": f"Conversation summary: {summary}"})
+        except Exception as e:
+            logger.debug(f"Could not load summary for user {user_id}: {e}")
+
+    # Take the most recent messages (history is already chronological)
+    recent = history[-msg_limit:]
+    total_chars = 0
+    for msg in recent:
+        content = normalize_text(msg.get("content", ""))
+        if total_chars + len(content) > char_limit:
+            # truncate conservatively
+            content = content[: max(200, char_limit - total_chars)]
+        total_chars += len(content)
+        role = "user" if msg.get("role") == "user" else "model"
+        context.append({"role": role, "content": content})
+        if total_chars >= char_limit:
+            break
+    return context
+
+
 async def generate_gemini_response(
     api_key: str,
     prompt: str,
@@ -168,18 +218,21 @@ async def generate_gemini_response(
     primary_model = model_name or getattr(config, "AI_MODEL", None) or DEFAULT_GEMINI_MODEL
     current_model = primary_model
 
+    # Build contents using safe context builder
     contents = []
-    trimmed_history = history[-6:]
-    for msg in trimmed_history:
-        role = "user" if msg["role"] == "user" else "model"
-        contents.append({
-            "role": role,
-            "parts": [{"text": msg["content"][:1500]}]
-        })
-    contents.append({
-        "role": "user",
-        "parts": [{"text": prompt}]
-    })
+    try:
+        built = build_context(user_id=0, history=history)  # user_id optional here
+        for m in built:
+            role = "user" if m["role"] == "user" else "model"
+            contents.append({"role": role, "parts": [{"text": m["content"][:1500]}]})
+    except Exception:
+        # fallback: use last few messages raw
+        trimmed_history = history[-6:]
+        for msg in trimmed_history:
+            role = "user" if msg["role"] == "user" else "model"
+            contents.append({"role": role, "parts": [{"text": msg["content"][:1500]}]})
+
+    contents.append({"role": "user", "parts": [{"text": prompt}]})
 
     system_inst = get_system_instruction(user_name)
     payload = {
@@ -199,28 +252,40 @@ async def generate_gemini_response(
 
     http_client = client or await get_shared_http_client()
 
+    last_exc: Optional[Exception] = None
     for attempt in range(GEMINI_MAX_ATTEMPTS):
         await _wait_for_gemini_request_slot()
         url = f"https://generativelanguage.googleapis.com/v1beta/models/{current_model}:generateContent"
         try:
             response = await http_client.post(url, json=payload, headers=headers)
-        except httpx.TransportError:
+        except httpx.TransportError as te:
+            last_exc = te
             if attempt >= GEMINI_MAX_ATTEMPTS - 1:
                 raise
             delay = _backoff_delay(attempt)
             await asyncio.sleep(delay)
             continue
+        except Exception as e:
+            last_exc = e
+            if attempt >= GEMINI_MAX_ATTEMPTS - 1:
+                raise
+            await asyncio.sleep(_backoff_delay(attempt))
+            continue
 
         if response.status_code == 200:
-            data = response.json()
-            candidates = data.get("candidates", [])
-            if candidates:
-                parts = candidates[0].get("content", {}).get("parts", [])
-                if parts:
-                    raw_text = parts[0].get("text", "").strip()
-                    return clean_markdown_for_telegram(raw_text)
-            return "សុំទោស ខ្ញុំមិនអាចបង្កើតចម្លើយបានទេ។"
+            try:
+                data = response.json()
+                candidates = data.get("candidates", [])
+                if candidates:
+                    parts = candidates[0].get("content", {}).get("parts", [])
+                    if parts:
+                        raw_text = parts[0].get("text", "").strip()
+                        return clean_markdown_for_telegram(raw_text)
+                return messages.AI_GENERIC_ERROR
+            except Exception:
+                return messages.AI_GENERIC_ERROR
 
+        # switch to fallback model for server errors
         if response.status_code in (404, 500, 502, 503, 504) and current_model != FALLBACK_GEMINI_MODEL:
             logger.warning(f"Gemini {current_model} error {response.status_code}. Switching to {FALLBACK_GEMINI_MODEL}...")
             current_model = FALLBACK_GEMINI_MODEL
@@ -237,12 +302,19 @@ async def generate_gemini_response(
         elif response.status_code in (401, 403):
             raise PermissionError("Invalid Key")
         else:
-            response.raise_for_status()
-            return "មានបញ្ហាមិនប្រក្រតីក្នុងការទាញយកចម្លើយ។"
+            try:
+                response.raise_for_status()
+            except Exception as e:
+                logger.debug(f"Gemini unexpected response: {getattr(response, 'text', '')}")
+                raise
+
+    if last_exc:
+        raise last_exc
+    return messages.AI_GENERIC_ERROR
 
 
 async def ask_ai(user_id: int, user_message: str, user_name: Optional[str] = None, db_path: Optional[str] = None) -> str:
-    cleaned_prompt = user_message.strip()
+    cleaned_prompt = normalize_text(user_message or "")
     if not cleaned_prompt:
         return "សូមវាយសំណួរ ឬប្រធានបទដែលអ្នកចង់ឱ្យខ្ញុំជួយ!"
 
@@ -267,14 +339,21 @@ async def ask_ai(user_id: int, user_message: str, user_name: Optional[str] = Non
         )
 
     if not user_name:
-        with database.get_db(db_path) as conn:
-            cursor = conn.cursor()
-            cursor.execute("SELECT first_name FROM users WHERE user_id = ?", (user_id,))
-            row = cursor.fetchone()
-            if row and row["first_name"]:
-                user_name = row["first_name"]
+        try:
+            with database.get_db(db_path) as conn:
+                cursor = conn.cursor()
+                cursor.execute("SELECT first_name FROM users WHERE user_id = ?", (user_id,))
+                row = cursor.fetchone()
+                if row and row["first_name"]:
+                    user_name = row["first_name"]
+        except Exception:
+            user_name = user_name
 
-    history = database.get_chat_history(user_id=user_id, limit=6, db_path=db_path)
+    history = []
+    try:
+        history = database.get_chat_history(user_id=user_id, limit=getattr(config, "AI_CONTEXT_MESSAGE_LIMIT", 6), db_path=db_path)
+    except Exception:
+        history = []
 
     try:
         ai_reply = await generate_gemini_response(
@@ -284,16 +363,22 @@ async def ask_ai(user_id: int, user_message: str, user_name: Optional[str] = Non
             user_name=user_name
         )
 
-        database.add_chat_message(user_id=user_id, role="user", content=cleaned_prompt, db_path=db_path)
-        database.add_chat_message(user_id=user_id, role="assistant", content=ai_reply, db_path=db_path)
+        try:
+            database.add_chat_message(user_id=user_id, role="user", content=cleaned_prompt, db_path=db_path)
+            database.add_chat_message(user_id=user_id, role="assistant", content=ai_reply, db_path=db_path)
+        except Exception:
+            logger.debug("Could not write chat messages to DB; continuing without persisting")
 
         return ai_reply
 
     except httpx.TimeoutException:
         return getattr(messages, "AI_TIMEOUT_ERROR", "ប្រព័ន្ធឆ្លើយតបយឺតពេក (Timeout)។")
     except httpx.HTTPStatusError as e:
-        if e.response.status_code == 429:
-            return getattr(messages, "AI_RATE_LIMIT_ERROR", "សំណើច្រើនពេក សូមរង់ចាំមួយភ្លែត។")
+        try:
+            if e.response.status_code == 429:
+                return getattr(messages, "AI_RATE_LIMIT_ERROR", "សំណើច្រើនពេក សូមរង់ចាំមួយភ្លែត។")
+        except Exception:
+            pass
         return getattr(messages, "AI_GENERIC_ERROR", "មានបញ្ហាបច្ចេកទេស។")
     except PermissionError:
         return getattr(messages, "AI_AUTH_ERROR", "API Key មិនត្រឹមត្រូវ។")
@@ -335,7 +420,7 @@ async def ask_ai_with_audio(user_id: int, audio_bytes: bytes, mime_type: str = "
                     }
                 },
                 {
-                    "text": "សូមស្តាប់សារសំឡេងនេះ ហើយឆ្លើយតបទៅកាន់សំណួរ ឬការសន្ទនានេះជាភាសាខ្មែរយ៉ាងរាក់ទាក់ សុជីវធម៌ និងច្បាស់លាស់។"
+                    "text": "សូមស្តាប់សារសំឡេងនេះ ហើយឆ្លើយតបទៅកាន់សំណួរ ឬការសន្ទនា" 
                 }
             ]
         }],
@@ -355,13 +440,16 @@ async def ask_ai_with_audio(user_id: int, audio_bytes: bytes, mime_type: str = "
                 parts = candidates[0].get("content", {}).get("parts", [])
                 if parts:
                     reply = clean_markdown_for_telegram(parts[0].get("text", "").strip())
-                    database.add_chat_message(user_id, "user", "[Voice Message]", db_path)
-                    database.add_chat_message(user_id, "assistant", reply, db_path)
+                    try:
+                        database.add_chat_message(user_id, "user", "[Voice Message]", db_path)
+                        database.add_chat_message(user_id, "assistant", reply, db_path)
+                    except Exception:
+                        logger.debug("Could not persist voice message to DB")
                     return reply
-            return "សុំទោស ខ្ញុំមិនអាចបង្កើតចម្លើយពីសំឡេងនេះបានទេ។"
-        
+            return messages.AI_GENERIC_ERROR
+
         logger.warning(f"Audio processing status code: {response.status_code}")
-        return "សុំទោស ខ្ញុំមិនអាចស្តាប់សារសំឡេងនេះបានច្បាស់ទេ។"
+        return messages.AI_GENERIC_ERROR
     except Exception as e:
         logger.error(f"Error processing voice message: {e}")
         return getattr(messages, "AI_GENERIC_ERROR", "មានបញ្ហាក្នុងការស្តាប់សារសំឡេង។")

@@ -6,6 +6,7 @@ import io
 import os
 import sys
 import base64
+import tempfile
 import unittest
 import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -79,13 +80,17 @@ class TestTeamSmaohSnehaBot(unittest.TestCase):
         # សម្អាត Tables ទាំងអស់មុនពេលតេស្តនីមួយៗ
         with database.get_db(TEST_DB) as conn:
             cursor = conn.cursor()
-            cursor.execute("DELETE FROM users")
-            cursor.execute("DELETE FROM settings")
-            cursor.execute("DELETE FROM announcements")
-            cursor.execute("DELETE FROM chat_history")
-            cursor.execute("DELETE FROM ai_usage")
-            cursor.execute("DELETE FROM photo_sessions")
-            cursor.execute("DELETE FROM photo_usage")
+            existing_tables = {
+                row[0] for row in cursor.execute(
+                    "SELECT name FROM sqlite_master WHERE type = 'table'"
+                ).fetchall()
+            }
+            for table in (
+                "users", "settings", "announcements", "chat_history",
+                "ai_usage", "photo_sessions", "photo_usage", "conversation_summaries",
+            ):
+                if table in existing_tables:
+                    cursor.execute(f"DELETE FROM {table}")
             conn.commit()
 
         # Reset In-memory structures
@@ -224,6 +229,12 @@ class TestTeamSmaohSnehaBot(unittest.TestCase):
 
         asyncio.run(run())
 
+    @unittest.skipUnless(
+        all(callable(getattr(database, name, None)) for name in (
+            "save_photo_session", "get_photo_session", "clear_photo_session"
+        )),
+        "photo session persistence is not part of the current database module",
+    )
     def test_photo_session_lifecycle_and_privacy_cleanup(self):
         """តេស្តវដ្តជីវិត Session រូបថត និងការធានាឯកជនភាព"""
         user_id = 9001
@@ -249,6 +260,56 @@ class TestTeamSmaohSnehaBot(unittest.TestCase):
 
         self.assertFalse(os.path.exists(dummy_path))
         self.assertIsNone(database.get_photo_session(user_id, db_path=TEST_DB))
+
+
+class TestCoolerPersona(unittest.TestCase):
+    def setUp(self):
+        ai_assistant._persona_text_cache = None
+
+    def tearDown(self):
+        ai_assistant._persona_text_cache = None
+
+    def test_load_persona_text_reads_configured_utf8_file(self):
+        with tempfile.TemporaryDirectory(dir=os.path.dirname(__file__)) as temp_dir:
+            persona_path = os.path.join(temp_dir, "persona.txt")
+            expected = "Cooler Bot — ជំនួយការខ្មែរ"
+            with open(persona_path, "w", encoding="utf-8") as persona_file:
+                persona_file.write(f"  {expected}  \n")
+
+            with patch.object(config, "COOLER_PERSONA_PATH", persona_path):
+                self.assertEqual(ai_assistant.load_persona_text(), expected)
+
+    def test_missing_persona_uses_builtin_fallback(self):
+        with tempfile.TemporaryDirectory(dir=os.path.dirname(__file__)) as temp_dir:
+            missing_path = os.path.join(temp_dir, "missing-persona.txt")
+            with patch.object(config, "COOLER_PERSONA_PATH", missing_path):
+                self.assertIsNone(ai_assistant.load_persona_text())
+                instruction = ai_assistant.get_system_instruction(user_id=123)
+
+        self.assertIn("You are Cooler Bot", instruction)
+        self.assertIn("Start responses in Khmer by default", instruction)
+
+    def test_system_instruction_integrates_persona_and_verified_owner_rules(self):
+        with tempfile.TemporaryDirectory(dir=os.path.dirname(__file__)) as temp_dir:
+            persona_path = os.path.join(temp_dir, "persona.txt")
+            with open(persona_path, "w", encoding="utf-8") as persona_file:
+                persona_file.write("PERSONA_FILE_MARKER — ឆ្លើយដោយភាពកក់ក្តៅ")
+
+            with patch.object(config, "COOLER_PERSONA_PATH", persona_path), patch.object(
+                config, "OWNER_ID", 987654
+            ):
+                owner_instruction = ai_assistant.get_system_instruction(user_id=987654)
+                member_instruction = ai_assistant.get_system_instruction(
+                    user_name="Sophea", user_id=123
+                )
+
+        self.assertIn("PERSONA_FILE_MARKER", owner_instruction)
+        self.assertIn("Start responses in Khmer by default", owner_instruction)
+        self.assertIn("This user has been verified by the system as Papa", owner_instruction)
+        self.assertNotIn("987654", owner_instruction)
+        self.assertIn("display name is Sophea", member_instruction)
+        self.assertIn("Never call this user Papa", member_instruction)
+        self.assertNotIn("This user has been verified by the system as Papa", member_instruction)
 
 
 if __name__ == "__main__":

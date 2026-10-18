@@ -17,6 +17,9 @@ AI_RATE_LIMIT_SECONDS = int(os.getenv("AI_RATE_LIMIT_SECONDS", "3"))
 AI_GLOBAL_RATE_LIMIT_SECONDS = float(os.getenv("AI_GLOBAL_RATE_LIMIT_SECONDS", "0.5"))
 AI_DAILY_LIMIT_PER_USER = int(os.getenv("AI_DAILY_LIMIT_PER_USER", "50"))
 
+# Optional system-prompt persona file. Relative paths resolve from the project directory.
+COOLER_PERSONA_PATH = os.getenv("COOLER_PERSONA_PATH", "persona/cooler_bot_2050.txt")
+
 
 
 def _int_env(name: str, default: int) -> int:

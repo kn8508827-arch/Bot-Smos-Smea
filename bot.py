@@ -335,7 +335,7 @@ def dailycare_admin_command(message):
     storage_ready = scheduler.is_persistent_storage_ready()
     status_text = "បើក" if enabled else "បិទ"
     text = (
-        "🛠️ **Daily Care Admin**\n"
+        "🛠️ Daily Care Admin\n"
         f"ស្ថានភាពសកល៖ {status_text}\n"
         f"សមាជិកបានជ្រើសរើសទទួល៖ {eligible_count}\n"
         f"ម៉ោងកម្ពុជា៖\n{messages.DAILYCARE_SCHEDULE_TEXT}\n"
@@ -344,7 +344,7 @@ def dailycare_admin_command(message):
     )
     if not storage_ready:
         text += f"\n\n{messages.DAILYCARE_STORAGE_REQUIRED}"
-    bot.reply_to(message, text, parse_mode="Markdown", reply_markup=_dailycare_admin_keyboard())
+    bot.reply_to(message, text, reply_markup=_dailycare_admin_keyboard())
 
 
 # =========================================================

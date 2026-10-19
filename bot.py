@@ -8,6 +8,7 @@ import time
 import asyncio
 import logging
 import threading
+from functools import wraps
 import telebot
 from telebot.types import (
     InlineKeyboardMarkup, 
@@ -20,6 +21,7 @@ import config
 import database
 import messages
 import ai_assistant
+import scheduler
 
 logging.basicConfig(
     level=logging.INFO, 
@@ -37,6 +39,84 @@ if not TOKEN:
 bot = telebot.TeleBot(TOKEN, threaded=True)
 
 
+def register_interaction(from_user, chat) -> bool:
+    """Record only real Telegram updates; private chat type gates DM eligibility."""
+    if from_user is None or chat is None or getattr(from_user, "id", None) is None:
+        return False
+    try:
+        database.register_or_update_user(
+            user_id=from_user.id,
+            chat_id=chat.id,
+            username=getattr(from_user, "username", None),
+            first_name=getattr(from_user, "first_name", None),
+            last_name=getattr(from_user, "last_name", None),
+            chat_type=getattr(chat, "type", "unknown"),
+        )
+        return True
+    except Exception as exc:
+        logger.warning("Could not register Telegram interaction (%s)", type(exc).__name__)
+        return False
+
+
+def registered_message_handler(*handler_args, **handler_kwargs):
+    """Wrap every message handler so real users are recorded before dispatch."""
+    def decorate(handler):
+        @wraps(handler)
+        def wrapped(message, *args, **kwargs):
+            register_interaction(
+                getattr(message, "from_user", None),
+                getattr(message, "chat", None),
+            )
+            return handler(message, *args, **kwargs)
+
+        return bot.message_handler(*handler_args, **handler_kwargs)(wrapped)
+
+    return decorate
+
+
+def registered_callback_handler(*handler_args, **handler_kwargs):
+    """Wrap callback handlers so callback users are recorded as real interactions."""
+    def decorate(handler):
+        @wraps(handler)
+        def wrapped(call, *args, **kwargs):
+            message = getattr(call, "message", None)
+            register_interaction(
+                getattr(call, "from_user", None),
+                getattr(message, "chat", None),
+            )
+            return handler(call, *args, **kwargs)
+
+        return bot.callback_query_handler(*handler_args, **handler_kwargs)(wrapped)
+
+    return decorate
+
+
+def _is_dailycare_admin(user_id: int) -> bool:
+    return user_id in getattr(config, "ADMIN_IDS", [])
+
+
+def _notifications_keyboard():
+    markup = InlineKeyboardMarkup()
+    markup.row_width = 1
+    markup.add(
+        InlineKeyboardButton("🔔 បើកការជូនដំណឹង", callback_data="notifications:enable"),
+        InlineKeyboardButton("🔕 បិទការជូនដំណឹង", callback_data="notifications:disable"),
+        InlineKeyboardButton("🕒 មើលម៉ោងផ្ញើ", callback_data="notifications:schedule"),
+    )
+    return markup
+
+
+def _dailycare_admin_keyboard():
+    markup = InlineKeyboardMarkup()
+    markup.row_width = 1
+    markup.add(
+        InlineKeyboardButton("✅ បើក Daily Care", callback_data="dailycare:enable"),
+        InlineKeyboardButton("⏸️ បិទ Daily Care", callback_data="dailycare:disable"),
+        InlineKeyboardButton("🧪 ផ្ញើសារសាកល្បងមកខ្ញុំ", callback_data="dailycare:test"),
+    )
+    return markup
+
+
 def setup_bot_commands():
     """ចុះឈ្មោះ Menu Button ជាប់ប្រអប់ Chat លើ Telegram UI"""
     try:
@@ -49,6 +129,8 @@ def setup_bot_commands():
             BotCommand("register", "🚀 បើកទម្រង់ចុះឈ្មោះ (Web App)"),
             BotCommand("help", "📖 សៀវភៅណែនាំរបៀបប្រើប្រាស់"),
             BotCommand("reset", "🧹 សម្អាតប្រវត្តិសន្ទនាជាមួយ AI"),
+            BotCommand("notifications", "🔔 កំណត់ការជូនដំណឹង Daily Care"),
+            BotCommand("dailycare", "🛠️ គ្រប់គ្រង Daily Care (Admin)"),
         ]
         bot.set_my_commands(commands)
         logger.info("Bot commands menu registered successfully.")
@@ -70,19 +152,8 @@ def keep_typing(chat_id: int, stop_event: threading.Event):
 # Commands Handlers
 # =========================================================
 
-@bot.message_handler(commands=['start'])
+@registered_message_handler(commands=['start'])
 def send_welcome(message):
-    try:
-        database.register_or_update_user(
-            user_id=message.from_user.id,
-            chat_id=message.chat.id,
-            username=message.from_user.username,
-            first_name=message.from_user.first_name,
-            last_name=message.from_user.last_name
-        )
-    except Exception as e:
-        logger.error(f"Error registering user on /start: {e}")
-
     markup = InlineKeyboardMarkup()
     markup.row_width = 2
     markup.add(
@@ -98,17 +169,17 @@ def send_welcome(message):
     bot.reply_to(message, welcome_text, reply_markup=markup)
 
 
-@bot.message_handler(commands=['menu'])
+@registered_message_handler(commands=['menu'])
 def send_menu(message):
     bot.reply_to(message, "សូមជ្រើសរើសជម្រើសខាងក្រោម៖\n1. សេវាកម្មរបស់យើង\n2. ទំនាក់ទំនងមកយើងខ្ញុំ\n3. សួរសំណួរ AI ដោយផ្ទាល់")
 
 
-@bot.message_handler(commands=['about'])
+@registered_message_handler(commands=['about'])
 def send_about(message):
     bot.reply_to(message, "នេះគឺជា Bot-Smos-Snea 🤖 ដែលបង្កើតឡើងដើម្បីជួយសម្រួលការងារ និងទំនាក់ទំនងរបស់អ្នក។")
 
 
-@bot.message_handler(commands=['team'])
+@registered_message_handler(commands=['team'])
 def send_team(message):
     try:
         bot.reply_to(message, messages.TEAM_MESSAGE, parse_mode="Markdown")
@@ -116,7 +187,7 @@ def send_team(message):
         bot.reply_to(message, messages.TEAM_MESSAGE)
 
 
-@bot.message_handler(commands=['events'])
+@registered_message_handler(commands=['events'])
 def send_events(message):
     try:
         bot.reply_to(message, messages.EVENTS_MESSAGE, parse_mode="Markdown")
@@ -124,7 +195,7 @@ def send_events(message):
         bot.reply_to(message, messages.EVENTS_MESSAGE)
 
 
-@bot.message_handler(commands=['help'])
+@registered_message_handler(commands=['help'])
 def send_help(message):
     help_text = (
         "📖 **បញ្ជីពាក្យបញ្ជាដែលមាន៖**\n\n"
@@ -135,6 +206,7 @@ def send_help(message):
         "• /events - កាលវិភាគព្រឹត្តិការណ៍\n"
         "• /register - ចុះឈ្មោះ (Mini Web App)\n"
         "• /reset - សម្អាតប្រវត្តិសន្ទនាជាមួយ AI\n\n"
+        "• /notifications - បើក ឬបិទសារ Daily Care\n\n"
         "💡 *អ្នកអាចវាយសំណួរ ឬផ្ញើសារជាសំឡេង (Voice Note) មកជជែកជាមួយ AI បានគ្រប់ពេល!*"
     )
     try:
@@ -143,7 +215,7 @@ def send_help(message):
         bot.reply_to(message, help_text)
 
 
-@bot.message_handler(commands=['register'])
+@registered_message_handler(commands=['register'])
 def send_register(message):
     markup = InlineKeyboardMarkup()
     web_app = WebAppInfo(url="https://team-smos-snea.lovable.app")
@@ -151,7 +223,7 @@ def send_register(message):
     bot.reply_to(message, "សូមចុចប៊ូតុងខាងក្រោមដើម្បីបើកមើលទម្រង់ចុះឈ្មោះក្នុង Mini App:", reply_markup=markup)
 
 
-@bot.message_handler(commands=['reset'])
+@registered_message_handler(commands=['reset'])
 def send_reset(message):
     try:
         database.clear_chat_history(message.from_user.id)
@@ -165,24 +237,121 @@ def send_reset(message):
 # Callback Queries Handlers
 # =========================================================
 
-@bot.callback_query_handler(func=lambda call: True)
+@registered_callback_handler(func=lambda call: True)
 def callback_query(call):
     try:
-        if call.data == "menu":
+        data = call.data or ""
+        message = getattr(call, "message", None)
+        chat = getattr(message, "chat", None)
+        user_id = getattr(getattr(call, "from_user", None), "id", None)
+
+        if data.startswith("notifications:"):
+            if chat is None or getattr(chat, "type", None) != "private":
+                bot.answer_callback_query(call.id, messages.NOTIFICATIONS_PRIVATE_ONLY, show_alert=True)
+                return
+            if data == "notifications:enable":
+                database.set_notification_enabled(user_id, True)
+                bot.answer_callback_query(call.id, "បានបើកការជូនដំណឹងរួចហើយ។")
+                bot.send_message(chat.id, messages.NOTIFICATIONS_ENABLED_TEXT)
+            elif data == "notifications:disable":
+                database.set_notification_enabled(user_id, False)
+                bot.answer_callback_query(call.id, "បានបិទការជូនដំណឹងរួចហើយ។")
+                bot.send_message(chat.id, messages.NOTIFICATIONS_DISABLED_TEXT)
+            elif data == "notifications:schedule":
+                bot.answer_callback_query(call.id, messages.DAILYCARE_SCHEDULE_TEXT, show_alert=True)
+            return
+
+        if data.startswith("dailycare:"):
+            if not _is_dailycare_admin(user_id):
+                bot.answer_callback_query(call.id, messages.DAILYCARE_ADMIN_ONLY, show_alert=True)
+                return
+            if chat is None or getattr(chat, "type", None) != "private":
+                bot.answer_callback_query(call.id, messages.DAILYCARE_PRIVATE_ONLY, show_alert=True)
+                return
+            if data == "dailycare:enable":
+                if not scheduler.is_persistent_storage_ready():
+                    bot.answer_callback_query(call.id, messages.DAILYCARE_STORAGE_REQUIRED, show_alert=True)
+                    return
+                database.set_dailycare_enabled(True)
+                bot.answer_callback_query(call.id, "បានបើក Daily Care។")
+                bot.send_message(chat.id, messages.DAILYCARE_ENABLED_TEXT)
+            elif data == "dailycare:disable":
+                database.set_dailycare_enabled(False)
+                bot.answer_callback_query(call.id, "បានបិទ Daily Care។")
+                bot.send_message(chat.id, messages.DAILYCARE_DISABLED_TEXT)
+            elif data == "dailycare:test":
+                try:
+                    test_text = scheduler.generate_care_message("good_morning")
+                    bot.send_message(chat.id, test_text)
+                    bot.answer_callback_query(call.id, messages.DAILYCARE_TEST_SENT_TEXT)
+                except Exception as exc:
+                    logger.warning("Daily-care test send failed (%s)", type(exc).__name__)
+                    bot.answer_callback_query(call.id, messages.DAILYCARE_TEST_FAILED_TEXT, show_alert=True)
+            return
+
+        if data == "menu":
             bot.answer_callback_query(call.id, "កំពុងបើកមឺនុយ...")
-            bot.send_message(call.message.chat.id, "នេះជាបញ្ជីមឺនុយរបស់អ្នក! អ្នកអាចសាកល្បងចុច /team, /events ឬសួរ AI ដោយសេរី។")
-        elif call.data == "about":
+            bot.send_message(chat.id, "នេះជាបញ្ជីមឺនុយរបស់អ្នក! អ្នកអាចសាកល្បងចុច /team, /events ឬសួរ AI ដោយសេរី។")
+        elif data == "about":
             bot.answer_callback_query(call.id, "ព័ត៌មាន Bot")
-            bot.send_message(call.message.chat.id, "Bot-Smos-Snea ត្រូវបានបង្កើតឡើងយ៉ាងពិសេសសម្រាប់អ្នក!")
+            bot.send_message(chat.id, "Bot-Smos-Snea ត្រូវបានបង្កើតឡើងយ៉ាងពិសេសសម្រាប់អ្នក!")
     except Exception as e:
-        logger.error(f"Error handling callback {call.data}: {e}")
+        logger.error("Error handling callback (%s)", type(e).__name__)
+
+
+@registered_message_handler(commands=['notifications'])
+def notifications_command(message):
+    if getattr(message.chat, "type", None) != "private":
+        bot.reply_to(message, messages.NOTIFICATIONS_PRIVATE_ONLY)
+        return
+
+    enabled = database.get_notification_enabled(message.from_user.id)
+    state_text = messages.NOTIFICATIONS_ENABLED_TEXT if enabled else messages.NOTIFICATIONS_DISABLED_BY_DEFAULT
+    bot.reply_to(
+        message,
+        f"{state_text}\n\n{messages.DAILYCARE_SCHEDULE_TEXT}",
+        reply_markup=_notifications_keyboard(),
+    )
+
+
+@registered_message_handler(commands=['dailycare'])
+def dailycare_admin_command(message):
+    user_id = getattr(getattr(message, "from_user", None), "id", None)
+    if not _is_dailycare_admin(user_id):
+        bot.reply_to(message, messages.DAILYCARE_ADMIN_ONLY)
+        return
+    if getattr(message.chat, "type", None) != "private":
+        bot.reply_to(message, messages.DAILYCARE_PRIVATE_ONLY)
+        return
+
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+
+    local_date = datetime.now(ZoneInfo("Asia/Phnom_Penh")).date().isoformat()
+    enabled = database.get_dailycare_enabled()
+    eligible_count = len(database.get_eligible_notification_recipients())
+    stats = database.get_notification_delivery_stats(local_date)
+    last_run = database.get_last_notification_delivery_at() or "មិនទាន់មាន"
+    storage_ready = scheduler.is_persistent_storage_ready()
+    status_text = "បើក" if enabled else "បិទ"
+    text = (
+        "🛠️ **Daily Care Admin**\n"
+        f"ស្ថានភាពសកល៖ {status_text}\n"
+        f"សមាជិកបានជ្រើសរើសទទួល៖ {eligible_count}\n"
+        f"ម៉ោងកម្ពុជា៖\n{messages.DAILYCARE_SCHEDULE_TEXT}\n"
+        f"កំណត់ត្រាចុងក្រោយ៖ {last_run}\n"
+        f"ថ្ងៃនេះ៖ ផ្ញើបាន {stats.get('sent', 0)} · បរាជ័យ {stats.get('failed', 0)} · បិទ/រកមិនឃើញ {stats.get('blocked', 0)}"
+    )
+    if not storage_ready:
+        text += f"\n\n{messages.DAILYCARE_STORAGE_REQUIRED}"
+    bot.reply_to(message, text, parse_mode="Markdown", reply_markup=_dailycare_admin_keyboard())
 
 
 # =========================================================
 # Voice Note Handler (AI ស្តាប់សំឡេង Voice)
 # =========================================================
 
-@bot.message_handler(content_types=['voice'])
+@registered_message_handler(content_types=['voice'])
 def handle_voice(message):
     user_id = message.from_user.id
     user_name = message.from_user.first_name
@@ -224,7 +393,7 @@ def handle_voice(message):
 # Text Message Handler (AI ឆ្លើយតបអត្ថបទ)
 # =========================================================
 
-@bot.message_handler(func=lambda message: True)
+@registered_message_handler(func=lambda message: True)
 def echo_all(message):
     user_id = message.from_user.id
     user_text = message.text
@@ -263,9 +432,12 @@ def echo_all(message):
 if __name__ == '__main__':
     logger.info("Initializing database...")
     database.init_db()
+    database.initialize_dailycare_enabled(config.DAILYCARE_ENABLED)
 
     logger.info("Configuring Bot Commands Menu...")
     setup_bot_commands()
+
+    dailycare_scheduler = scheduler.start_scheduler(bot)
 
     logger.info("Bot is starting polling 24/7...")
     try:
@@ -273,5 +445,6 @@ if __name__ == '__main__':
     except (KeyboardInterrupt, SystemExit):
         logger.info("Bot process interrupted. Shutting down gracefully...")
     finally:
+        scheduler.shutdown_scheduler(dailycare_scheduler)
         asyncio.run(ai_assistant.close_shared_http_client())
         logger.info("Cleaned up network connections.")

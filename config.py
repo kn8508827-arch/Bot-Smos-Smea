@@ -31,10 +31,30 @@ def _int_env(name: str, default: int) -> int:
         return default
 
 
+def _float_env(name: str, default: float) -> float:
+    """Parse a floating-point environment variable safely."""
+    raw = os.getenv(name, "").strip()
+    try:
+        return float(raw) if raw else default
+    except ValueError:
+        return default
+
+
 # Conversation context settings
 AI_SUMMARY_ENABLED = os.getenv("AI_SUMMARY_ENABLED", "False").lower() in ("true", "1", "yes")
 AI_CONTEXT_MESSAGE_LIMIT = _int_env("AI_CONTEXT_MESSAGE_LIMIT", 8)
 AI_CONTEXT_CHAR_LIMIT = _int_env("AI_CONTEXT_CHAR_LIMIT", 4000)
+
+# Persistent bot data. On Railway, point this inside the mounted volume.
+BOT_DB_PATH = os.getenv("BOT_DB_PATH", "bot_database.db")
+
+# Daily care notification pacing and bounded retry controls.
+DAILYCARE_RATE_LIMIT_SECONDS = max(0.0, _float_env("DAILYCARE_RATE_LIMIT_SECONDS", 1.0))
+DAILYCARE_MAX_SEND_ATTEMPTS = max(1, _int_env("DAILYCARE_MAX_SEND_ATTEMPTS", 3))
+DAILYCARE_RETRY_MAX_WAIT_SECONDS = max(0.0, _float_env("DAILYCARE_RETRY_MAX_WAIT_SECONDS", 30.0))
+DAILYCARE_BATCH_SIZE = max(1, min(_int_env("DAILYCARE_BATCH_SIZE", 50), 1000))
+DAILYCARE_LOCK_TTL_SECONDS = max(15, _int_env("DAILYCARE_LOCK_TTL_SECONDS", 90))
+DAILYCARE_ENABLED = os.getenv("DAILYCARE_ENABLED", "False").lower() in ("true", "1", "yes")
 
 # Owner (Papa) identity. Never log this value. If 0, owner features are disabled.
 OWNER_ID_RAW = os.getenv("OWNER_ID", "").strip()

@@ -35,8 +35,37 @@ Persona លំនាំដើមស្ថិតនៅ `persona/cooler_bot_2050.t
 | `AI_CONTEXT_CHAR_LIMIT` | `4000` | កម្រិតតួអក្សរសម្រាប់បរិបទសន្ទនា។ |
 | `AI_SUMMARY_ENABLED` | `False` | បើ `true`, `1`, ឬ `yes` នឹងបញ្ចូលសេចក្តីសង្ខេបសន្ទនាពី database ក្នុងបរិបទ។ |
 | `OWNER_ID` | គ្មាន | Telegram numeric user ID សម្រាប់ការបញ្ជាក់អត្តសញ្ញាណម្ចាស់ក្នុង system instruction។ មិនដាក់លេខនេះក្នុង prompt ឬ log ទេ។ |
+| `BOT_DB_PATH` | `bot_database.db` | ទីតាំង SQLite database; លើ Railway ត្រូវកំណត់ឱ្យនៅក្នុង mounted volume។ |
+| `DAILYCARE_ENABLED` | `False` | តម្លៃដំបូងសម្រាប់ការបើកសារសកល; admin អាចប្តូរបានតាម `/dailycare` ហើយតម្លៃនឹងរក្សាទុកក្នុង database។ |
+| `DAILYCARE_RATE_LIMIT_SECONDS` | `1` | ចន្លោះពេលរវាងការផ្ញើ DM ទៅសមាជិកនីមួយៗ។ |
+| `DAILYCARE_MAX_SEND_ATTEMPTS` | `3` | ចំនួនសាកល្បងអតិបរមាសម្រាប់ Telegram rate-limit response ដែលមាន `retry_after`។ |
+| `DAILYCARE_RETRY_MAX_WAIT_SECONDS` | `30` | មិនរង់ចាំ retry បើ Telegram ស្នើឱ្យរង់ចាំលើសចំនួនវិនាទីនេះ។ |
+| `DAILYCARE_BATCH_SIZE` | `50` | ចំនួនអ្នកទទួលអតិបរមាក្នុងការទាញមួយ batch; កម្មវិធីបន្តទាញតាម user ID រហូតដល់អស់អ្នកទទួល។ |
+| `DAILYCARE_LOCK_TTL_SECONDS` | `90` | រយៈពេល lease របស់ scheduler ក្នុង SQLite; bot បន្ត lease ដោយ heartbeat។ |
 
 ឈ្មោះ `AI_PROVIDER`, `OPENAI_API_KEY`, `ADMIN_IDS`, និង `DRY_RUN_MODE` ក៏ត្រូវបានអានក្នុង `config.py` ប៉ុន្តែមិនត្រូវបានប្រើដោយ code path បច្ចុប្បន្នទេ។ ការកំណត់ `AI_PROVIDER` មិនប្តូរ Gemini ទៅ provider ផ្សេងឡើយ។
+
+## Daily Care notifications
+
+- សមាជិកត្រូវជជែកជាមួយ Bot ជាមុនសិន។ ការជជែកមិនមែនជាការយល់ព្រមទទួលសារទេ; ស្ថានភាពដំបូងគឺ **បិទ** ហើយសមាជិកអាចប្រើ `/notifications` ដើម្បីបើក ឬបិទបានគ្រប់ពេល។
+- Bot ចុះឈ្មោះអ្នកប្រើពីសារ និង callback ដែលវាទទួលបានពិតប្រាកដ។ ការប្រើ group មិនជំនួស private DM route ដែលអ្នកប្រើបានបង្កើតជាមួយ Bot ទេ។
+- សារប្រចាំថ្ងៃមានម៉ោង 07:00, 12:00, 17:30, 19:00, 21:00 និង 22:00 តាម `Asia/Phnom_Penh`។ Gemini បង្កើតសារខ្លីមួយក្នុងមួយម៉ោងផ្ញើ ហើយប្រើសារខ្មែរបម្រុងប្រសិនបើ AI មិនអាចប្រើបាន។
+- Admin ដែលមានក្នុង `ADMIN_IDS` អាចប្រើ `/dailycare` ដើម្បីមើលស្ថានភាព បើក/បិទការផ្ញើទាំងមូល និងផ្ញើសាកល្បងមកខ្លួនឯង។ ការផ្ញើសកលចាប់ផ្តើមបិទ ហើយការបើកមិនបើកការជូនដំណឹងឱ្យសមាជិកជំនួសពួកគេទេ។
+- Bot ផ្ញើ DM តែទៅសមាជិកដែលបានជជែកក្នុង private chat និងបានជ្រើសរើសទទួល។ ការចុចប៊ូតុងក្នុង group មិនធ្វើឱ្យ group chat ក្លាយជាគោលដៅ DM ទេ។
+- Scheduler ប្រើ lease ក្នុង SQLite ដើម្បីកុំឱ្យ process ពីរដែលប្រើ database ដូចគ្នាចាប់ផ្តើមកាលវិភាគស្របពេលគ្នា; delivery key តែមួយក្នុងមួយអ្នកប្រើ/ថ្ងៃ/slot រារាំងការផ្ញើស្ទួន។
+
+### Railway storage prerequisite
+
+Railway production service `Bot-Smos-Smea` កំពុងកំណត់ **1 replica**។ មិនឃើញមាន Volume ភ្ជាប់ក្នុង service settings ទេ។ ដូច្នេះ `bot_database.db` នៅទីតាំងលំនាំដើមស្ថិតក្នុង ephemeral filesystem ហើយអាចបាត់ពេល redeploy; scheduler នឹងមិនចាប់ផ្តើមលើ Railway រហូតដល់ SQLite ស្ថិតក្នុង mounted Volume។
+
+មុនបើក Daily Care លើ Railway៖
+
+1. បម្រុងទុក database បច្ចុប្បន្ន ហើយរក្សាទុកឯកសារនោះ។ កុំប្តូរទៅ path ថ្មីមុនពេលចម្លង database ចាស់ចូល Volume ដើម្បីរក្សាសមាជិក និងទិន្នន័យដែលមានស្រាប់។
+2. ភ្ជាប់ Railway Volume នៅ `/app/data` ហើយកំណត់ `BOT_DB_PATH=/app/data/bot_database.db`។ ដាក់ backup database ចាស់នៅ path នេះមុនដំណើរការ version ថ្មី។
+3. រក្សា service ឱ្យនៅ **1 replica** សម្រាប់ SQLite។ Lease ក្នុង SQLite អាចការពារ process ដែលចែករំលែក database file ដូចគ្នា ប៉ុន្តែវាមិនអាចសម្របសម្រួល instance ដែលមាន database file ដាច់ពីគ្នាបានទេ។ បើចង់ scale ច្រើន replica ត្រូវប្តូរទៅ database រួមដូចជា PostgreSQL ជាមុន។
+4. បន្ទាប់ពី volume និង database ត្រឹមត្រូវ ទើបបើក Daily Care ដោយ `/dailycare`; សមាជិកនីមួយៗត្រូវ opt in ដោយខ្លួនឯងតាម `/notifications`។
+
+សូមមើល [Railway Volumes](https://docs.railway.com/volumes) សម្រាប់ការកំណត់ persistent storage។
 
 ## រចនាសម្ព័ន្ធសំខាន់
 
@@ -45,7 +74,8 @@ Persona លំនាំដើមស្ថិតនៅ `persona/cooler_bot_2050.t
 - `persona/cooler_bot_2050.txt` — persona ជាភាសាខ្មែរដែលអាចកែបាន។
 - `config.py` — environment settings និង `.env` loading។
 - `database.py` — SQLite storage សម្រាប់សមាជិក ប្រវត្តិសន្ទនា និង usage។
+- `scheduler.py` — កាលវិភាគ Daily Care និងការផ្ញើសារដោយមានការការពារ duplicate។
 - `photo_studio.py` — photo transformation flow។
 - `test_local.py` — offline unit tests សម្រាប់មុខងារសំខាន់ៗ។
 
-ដំណើរការតេស្តដោយ `python -m unittest test_local.py`។
+ដំណើរការតេស្តដោយ `python -m unittest test_local.py test_dailycare.py`។

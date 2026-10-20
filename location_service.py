@@ -54,12 +54,15 @@ _FUEL_TERMS = (
 )
 _EV_TERMS = (
     "សាកឡាន", "សាករថយន្ត", "សាក ev", "ឡានអគ្គិសនី", "ស្ថានីយសាក",
+    "ev chargers",
     "ev charger", "ev charging", "charging station", "charger", "charging",
     "ccs2", "gb/t", "gbt",
 )
 _REMOVE_TERMS = (
     "near me", "nearby", "near", "find", "search", "show me", "where is",
-    "in cambodia", "cambodia", "ជិតខ្ញុំ", "នៅជិតខ្ញុំ", "រក", "ស្វែងរក",
+    "in cambodia", "cambodia", " in ", " of ", " ev ", "province", "within", "stations", "station",
+    "fast", "rapid", "slow", "charger", "chargers",
+    "ជិតខ្ញុំ", "នៅជិតខ្ញុំ", "រក", "ស្វែងរក", "ខេត្ត",
     "កន្លែង", "ស្ថានីយ", "នៅ", "ក្នុង", "មើលផែនទី", "តាមខេត្ត",
 )
 _BRANDS = ("ptt", "caltex", "tela", "totalenergies", "total")
@@ -83,6 +86,7 @@ def distance_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
         math.sin(delta_lat / 2) ** 2
         + math.cos(lat1_rad) * math.cos(lat2_rad) * math.sin(delta_lon / 2) ** 2
     )
+    haversine = min(1.0, max(0.0, haversine))
     return earth_radius_km * 2 * math.atan2(math.sqrt(haversine), math.sqrt(1 - haversine))
 
 
@@ -98,12 +102,14 @@ def normalize_query(query: str) -> dict[str, Optional[str]]:
     location = lowered
     for term in sorted(_FUEL_TERMS + _EV_TERMS + _REMOVE_TERMS, key=len, reverse=True):
         location = re.sub(re.escape(term), " ", location, flags=re.IGNORECASE)
+    location = re.sub(r"\b\d+(?:\.\d+)?\s*(?:km|kilometers?|គម)\b", " ", location)
     location = re.sub(r"[📍⛽⚡🔎🗺️,!?។៖]+", " ", location)
     location = " ".join(location.split()).strip()
     for khmer_name, english_name in PROVINCES.items():
         if khmer_name in location:
             location = location.replace(khmer_name, english_name)
             break
+    location = location.casefold()
     return {
         "kind": kind,
         "location": location or None,
@@ -142,6 +148,19 @@ def _connector_types(tags: dict[str, str]) -> list[str]:
     return found
 
 
+def _power_kw(station: dict[str, Any]) -> Optional[float]:
+    value = station.get("power")
+    match = re.search(r"(\d+(?:\.\d+)?)\s*(?:kW|kilowatt)", str(value or ""), re.IGNORECASE)
+    return float(match.group(1)) if match else None
+
+
+def _requested_radius(query: str) -> Optional[int]:
+    match = re.search(r"(\d+(?:\.\d+)?)\s*(?:km|kilometers?|គម)", query or "", re.IGNORECASE)
+    if not match:
+        return None
+    return max(1000, min(int(float(match.group(1)) * 1000), 100000))
+
+
 def _parse_element(element: dict[str, Any]) -> Optional[dict[str, Any]]:
     tags = element.get("tags") or {}
     coords = _station_coordinates(element)
@@ -177,8 +196,13 @@ def _parse_element(element: dict[str, Any]) -> Optional[dict[str, Any]]:
 
 
 class LocationService:
-    def __init__(self, get: Callable[..., Any] = httpx.get):
-        self._get = get
+    def __init__(
+        self,
+        get: Optional[Callable[..., Any]] = None,
+        post: Optional[Callable[..., Any]] = None,
+    ):
+        self._get = get or httpx.get
+        self._post = post or httpx.post
 
     def _request_json(self, url: str, *, params: Optional[dict[str, Any]] = None, data: Optional[str] = None):
         global _last_request_at
@@ -187,13 +211,11 @@ class LocationService:
             if wait > 0:
                 time.sleep(wait)
             _last_request_at = time.monotonic()
-        response = self._get(
-            url,
-            params=params,
-            content=data,
-            timeout=20.0,
-            headers={"User-Agent": USER_AGENT},
-        )
+        request_options = {"timeout": 20.0, "headers": {"User-Agent": USER_AGENT}}
+        if data is None:
+            response = self._get(url, params=params, **request_options)
+        else:
+            response = self._post(url, content=data, **request_options)
         response.raise_for_status()
         return response.json()
 
@@ -222,7 +244,12 @@ class LocationService:
             except (KeyError, TypeError, ValueError):
                 coords = None
         with _CACHE_LOCK:
+            for old_key, (expires_at, _) in list(_geocode_cache.items()):
+                if expires_at <= now:
+                    _geocode_cache.pop(old_key, None)
             _geocode_cache[key] = (now + _GEOCODE_CACHE_TTL, coords)
+            while len(_geocode_cache) > 500:
+                _geocode_cache.pop(next(iter(_geocode_cache)))
         return coords
 
     def _fetch_stations(self, lat: float, lon: float, radius: int) -> list[dict[str, Any]]:
@@ -235,10 +262,11 @@ class LocationService:
             if cached and cached[0] > now:
                 return cached[1]
 
+        query_radius = radius + 1000
         query = (
             "[out:json][timeout:18];("
-            f'nwr(around:{radius},{tile_lat},{tile_lon})["amenity"="fuel"];'
-            f'nwr(around:{radius},{tile_lat},{tile_lon})["amenity"="charging_station"];'
+            f'nwr(around:{query_radius},{tile_lat},{tile_lon})["amenity"="fuel"];'
+            f'nwr(around:{query_radius},{tile_lat},{tile_lon})["amenity"="charging_station"];'
             ");out center tags;"
         )
         data = self._request_json(OVERPASS_URL, data=query)
@@ -252,7 +280,12 @@ class LocationService:
             seen.add(station["id"])
             stations.append(station)
         with _CACHE_LOCK:
+            for old_key, (expires_at, _) in list(_station_cache.items()):
+                if expires_at <= now:
+                    _station_cache.pop(old_key, None)
             _station_cache[cache_key] = (now + _STATION_CACHE_TTL, stations)
+            while len(_station_cache) > 250:
+                _station_cache.pop(next(iter(_station_cache)))
         return stations
 
     def search(
@@ -262,12 +295,20 @@ class LocationService:
         lat: Optional[float] = None,
         lon: Optional[float] = None,
         kind: Optional[str] = None,
-        radius_m: int = SEARCH_RADIUS_METERS,
+        radius_m: Optional[int] = None,
     ) -> dict[str, Any]:
         parsed = normalize_query(query)
         kind = kind or parsed["kind"]
         location = parsed["location"]
         operator = parsed["operator"]
+        requested_radius = radius_m or _requested_radius(query) or SEARCH_RADIUS_METERS
+        power_match = re.search(
+            r"(\d+(?:\.\d+)?)\s*kw", query or "", re.IGNORECASE
+        )
+        requested_power = float(power_match.group(1)) if power_match else None
+        lowered_query = (query or "").casefold()
+        fast_requested = any(word in lowered_query for word in ("fast", "rapid", "លឿន"))
+        slow_requested = any(word in lowered_query for word in ("slow", "យឺត"))
         origin = "shared location"
         if location:
             origin = "search location"
@@ -285,13 +326,15 @@ class LocationService:
             lat, lon = float(lat), float(lon)
             if not (-90 <= lat <= 90 and -180 <= lon <= 180):
                 raise ValueError("Invalid coordinates")
-            stations = self._fetch_stations(lat, lon, radius_m)
+            stations = self._fetch_stations(lat, lon, requested_radius)
         except (httpx.HTTPError, ValueError, TypeError, KeyError) as exc:
             raise LocationSearchError("Station data is temporarily unavailable.") from exc
 
         results = []
         seen = set()
         for station in stations:
+            if not station:
+                continue
             if kind and station["kind"] != kind:
                 continue
             if operator and operator not in " ".join(
@@ -299,9 +342,18 @@ class LocationService:
             ).casefold():
                 continue
             if kind == "ev" and query:
-                lowered = query.casefold()
-                requested = "ccs2" if "ccs2" in lowered else ("gb/t" if "gb/t" in lowered else None)
+                requested = (
+                    "ccs2" if "ccs2" in lowered_query
+                    else ("gb/t" if "gb/t" in lowered_query or "gbt" in lowered_query else None)
+                )
                 if requested and requested not in [value.casefold() for value in station["connectors"]]:
+                    continue
+                power_kw = _power_kw(station)
+                if requested_power is not None and (power_kw is None or power_kw < requested_power):
+                    continue
+                if fast_requested and (power_kw is None or power_kw < 50):
+                    continue
+                if slow_requested and (power_kw is None or power_kw > 22):
                     continue
             key = (station["name"].casefold(), round(station["lat"], 4), round(station["lon"], 4))
             if key in seen:
@@ -309,6 +361,8 @@ class LocationService:
             seen.add(key)
             result = dict(station)
             result["distance_km"] = distance_km(lat, lon, station["lat"], station["lon"])
+            if result["distance_km"] > requested_radius / 1000:
+                continue
             result["maps_url"] = (
                 "https://www.google.com/maps/dir/?"
                 + urlencode({"api": "1", "destination": f"{station['lat']},{station['lon']}"})

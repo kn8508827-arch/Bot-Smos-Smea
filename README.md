@@ -35,7 +35,7 @@ Persona លំនាំដើមស្ថិតនៅ `persona/cooler_bot_2050.t
 | `AI_CONTEXT_CHAR_LIMIT` | `4000` | កម្រិតតួអក្សរសម្រាប់បរិបទសន្ទនា។ |
 | `AI_SUMMARY_ENABLED` | `False` | បើ `true`, `1`, ឬ `yes` នឹងបញ្ចូលសេចក្តីសង្ខេបសន្ទនាពី database ក្នុងបរិបទ។ |
 | `OWNER_ID` | គ្មាន | Telegram numeric user ID សម្រាប់ការបញ្ជាក់អត្តសញ្ញាណម្ចាស់ក្នុង system instruction។ មិនដាក់លេខនេះក្នុង prompt ឬ log ទេ។ |
-| `BOT_DB_PATH` | `bot_database.db` | ទីតាំង SQLite database; លើ Railway ត្រូវកំណត់ឱ្យនៅក្នុង mounted volume។ |
+| `BOT_DB_PATH` | `bot_database.db` | ទីតាំង SQLite database; លើ Railway ឬ Render ត្រូវកំណត់ឱ្យនៅក្នុង mounted volume។ |
 | `DAILYCARE_ENABLED` | `False` | តម្លៃដំបូងសម្រាប់ការបើកសារសកល; admin អាចប្តូរបានតាម `/dailycare` ហើយតម្លៃនឹងរក្សាទុកក្នុង database។ |
 | `DAILYCARE_RATE_LIMIT_SECONDS` | `1` | ចន្លោះពេលរវាងការផ្ញើ DM ទៅសមាជិកនីមួយៗ។ |
 | `DAILYCARE_MAX_SEND_ATTEMPTS` | `3` | ចំនួនសាកល្បងអតិបរមាសម្រាប់ Telegram rate-limit response ដែលមាន `retry_after`។ |
@@ -76,6 +76,17 @@ Railway production service `Bot-Smos-Smea` កំពុងកំណត់ **1 re
 - `database.py` — SQLite storage សម្រាប់សមាជិក ប្រវត្តិសន្ទនា និង usage។
 - `scheduler.py` — កាលវិភាគ Daily Care និងការផ្ញើសារដោយមានការការពារ duplicate។
 - `photo_studio.py` — photo transformation flow។
+- `location_service.py` — ស្វែងរកស្ថានីយសាំង និងសាក EV ពីទិន្នន័យ OpenStreetMap។
 - `test_local.py` — offline unit tests សម្រាប់មុខងារសំខាន់ៗ។
+- `test_location_service.py` — offline tests សម្រាប់ distance, Khmer/English queries និងស្វែងរក fuel/EV។
 
-ដំណើរការតេស្តដោយ `python -m unittest test_local.py test_dailycare.py`។
+ដំណើរការតេស្តដោយ `python -m unittest test_local.py test_dailycare.py test_location_service.py`។
+
+## ស្វែងរកស្ថានីយប្រេង និងសាក EV
+
+- Bot ប្រើ OpenStreetMap តាម Overpass API សម្រាប់ fuel/EV station និង Nominatim សម្រាប់រកទីតាំងដែលវាយជាឈ្មោះ។ មិនត្រូវការ Google Maps API key ឬ `EV_STATIONS_DATA_URL` ទេ; Google Maps ត្រូវបានប្រើតែសម្រាប់បង្កើតតំណផ្លូវ។
+- ចុច `/menu`, `/fuel`, `/ev` ឬប៊ូតុង Khmer ដើម្បីស្វែងរក។ អ្នកអាចចែករំលែកទីតាំងក្នុង private chat ឬវាយខេត្ត/ទីតាំងជាភាសាខ្មែរ និងអង់គ្លេស។ ទីតាំងអ្នកប្រើមិនត្រូវបានរក្សាទុកក្នុង SQLite; ស្ថានភាពសន្ទនាសម្រាប់ប៊ូតុងបន្ទាប់ផុតកំណត់ក្នុងរយៈពេល 15 នាទី។
+- ទិន្នន័យស្ថានីយសាធារណៈត្រូវបាន cache ក្នុង memory 30 នាទី និង geocoding 24 ម៉ោង; cache ត្រូវបានកំណត់ទំហំ ហើយបាត់នៅពេល process ចាប់ផ្តើមឡើងវិញ។ សេវាសាធារណៈអាចមាន rate limit ឬពេលខ្លះមិនអាចប្រើបាន។
+- ព័ត៌មានម៉ោង, លេខទូរស័ព្ទ, connector និង charging power បង្ហាញតែពេលមាន tag ក្នុង OpenStreetMap។ សូមផ្ទៀងផ្ទាត់ជាមួយស្ថានីយផ្ទាល់។ Bot មិនផ្តល់តម្លៃ ឬ live charger availability ហើយទិន្នន័យអាចមិនមាន/មិនទាន់សម័យ។
+- Render ត្រូវបង្កើត Background Worker ពី `render.yaml` ដោយប្រើ branch `main`; បញ្ចូល `BOT_TOKEN` ជា secret និង `GEMINI_API_KEY` ប្រសិនបើចង់ប្រើ AI។ Blueprint ភ្ជាប់ persistent disk នៅ `/app/data` សម្រាប់ SQLite។ កុំបង្កើន worker instances ខណៈកំពុងប្រើ SQLite។
+- `railway.json` នៅតែគាំទ្រ deployment ចាស់លើ Railway។ សម្រាប់ Render deploy ពី GitHub ហើយពិនិត្យ build/deploy logs ក្នុង Render Dashboard; repository នេះមិនមាន Render account access ដើម្បីពិនិត្យ runtime logs ឬ environment values ជំនួសអ្នកទេ។

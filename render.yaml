@@ -1,0 +1,19 @@
+services:
+  - type: worker
+    name: bot-smos-smea
+    runtime: python
+    plan: starter
+    branch: main
+    buildCommand: python -m pip install -r requirements.txt
+    startCommand: python bot.py
+    envVars:
+      - key: BOT_TOKEN
+        sync: false
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: BOT_DB_PATH
+        value: /app/data/bot_database.db
+    disks:
+      - name: bot-data
+        mountPath: /app/data
+        sizeGB: 1

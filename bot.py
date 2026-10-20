@@ -261,13 +261,21 @@ def _send_location_results(message, query="", kind=None, lat=None, lon=None):
         )
         return
 
+    stations = result["stations"][:50]
+    now = time.monotonic()
+    for old_token, state in list(_location_result_pages.items()):
+        if state["expires_at"] <= now:
+            _location_result_pages.pop(old_token, None)
+    while len(_location_result_pages) >= 100:
+        _location_result_pages.pop(next(iter(_location_result_pages)))
+
     token = secrets.token_urlsafe(6)
     _location_result_pages[token] = {
         "owner_id": getattr(getattr(message, "from_user", None), "id", None),
-        "expires_at": time.monotonic() + _LOCATION_STATE_TTL,
-        "stations": result["stations"],
+        "expires_at": now + _LOCATION_STATE_TTL,
+        "stations": stations,
     }
-    text, markup = _format_location_page(result["stations"], token, 0)
+    text, markup = _format_location_page(stations, token, 0)
     bot.reply_to(message, text, reply_markup=markup)
 
 
@@ -616,7 +624,13 @@ def echo_all(message):
     location_intent = (
         parsed["kind"] is not None
         or pending
-        or any(term in lowered for term in ("ជិតខ្ញុំ", "near me", "nearby", "មើលផែនទី", "ស្វែងរកជិត"))
+        or any(
+            term in lowered
+            for term in (
+                "ជិតខ្ញុំ", "near me", "nearby", "near ", "មើលផែនទី",
+                "ស្វែងរកជិត", "fuel station", "gas station", "charging station",
+            )
+        )
     )
     if location_intent:
         _send_location_results(

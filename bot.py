@@ -8,11 +8,14 @@ import time
 import asyncio
 import logging
 import threading
+import secrets
 from functools import wraps
 import telebot
 from telebot.types import (
     InlineKeyboardMarkup, 
     InlineKeyboardButton, 
+    ReplyKeyboardMarkup,
+    KeyboardButton,
     WebAppInfo, 
     BotCommand
 )
@@ -22,12 +25,18 @@ import database
 import messages
 import ai_assistant
 import scheduler
+import location_service
 
 logging.basicConfig(
     level=logging.INFO, 
     format="%(asctime)s - [%(levelname)s] - %(name)s: %(message)s"
 )
 logger = logging.getLogger("TeamSmosSneaBot")
+
+_pending_location_modes = {}
+_location_result_pages = {}
+_LOCATION_STATE_TTL = 900
+_LOCATION_PAGE_SIZE = 5
 
 TOKEN = getattr(config, "BOT_TOKEN", "") or os.getenv("BOT_TOKEN", "")
 
@@ -131,11 +140,143 @@ def setup_bot_commands():
             BotCommand("reset", "🧹 សម្អាតប្រវត្តិសន្ទនាជាមួយ AI"),
             BotCommand("notifications", "🔔 កំណត់ការជូនដំណឹង Daily Care"),
             BotCommand("dailycare", "🛠️ គ្រប់គ្រង Daily Care (Admin)"),
+            BotCommand("fuel", "⛽ ស្វែងរកកន្លែងចាក់សាំង"),
+            BotCommand("ev", "⚡ ស្វែងរកស្ថានីយសាក EV"),
         ]
         bot.set_my_commands(commands)
         logger.info("Bot commands menu registered successfully.")
     except Exception as e:
         logger.warning(f"Could not register bot commands menu: {e}")
+
+
+def _location_menu_keyboard():
+    markup = InlineKeyboardMarkup()
+    markup.row_width = 2
+    markup.add(
+        InlineKeyboardButton("⛽ រកកន្លែងចាក់សាំង", callback_data="location:fuel"),
+        InlineKeyboardButton("⚡ រកកន្លែងសាក EV", callback_data="location:ev"),
+        InlineKeyboardButton("📍 ស្វែងរកជិតខ្ញុំ", callback_data="location:nearby"),
+        InlineKeyboardButton("🗺️ មើលផែនទី", callback_data="location:map"),
+        InlineKeyboardButton("🔎 ស្វែងរកតាមខេត្ត", callback_data="location:province"),
+    )
+    return markup
+
+
+def _location_request_keyboard():
+    markup = ReplyKeyboardMarkup(row_width=2, resize_keyboard=True, one_time_keyboard=True)
+    markup.add(
+        KeyboardButton("📍 ចែករំលែកទីតាំង", request_location=True),
+        KeyboardButton("🔎 ស្វែងរកតាមខេត្ត"),
+    )
+    return markup
+
+
+def _set_pending_location_mode(user_id, kind):
+    if user_id is not None:
+        _pending_location_modes[user_id] = (kind, time.monotonic() + _LOCATION_STATE_TTL)
+
+
+def _take_pending_location_mode(user_id):
+    pending = _pending_location_modes.pop(user_id, None)
+    if pending and pending[1] > time.monotonic():
+        return True, pending[0]
+    return False, None
+
+
+def _location_prompt(message, kind=None):
+    _set_pending_location_mode(getattr(getattr(message, "from_user", None), "id", None), kind)
+    if getattr(getattr(message, "chat", None), "type", None) == "private":
+        bot.reply_to(
+            message,
+            "សូមចែករំលែកទីតាំង ឬវាយឈ្មោះខេត្ត/ទីតាំងជាភាសាខ្មែរ ឬអង់គ្លេស។",
+            reply_markup=_location_request_keyboard(),
+        )
+    else:
+        bot.reply_to(
+            message,
+            "សូមវាយឈ្មោះខេត្ត/ទីតាំង។ ដើម្បីស្វែងរកតាម GPS សូមប្រើ Bot ក្នុង Private Chat។",
+        )
+
+
+def _format_location_page(results, token, page):
+    start = page * _LOCATION_PAGE_SIZE
+    current = results[start:start + _LOCATION_PAGE_SIZE]
+    chunks = []
+    keyboard = InlineKeyboardMarkup()
+    for offset, station in enumerate(current, start=start + 1):
+        lines = [f"{offset}. {station['name']}", f"📍 {station['address']}"]
+        distance = station.get("distance_km")
+        if distance is not None:
+            lines.append(f"📏 ចម្ងាយពីទីតាំងស្វែងរក៖ {distance:.1f} គម")
+        if station.get("operator"):
+            lines.append(f"🏢 ប្រតិបត្តិករ៖ {station['operator']}")
+        if station.get("connectors"):
+            lines.append(f"🔌 Connector៖ {', '.join(station['connectors'])}")
+        if station.get("power"):
+            lines.append(f"⚡ កម្លាំងសាកដែលបានដាក់ស្លាក៖ {station['power']}")
+        if station.get("hours"):
+            lines.append(f"🕒 ម៉ោង (តាម OpenStreetMap; សូមផ្ទៀងផ្ទាត់)៖ {station['hours']}")
+        if station.get("phone"):
+            lines.append(f"☎️ {station['phone']}")
+        chunks.append("\n".join(lines))
+        keyboard.add(InlineKeyboardButton(f"🗺️ ផ្លូវទៅ {offset}", url=station["maps_url"]))
+    if start + _LOCATION_PAGE_SIZE < len(results):
+        keyboard.add(
+            InlineKeyboardButton("បន្ទាប់ ➡️", callback_data=f"location:next:{token}:{page + 1}")
+        )
+    return (
+        "\n\n".join(chunks)
+        + "\n\nប្រភព៖ OpenStreetMap។ ទិន្នន័យអាចមិនពេញលេញ; មិនមានស្ថានភាព charger ផ្ទាល់ពេលទេ។",
+        keyboard,
+    )
+
+
+def _send_location_results(message, query="", kind=None, lat=None, lon=None):
+    try:
+        result = location_service.location_service.search(
+            query,
+            lat=lat,
+            lon=lon,
+            kind=kind,
+        )
+    except location_service.LocationSearchError:
+        logger.warning("Location search provider request failed.")
+        bot.reply_to(
+            message,
+            "មិនអាចភ្ជាប់ទៅទិន្នន័យផែនទីបានទេឥឡូវនេះ។ សូមសាកល្បងម្ដងទៀតពេលក្រោយ។",
+        )
+        return
+
+    if result["status"] == "missing_location":
+        _location_prompt(message, kind)
+        return
+    if result["status"] == "not_found":
+        bot.reply_to(message, "រកមិនឃើញទីតាំងនោះក្នុង Cambodia ទេ។ សូមពិនិត្យឈ្មោះខេត្ត ឬទីតាំង។")
+        return
+    if not result["stations"]:
+        bot.reply_to(
+            message,
+            "មិនមានលទ្ធផលដែលបានដាក់ក្នុង OpenStreetMap ក្នុងតំបន់ស្វែងរកនេះទេ។ "
+            "សូមសាកល្បងឈ្មោះទីតាំង ឬចែករំលែកទីតាំងផ្សេង។",
+        )
+        return
+
+    stations = result["stations"][:50]
+    now = time.monotonic()
+    for old_token, state in list(_location_result_pages.items()):
+        if state["expires_at"] <= now:
+            _location_result_pages.pop(old_token, None)
+    while len(_location_result_pages) >= 100:
+        _location_result_pages.pop(next(iter(_location_result_pages)))
+
+    token = secrets.token_urlsafe(6)
+    _location_result_pages[token] = {
+        "owner_id": getattr(getattr(message, "from_user", None), "id", None),
+        "expires_at": now + _LOCATION_STATE_TTL,
+        "stations": stations,
+    }
+    text, markup = _format_location_page(stations, token, 0)
+    bot.reply_to(message, text, reply_markup=markup)
 
 
 def keep_typing(chat_id: int, stop_event: threading.Event):
@@ -167,11 +308,26 @@ def send_welcome(message):
         "ខ្ញុំជាជំនួយការ AI ផ្លូវការរបស់ Team ស្មោះស្នេហ៍។ តើមានអ្វីឱ្យខ្ញុំជួយអ្នកថ្ងៃនេះទេ?"
     )
     bot.reply_to(message, welcome_text, reply_markup=markup)
+    bot.send_message(message.chat.id, "⛽ Fuel និង ⚡ EV នៅកម្ពុជា", reply_markup=_location_menu_keyboard())
 
 
 @registered_message_handler(commands=['menu'])
 def send_menu(message):
-    bot.reply_to(message, "សូមជ្រើសរើសជម្រើសខាងក្រោម៖\n1. សេវាកម្មរបស់យើង\n2. ទំនាក់ទំនងមកយើងខ្ញុំ\n3. សួរសំណួរ AI ដោយផ្ទាល់")
+    bot.reply_to(
+        message,
+        "សូមជ្រើសរើសសេវាកម្ម ឬវាយឈ្មោះខេត្ត/ទីតាំង៖",
+        reply_markup=_location_menu_keyboard(),
+    )
+
+
+@registered_message_handler(commands=['fuel'])
+def fuel_search_command(message):
+    _location_prompt(message, "fuel")
+
+
+@registered_message_handler(commands=['ev'])
+def ev_search_command(message):
+    _location_prompt(message, "ev")
 
 
 @registered_message_handler(commands=['about'])
@@ -244,6 +400,46 @@ def callback_query(call):
         message = getattr(call, "message", None)
         chat = getattr(message, "chat", None)
         user_id = getattr(getattr(call, "from_user", None), "id", None)
+
+        if data.startswith("location:"):
+            if data.startswith("location:next:"):
+                _, _, token, page_text = data.split(":", 3)
+                state = _location_result_pages.get(token)
+                if (
+                    state is None
+                    or state["expires_at"] <= time.monotonic()
+                    or state["owner_id"] != user_id
+                ):
+                    _location_result_pages.pop(token, None)
+                    bot.answer_callback_query(call.id, "លទ្ធផលនេះផុតកំណត់ ឬមិនមែនជារបស់អ្នកទេ។", show_alert=True)
+                    return
+                page = int(page_text)
+                text, markup = _format_location_page(state["stations"], token, page)
+                bot.answer_callback_query(call.id)
+                bot.send_message(chat.id, text, reply_markup=markup)
+                return
+
+            mode = data.split(":", 1)[1]
+            if mode == "fuel":
+                kind = "fuel"
+            elif mode == "ev":
+                kind = "ev"
+            elif mode in ("nearby", "map", "province"):
+                kind = None
+            else:
+                bot.answer_callback_query(call.id)
+                return
+            bot.answer_callback_query(call.id)
+            _set_pending_location_mode(user_id, kind)
+            if mode == "province":
+                prompt = "សូមវាយឈ្មោះខេត្ត ឬទីតាំងជាភាសាខ្មែរ ឬអង់គ្លេស។"
+            else:
+                prompt = "ចែករំលែកទីតាំង ឬវាយឈ្មោះខេត្ត/ទីតាំង ដើម្បីស្វែងរក។"
+            markup = _location_request_keyboard() if getattr(chat, "type", None) == "private" else None
+            if getattr(chat, "type", None) != "private":
+                prompt += " ដើម្បីប្រើទីតាំង GPS សូមបើក Private Chat ជាមួយ Bot។"
+            bot.send_message(chat.id, prompt, reply_markup=markup)
+            return
 
         if data.startswith("notifications:"):
             if chat is None or getattr(chat, "type", None) != "private":
@@ -393,10 +589,57 @@ def handle_voice(message):
 # Text Message Handler (AI ឆ្លើយតបអត្ថបទ)
 # =========================================================
 
+@registered_message_handler(content_types=['location'])
+def handle_shared_location(message):
+    if getattr(getattr(message, "chat", None), "type", None) != "private":
+        bot.reply_to(message, "ដើម្បីរក្សាឯកជនភាព សូមចែករំលែកទីតាំងជាមួយ Bot ក្នុង Private Chat។")
+        return
+    location = message.location
+    if location is None:
+        bot.reply_to(message, "មិនអាចអានទីតាំងបានទេ។ សូមសាកល្បងម្ដងទៀត។")
+        return
+    _has_pending, kind = _take_pending_location_mode(
+        getattr(getattr(message, "from_user", None), "id", None)
+    )
+    _send_location_results(
+        message,
+        kind=kind,
+        lat=getattr(location, "latitude", None),
+        lon=getattr(location, "longitude", None),
+    )
+
+
 @registered_message_handler(func=lambda message: True)
 def echo_all(message):
     user_id = message.from_user.id
     user_text = message.text
+    if not user_text:
+        return
+    pending, pending_kind = _take_pending_location_mode(user_id)
+    if user_text.strip() == "🔎 ស្វែងរកតាមខេត្ត":
+        _location_prompt(message, pending_kind)
+        return
+    parsed = location_service.normalize_query(user_text)
+    lowered = user_text.casefold()
+    location_intent = (
+        parsed["kind"] is not None
+        or pending
+        or any(
+            term in lowered
+            for term in (
+                "ជិតខ្ញុំ", "near me", "nearby", "near ", "មើលផែនទី",
+                "ស្វែងរកជិត", "fuel station", "gas station", "charging station",
+            )
+        )
+    )
+    if location_intent:
+        _send_location_results(
+            message,
+            query=user_text,
+            kind=pending_kind if pending else None,
+        )
+        return
+
     user_name = message.from_user.first_name
 
     stop_typing_event = threading.Event()

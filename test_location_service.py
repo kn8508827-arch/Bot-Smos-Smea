@@ -39,6 +39,17 @@ class TestLocationService(unittest.TestCase):
         self.assertEqual(english["kind"], "ev")
         self.assertEqual(english["location"], "siem reap")
 
+    def test_normalizes_short_khmer_fuel_and_ev_queries(self):
+        fuel = location_service.normalize_query("សាំងនៅកំពត")
+        ev = location_service.normalize_query("សាកភ្លើងនៅភ្នំពេញ")
+        english = location_service.normalize_query("EV charging station in Phnom Penh")
+        charge_points = location_service.normalize_query("Find charge points in Siem Reap")
+
+        self.assertEqual(fuel, {"kind": "fuel", "location": "kampot", "operator": None})
+        self.assertEqual(ev, {"kind": "ev", "location": "phnom penh", "operator": None})
+        self.assertEqual(english["location"], "phnom penh")
+        self.assertEqual(charge_points["location"], "siem reap")
+
     def test_fuel_search_filters_nearest_first_and_builds_directions_links(self):
         stations = [
             _station(1, "Far Fuel", "fuel", 11.1, 104.9),
@@ -79,6 +90,27 @@ class TestLocationService(unittest.TestCase):
         self.assertEqual([item["name"] for item in result["stations"]], ["CCS2 Fast"])
         self.assertEqual(result["stations"][0]["connectors"], ["CCS2"])
         self.assertEqual(result["stations"][0]["power"], "60 kW")
+
+    def test_ev_fast_filter_reads_standard_per_connector_power_tags(self):
+        station = _station(
+            9,
+            "Connector-tagged charger",
+            "ev",
+            11.005,
+            104.005,
+            **{
+                "socket:type2_combo": "2",
+                "socket:type2_combo:output": "60 kW",
+                "socket:type2:output": "22 kW",
+            },
+        )
+        with patch.object(self.service, "_fetch_stations", return_value=[station]):
+            result = self.service.search("Find fast CCS2 EV chargers", lat=11, lon=104)
+
+        self.assertEqual(result["status"], "ok")
+        self.assertEqual(result["stations"][0]["name"], "Connector-tagged charger")
+        self.assertEqual(result["stations"][0]["connectors"], ["CCS2"])
+        self.assertIn("CCS2: 60 kW", result["stations"][0]["power"])
 
     def test_typed_location_is_geocoded_before_search(self):
         with patch.object(self.service, "_geocode", return_value=(13.36, 103.86)) as geocode, patch.object(

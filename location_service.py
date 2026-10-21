@@ -48,22 +48,29 @@ PROVINCES = {
 }
 
 _FUEL_TERMS = (
-    "ចាក់សាំង", "កន្លែងចាក់សាំង", "ស្ថានីយសាំង", "ប្រេងឥន្ធនៈ",
+    "ចាក់សាំង", "កន្លែងចាក់សាំង", "ស្ថានីយសាំង", "ស្ថានីយប្រេង",
+    "កន្លែងលក់ប្រេង", "ប្រេងឥន្ធនៈ", "សាំង",
     "fuel", "petrol", "gas station", "gasoline", "ptt", "caltex",
     "calt​ex", "tela", "totalenergies", "total",
 )
 _EV_TERMS = (
-    "សាកឡាន", "សាករថយន្ត", "សាក ev", "ឡានអគ្គិសនី", "ស្ថានីយសាក",
+    "សាកឡាន", "សាករថយន្ត", "សាកភ្លើង", "សាក ev", "ឡានអគ្គិសនី",
+    "រថយន្តអគ្គិសនី", "ស្ថានីយសាក",
     "ev chargers",
-    "ev charger", "ev charging", "charging station", "charger", "charging",
+    "ev charger", "ev charging", "ev station", "charging station",
+    "charging point", "charge point", "charger", "charging",
     "ccs2", "gb/t", "gbt",
 )
 _REMOVE_TERMS = (
     "near me", "nearby", "near", "find", "search", "show me", "where is",
     "in cambodia", "cambodia", " in ", " of ", " ev ", "province", "within", "stations", "station",
     "fast", "rapid", "slow", "charger", "chargers",
+    "ev station", "ev charging", "charging station", "charging point",
+    "charging points", "charge point", "charge points",
     "ជិតខ្ញុំ", "នៅជិតខ្ញុំ", "រក", "ស្វែងរក", "ខេត្ត",
-    "កន្លែង", "ស្ថានីយ", "នៅ", "ក្នុង", "មើលផែនទី", "តាមខេត្ត",
+    "កន្លែង", "ស្ថានីយ", "សាំង", "ប្រេង", "សាកភ្លើង", "សាករថយន្ត",
+    "សាកឡាន", "ឡានអគ្គិសនី", "រថយន្តអគ្គិសនី", "នៅ", "ក្នុង",
+    "មើលផែនទី", "តាមខេត្ត",
 )
 _BRANDS = ("ptt", "caltex", "tela", "totalenergies", "total")
 _CACHE_LOCK = threading.Lock()
@@ -102,6 +109,7 @@ def normalize_query(query: str) -> dict[str, Optional[str]]:
     location = lowered
     for term in sorted(_FUEL_TERMS + _EV_TERMS + _REMOVE_TERMS, key=len, reverse=True):
         location = re.sub(re.escape(term), " ", location, flags=re.IGNORECASE)
+    location = re.sub(r"\bev\b", " ", location, flags=re.IGNORECASE)
     location = re.sub(r"\b\d+(?:\.\d+)?\s*(?:km|kilometers?|គម)\b", " ", location)
     location = re.sub(r"[📍⛽⚡🔎🗺️,!?។៖]+", " ", location)
     location = " ".join(location.split()).strip()
@@ -150,8 +158,39 @@ def _connector_types(tags: dict[str, str]) -> list[str]:
 
 def _power_kw(station: dict[str, Any]) -> Optional[float]:
     value = station.get("power")
-    match = re.search(r"(\d+(?:\.\d+)?)\s*(?:kW|kilowatt)", str(value or ""), re.IGNORECASE)
-    return float(match.group(1)) if match else None
+    values = re.findall(
+        r"(\d+(?:\.\d+)?)\s*(?:kW|kilowatts?)",
+        str(value or ""),
+        re.IGNORECASE,
+    )
+    return max((float(item) for item in values), default=None)
+
+
+def _power_output(tags: dict[str, Any]) -> Optional[str]:
+    """Collect station- and connector-level OSM power tags for display/filtering."""
+    connector_labels = {
+        "socket:type2": "Type 2",
+        "socket:type2_combo": "CCS2",
+        "socket:ccs": "CCS",
+        "socket:chademo": "CHAdeMO",
+        "socket:gbt": "GB/T",
+        "socket:type1": "Type 1",
+        "socket:type1_combo": "CCS1",
+        "socket:tesla_supercharger": "Tesla",
+    }
+    outputs = []
+    for key, value in tags.items():
+        if key in ("charging_station:output", "socket:output"):
+            label = None
+        elif key.startswith("socket:") and key.endswith(":output"):
+            connector = key[:-len(":output")]
+            label = connector_labels.get(connector, connector.removeprefix("socket:"))
+        else:
+            continue
+        text = str(value).strip()
+        if text:
+            outputs.append(f"{label}: {text}" if label else text)
+    return "; ".join(outputs) or None
 
 
 def _requested_radius(query: str) -> Optional[int]:
@@ -174,6 +213,7 @@ def _parse_element(element: dict[str, Any]) -> Optional[dict[str, Any]]:
         tags.get("addr:housenumber"),
         tags.get("addr:street"),
         tags.get("addr:suburb") or tags.get("addr:city"),
+        tags.get("addr:district") or tags.get("addr:county"),
         tags.get("addr:province") or tags.get("addr:state"),
     ]
     address = ", ".join(part for part in address_parts if part)
@@ -190,7 +230,7 @@ def _parse_element(element: dict[str, Any]) -> Optional[dict[str, Any]]:
         "hours": tags.get("opening_hours"),
         "phone": tags.get("contact:phone") or tags.get("phone"),
         "connectors": _connector_types(tags) if is_ev else [],
-        "power": tags.get("charging_station:output") or tags.get("socket:output"),
+        "power": _power_output(tags),
     }
     return station
 

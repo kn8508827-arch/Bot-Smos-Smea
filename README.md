@@ -54,18 +54,19 @@ Persona លំនាំដើមស្ថិតនៅ `persona/cooler_bot_2050.t
 - Bot ផ្ញើ DM តែទៅសមាជិកដែលបានជជែកក្នុង private chat និងបានជ្រើសរើសទទួល។ ការចុចប៊ូតុងក្នុង group មិនធ្វើឱ្យ group chat ក្លាយជាគោលដៅ DM ទេ។
 - Scheduler ប្រើ lease ក្នុង SQLite ដើម្បីកុំឱ្យ process ពីរដែលប្រើ database ដូចគ្នាចាប់ផ្តើមកាលវិភាគស្របពេលគ្នា; delivery key តែមួយក្នុងមួយអ្នកប្រើ/ថ្ងៃ/slot រារាំងការផ្ញើស្ទួន។
 
-### Railway storage prerequisite
+## Deploy to Railway
 
-Railway production service `Bot-Smos-Smea` កំពុងកំណត់ **1 replica**។ មិនឃើញមាន Volume ភ្ជាប់ក្នុង service settings ទេ។ ដូច្នេះ `bot_database.db` នៅទីតាំងលំនាំដើមស្ថិតក្នុង ephemeral filesystem ហើយអាចបាត់ពេល redeploy; scheduler នឹងមិនចាប់ផ្តើមលើ Railway រហូតដល់ SQLite ស្ថិតក្នុង mounted Volume។
+Bot នេះប្រើ Telegram long polling។ វាមិនចាំបាច់មាន public domain ឬ `PORT` ទេ។ `railway.json` កំណត់ start command ជា `python bot.py`; Railway អាចរកឃើញ Python dependencies ពី `requirements.txt` ដោយស្វ័យប្រវត្តិ។
 
-មុនបើក Daily Care លើ Railway៖
+1. ក្នុង Railway ចុច **New Project → Deploy from GitHub Repo** ហើយជ្រើស `kn8508827-arch/Bot-Smos-Smea` និង branch `main`។
+2. នៅផ្ទាំង **Variables** របស់ service បន្ថែម `BOT_TOKEN`។ បន្ថែម `GEMINI_API_KEY` បើចង់បើក AI; វាមិនចាំបាច់សម្រាប់ polling និងការស្វែងរកទីតាំងទេ។ កុំដាក់តម្លៃសម្ងាត់ក្នុង Git ឬផ្ញើតាម chat។
+3. ភ្ជាប់ Railway Volume ទៅ service ដោយ mount path `/app/data` ហើយកំណត់ `BOT_DB_PATH=/app/data/bot_database.db`។ ត្រូវភ្ជាប់ Volume មុនពេលចាប់ផ្តើមរក្សាទុកទិន្នន័យដែលចង់រក្សាទុក ព្រោះ filesystem ខាងក្រៅ Volume អាចបាត់ពេល deploy ថ្មី។ បើ service ចាស់មាន database ត្រូវបម្រុងទុក ហើយចម្លងចូល Volume មុនប្តូរ `BOT_DB_PATH`។
+4. រក្សា service ឱ្យដំណើរការតែមួយ replica ខណៈប្រើ SQLite។ កុំបង្កើត public domain សម្រាប់ bot នេះ។
+5. Deploy ហើយពិនិត្យ deploy logs: គួរឃើញ bot ចាប់ផ្តើម polling ដោយគ្មាន error។ បន្ទាប់មកសាក `/start` ក្នុង Telegram។
 
-1. បម្រុងទុក database បច្ចុប្បន្ន ហើយរក្សាទុកឯកសារនោះ។ កុំប្តូរទៅ path ថ្មីមុនពេលចម្លង database ចាស់ចូល Volume ដើម្បីរក្សាសមាជិក និងទិន្នន័យដែលមានស្រាប់។
-2. ភ្ជាប់ Railway Volume នៅ `/app/data` ហើយកំណត់ `BOT_DB_PATH=/app/data/bot_database.db`។ ដាក់ backup database ចាស់នៅ path នេះមុនដំណើរការ version ថ្មី។
-3. រក្សា service ឱ្យនៅ **1 replica** សម្រាប់ SQLite។ Lease ក្នុង SQLite អាចការពារ process ដែលចែករំលែក database file ដូចគ្នា ប៉ុន្តែវាមិនអាចសម្របសម្រួល instance ដែលមាន database file ដាច់ពីគ្នាបានទេ។ បើចង់ scale ច្រើន replica ត្រូវប្តូរទៅ database រួមដូចជា PostgreSQL ជាមុន។
-4. បន្ទាប់ពី volume និង database ត្រឹមត្រូវ ទើបបើក Daily Care ដោយ `/dailycare`; សមាជិកនីមួយៗត្រូវ opt in ដោយខ្លួនឯងតាម `/notifications`។
+`BOT_TOKEN` ជាតម្លៃចាំបាច់។ `ADMIN_IDS` និង `OWNER_ID` គឺ optional សម្រាប់មុខងារ admin/owner។ Daily Care ចាប់ផ្តើមបិទ ហើយត្រូវការទាំង Volume និង admin ដែលបានកំណត់ មុនពេលបើកតាម `/dailycare`។ សមាជិកម្នាក់ៗត្រូវជ្រើសរើសទទួលដោយខ្លួនឯងតាម `/notifications`។
 
-សូមមើល [Railway Volumes](https://docs.railway.com/volumes) សម្រាប់ការកំណត់ persistent storage។
+សូមមើល [Railway Volumes](https://docs.railway.com/volumes) សម្រាប់ mount និង persistent storage។
 
 ## រចនាសម្ព័ន្ធសំខាន់
 
@@ -88,5 +89,5 @@ Railway production service `Bot-Smos-Smea` កំពុងកំណត់ **1 re
 - ចុច `/menu`, `/fuel`, `/ev` ឬប៊ូតុង Khmer ដើម្បីស្វែងរក។ អ្នកអាចចែករំលែកទីតាំងក្នុង private chat ឬវាយខេត្ត/ទីតាំងជាភាសាខ្មែរ និងអង់គ្លេស។ ទីតាំងអ្នកប្រើមិនត្រូវបានរក្សាទុកក្នុង SQLite; ស្ថានភាពសន្ទនាសម្រាប់ប៊ូតុងបន្ទាប់ផុតកំណត់ក្នុងរយៈពេល 15 នាទី។
 - ទិន្នន័យស្ថានីយសាធារណៈត្រូវបាន cache ក្នុង memory 30 នាទី និង geocoding 24 ម៉ោង; cache ត្រូវបានកំណត់ទំហំ ហើយបាត់នៅពេល process ចាប់ផ្តើមឡើងវិញ។ សេវាសាធារណៈអាចមាន rate limit ឬពេលខ្លះមិនអាចប្រើបាន។
 - ព័ត៌មានម៉ោង, លេខទូរស័ព្ទ, connector និង charging power បង្ហាញតែពេលមាន tag ក្នុង OpenStreetMap។ សូមផ្ទៀងផ្ទាត់ជាមួយស្ថានីយផ្ទាល់។ Bot មិនផ្តល់តម្លៃ ឬ live charger availability ហើយទិន្នន័យអាចមិនមាន/មិនទាន់សម័យ។
-- Render ត្រូវបង្កើត Background Worker ពី `render.yaml` ដោយប្រើ branch `main`; បញ្ចូល `BOT_TOKEN` ជា secret និង `GEMINI_API_KEY` ប្រសិនបើចង់ប្រើ AI។ Blueprint ភ្ជាប់ persistent disk នៅ `/app/data` សម្រាប់ SQLite។ កុំបង្កើន worker instances ខណៈកំពុងប្រើ SQLite។
-- `railway.json` នៅតែគាំទ្រ deployment ចាស់លើ Railway។ សម្រាប់ Render deploy ពី GitHub ហើយពិនិត្យ build/deploy logs ក្នុង Render Dashboard; repository នេះមិនមាន Render account access ដើម្បីពិនិត្យ runtime logs ឬ environment values ជំនួសអ្នកទេ។
+- សម្រាប់ Railway deployment, សូមធ្វើតាមផ្នែក [Deploy to Railway](#deploy-to-railway) ខាងលើ។
+- សម្រាប់ Render, ប្រើ `render.yaml` ដើម្បីបង្កើត Background Worker និង persistent disk នៅ `/app/data`; បញ្ចូល `BOT_TOKEN` ជា secret និង `GEMINI_API_KEY` បើចង់ប្រើ AI។ កុំបង្កើន worker instances ខណៈកំពុងប្រើ SQLite។

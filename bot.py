@@ -363,7 +363,7 @@ def send_help(message):
         "• /register - ចុះឈ្មោះ (Mini Web App)\n"
         "• /reset - សម្អាតប្រវត្តិសន្ទនាជាមួយ AI\n\n"
         "• /notifications - បើក ឬបិទសារ Daily Care\n\n"
-        "💡 *អ្នកអាចវាយសំណួរ ផ្ញើសារជាសំឡេង ឬរូបភាពមកជជែក និងស្នើឱ្យ AI វិភាគបាន!*"
+        "💡 *អ្នកអាចវាយសំណួរ ឬផ្ញើសារជាសំឡេង (Voice Note) ឬរូបភាពមកជជែកជាមួយ AI បានគ្រប់ពេល!*"
     )
     try:
         bot.reply_to(message, help_text, parse_mode="Markdown")

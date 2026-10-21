@@ -4,6 +4,8 @@ import importlib
 import os
 import sys
 import tempfile
+import threading
+import time
 import unittest
 from datetime import datetime
 from types import SimpleNamespace
@@ -192,6 +194,45 @@ class TestDailyCareScheduler(unittest.TestCase):
             next_fire = trigger.get_next_fire_time(None, start)
             actual_times.append((next_fire.hour, next_fire.minute))
         self.assertEqual(actual_times, [(7, 0), (12, 0), (17, 30), (19, 0), (21, 0), (22, 0)])
+
+    def test_scheduler_retries_lease_after_overlapping_deployment(self):
+        started = threading.Event()
+
+        class RuntimeScheduler:
+            def __init__(self, *args, **kwargs):
+                self.running = False
+
+            def add_job(self, *args, **kwargs):
+                pass
+
+            def start(self):
+                self.running = True
+                started.set()
+
+            def shutdown(self, wait=False):
+                self.running = False
+
+        retry_stop = scheduler._scheduler_retry_stop
+        retry_stop.clear()
+        with patch.object(scheduler, "_scheduler_instance", None), \
+             patch.object(scheduler, "_scheduler_lock_owner", None), \
+             patch.object(scheduler, "_scheduler_retry_thread", None), \
+             patch.object(scheduler, "_SCHEDULER_LOCK_RETRY_INTERVAL_SECONDS", 0.01), \
+             patch.object(scheduler, "is_persistent_storage_ready", return_value=True), \
+             patch.object(scheduler, "BackgroundScheduler", RuntimeScheduler), \
+             patch.object(scheduler, "register_dailycare_jobs"), \
+             patch.object(database, "acquire_scheduler_lock", side_effect=[False, True]) as acquire:
+            try:
+                self.assertIsNone(scheduler.start_scheduler(object()))
+                self.assertTrue(started.wait(1))
+                deadline = time.monotonic() + 1
+                while scheduler._scheduler_instance is None and time.monotonic() < deadline:
+                    time.sleep(0.005)
+                self.assertIsNotNone(scheduler._scheduler_instance)
+                self.assertEqual(acquire.call_count, 2)
+            finally:
+                scheduler.shutdown_scheduler(scheduler._scheduler_instance)
+
 
     def test_storage_guard_requires_database_path_inside_railway_volume(self):
         env = {

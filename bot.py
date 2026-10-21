@@ -26,6 +26,7 @@ import messages
 import ai_assistant
 import scheduler
 import location_service
+import community_features
 
 logging.basicConfig(
     level=logging.INFO, 
@@ -46,6 +47,9 @@ if not TOKEN:
 
 # បើក threaded=True សម្រាប់ដំណើរការរលូនពេល User ផ្ញើសារច្រើនដំណាលគ្នា
 bot = telebot.TeleBot(TOKEN, threaded=True)
+
+# Register community commands before the catch-all AI handler so commands are not sent to AI.
+community_features.register(bot, database, config)
 
 
 def register_interaction(from_user, chat) -> bool:
@@ -142,6 +146,13 @@ def setup_bot_commands():
             BotCommand("dailycare", "🛠️ គ្រប់គ្រង Daily Care (Admin)"),
             BotCommand("fuel", "⛽ ស្វែងរកកន្លែងចាក់សាំង"),
             BotCommand("ev", "⚡ ស្វែងរកស្ថានីយសាក EV"),
+            BotCommand("community", "🌟 មឺនុយសហគមន៍"),
+            BotCommand("profile", "⭐ ប្រវត្តិរូប និងពិន្ទុ"),
+            BotCommand("checkin", "🎁 Check-in ប្រចាំថ្ងៃ"),
+            BotCommand("quiz", "🧠 Quiz ប្រចាំថ្ងៃ"),
+            BotCommand("leaderboard", "🏆 ចំណាត់ថ្នាក់សមាជិក"),
+            BotCommand("invite", "🤝 អញ្ជើញមិត្តភក្តិ"),
+            BotCommand("vip", "👑 ស្ថានភាព VIP"),
         ]
         bot.set_my_commands(commands)
         logger.info("Bot commands menu registered successfully.")
@@ -362,7 +373,14 @@ def send_help(message):
         "• /events - កាលវិភាគព្រឹត្តិការណ៍\n"
         "• /register - ចុះឈ្មោះ (Mini Web App)\n"
         "• /reset - សម្អាតប្រវត្តិសន្ទនាជាមួយ AI\n\n"
-        "• /notifications - បើក ឬបិទសារ Daily Care\n\n"
+        "• /notifications - បើក ឬបិទសារ Daily Care\n"
+        "• /community - មឺនុយសហគមន៍\n"
+        "• /profile - ពិន្ទុ និងកម្រិត\n"
+        "• /checkin - ពិន្ទុប្រចាំថ្ងៃ\n"
+        "• /quiz - Quiz ប្រចាំថ្ងៃ\n"
+        "• /leaderboard - ចំណាត់ថ្នាក់\n"
+        "• /invite - អញ្ជើញមិត្តភក្តិ\n"
+        "• /vip - ស្ថានភាព VIP\n\n"
         "💡 *អ្នកអាចវាយសំណួរ ឬផ្ញើសារជាសំឡេង (Voice Note) ឬរូបភាពមកជជែកជាមួយ AI បានគ្រប់ពេល!*"
     )
     try:

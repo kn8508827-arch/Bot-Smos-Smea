@@ -175,6 +175,21 @@ def register(bot, database, config):
             bot.answer_callback_query(call.id)
             return
         parts = data.split(":")
+        if len(parts) == 4 and parts[1] == "menu":
+            action = parts[2]
+            commands = {
+                "checkin": "/checkin",
+                "quiz": "/quiz",
+                "top": "/leaderboard",
+                "profile": "/profile",
+                "invite": "/invite",
+                "vip": "/vip",
+            }
+            command = commands.get(action)
+            bot.answer_callback_query(call.id)
+            if command:
+                bot.send_message(call.message.chat.id, "សូមវាយពាក្យបញ្ជានេះ ដើម្បីបន្ត៖ " + command)
+            return
         if len(parts) != 4 or parts[1] != "quiz":
             bot.answer_callback_query(call.id, "ជម្រើសនេះមិនត្រឹមត្រូវទេ។", show_alert=True)
             return

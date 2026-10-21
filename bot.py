@@ -221,10 +221,17 @@ def _format_location_page(results, token, page):
             lines.append(f"☎️ {station['phone']}")
         chunks.append("\n".join(lines))
         keyboard.add(InlineKeyboardButton(f"🗺️ ផ្លូវទៅ {offset}", url=station["maps_url"]))
+    nav_buttons = []
+    if page > 0:
+        nav_buttons.append(
+            InlineKeyboardButton("⬅️ ថយក្រោយ", callback_data=f"location:next:{token}:{page - 1}")
+        )
     if start + _LOCATION_PAGE_SIZE < len(results):
-        keyboard.add(
+        nav_buttons.append(
             InlineKeyboardButton("បន្ទាប់ ➡️", callback_data=f"location:next:{token}:{page + 1}")
         )
+    if nav_buttons:
+        keyboard.row(*nav_buttons)
     return (
         "\n\n".join(chunks)
         + "\n\nប្រភព៖ OpenStreetMap។ ទិន្នន័យអាចមិនពេញលេញ; មិនមានស្ថានភាព charger ផ្ទាល់ពេលទេ។",
@@ -288,6 +295,41 @@ def keep_typing(chat_id: int, stop_event: threading.Event):
         except Exception:
             pass
         time.sleep(4)
+
+
+_TELEGRAM_MAX_CHARS = 4000  # Telegram hard limit is 4096
+
+
+def _split_text(text, limit=_TELEGRAM_MAX_CHARS):
+    """Split long text on paragraph/line/space boundaries so each part fits Telegram."""
+    text = text or ""
+    parts = []
+    while len(text) > limit:
+        cut = text.rfind("\n\n", 0, limit)
+        if cut < limit // 2:
+            cut = text.rfind("\n", 0, limit)
+        if cut < limit // 2:
+            cut = text.rfind(" ", 0, limit)
+        if cut < limit // 2:
+            cut = limit
+        parts.append(text[:cut].rstrip())
+        text = text[cut:].lstrip()
+    if text:
+        parts.append(text)
+    return parts or [""]
+
+
+def send_long_reply(message, text):
+    """Reply with text, splitting into several messages when it is over the limit."""
+    for index, chunk in enumerate(_split_text(text)):
+        def _send(**kwargs):
+            if index == 0:
+                return bot.reply_to(message, chunk, **kwargs)
+            return bot.send_message(message.chat.id, chunk, **kwargs)
+        try:
+            _send(parse_mode="Markdown")
+        except Exception:
+            _send()
 
 
 # =========================================================
@@ -414,10 +456,16 @@ def callback_query(call):
                     _location_result_pages.pop(token, None)
                     bot.answer_callback_query(call.id, "លទ្ធផលនេះផុតកំណត់ ឬមិនមែនជារបស់អ្នកទេ។", show_alert=True)
                     return
-                page = int(page_text)
+                last_page = max(0, (len(state["stations"]) - 1) // _LOCATION_PAGE_SIZE)
+                page = min(max(0, int(page_text)), last_page)
                 text, markup = _format_location_page(state["stations"], token, page)
                 bot.answer_callback_query(call.id)
-                bot.send_message(chat.id, text, reply_markup=markup)
+                try:
+                    bot.edit_message_text(
+                        text, chat.id, message.message_id, reply_markup=markup
+                    )
+                except Exception:
+                    bot.send_message(chat.id, text, reply_markup=markup)
                 return
 
             mode = data.split(":", 1)[1]
@@ -580,10 +628,7 @@ def handle_voice(message):
     finally:
         stop_typing_event.set()
 
-    try:
-        bot.reply_to(message, reply, parse_mode="Markdown")
-    except Exception:
-        bot.reply_to(message, reply)
+    send_long_reply(message, reply)
 
 
 # =========================================================
@@ -649,10 +694,7 @@ def handle_photo(message):
     finally:
         stop_typing_event.set()
 
-    try:
-        bot.reply_to(message, reply, parse_mode="Markdown")
-    except Exception:
-        bot.reply_to(message, reply)
+    send_long_reply(message, reply)
 
 
 # =========================================================
@@ -732,10 +774,7 @@ def echo_all(message):
     finally:
         stop_typing_event.set()
 
-    try:
-        bot.reply_to(message, reply, parse_mode="Markdown")
-    except Exception:
-        bot.reply_to(message, reply)
+    send_long_reply(message, reply)
 
 
 # =========================================================

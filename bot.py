@@ -711,6 +711,9 @@ def echo_all(message):
     location_intent = (
         parsed["kind"] is not None
         or pending
+        # Province names should trigger location search even if the reply-keyboard
+        # pending state was lost (e.g. after a bot restart).
+        or any(province in user_text for province in location_service.PROVINCES)
         or any(
             term in lowered
             for term in (

@@ -1,12 +1,12 @@
 # 🤖 Team ស្មោះស្នេហ៍ Telegram Bot
 
-Telegram bot របស់ Team ស្មោះស្នេហ៍ ប្រើ Python, `pyTelegramBotAPI`, SQLite និង Google Gemini សម្រាប់ជំនួយការសន្ទនា។ Bot ដំណើរការដោយ **long polling** តាម `telebot.TeleBot.infinity_polling()` ក្នុង `bot.py`; វាមិនប្រើ Flask ឬ webhook ទេ។ ការកំណត់ Railway ក៏ចាប់ផ្តើមដោយ `python bot.py` ដែរ។
+Telegram bot របស់ Team ស្មោះស្នេហ៍ ប្រើ Python, `pyTelegramBotAPI`, SQLite និង Google Gemini សម្រាប់ជំនួយការសន្ទនា និងវិភាគរូបភាពពី Telegram។ Bot ដំណើរការដោយ **long polling** តាម `telebot.TeleBot.infinity_polling()` ក្នុង `bot.py`; វាមិនប្រើ Flask ឬ webhook ទេ។ ការកំណត់ Railway ក៏ចាប់ផ្តើមដោយ `python bot.py` ដែរ។
 
 ## ដំណើរការក្នុងម៉ាស៊ីន
 
 1. ដំឡើង Python dependencies៖ `python -m pip install -r requirements.txt`។
 2. កំណត់ `BOT_TOKEN` ក្នុង environment ឬឯកសារ `.env` ក្នុងថតគម្រោង។ `config.py` អាន `.env` តាម `python-dotenv`។
-3. ដើម្បីប្រើជំនួយការ Gemini សូមកំណត់ `GEMINI_API_KEY` ផងដែរ។
+3. ដើម្បីប្រើជំនួយការ Gemini សម្រាប់អត្ថបទ សំឡេង និងរូបភាព សូមកំណត់ `GEMINI_API_KEY` ផងដែរ។
 4. ចាប់ផ្តើម bot ដោយ `python bot.py`។ Bot នឹងរៀបចំ SQLite ហើយចាប់ផ្តើម polling។
 
 រក្សា token និង API key នៅក្នុង secret environment របស់ម៉ាស៊ីនដំណើរការ។ `.env` ត្រូវបាន ignore ដោយ Git; កុំបញ្ចូល secret ទៅក្នុង repository ឬ persona file។
@@ -24,10 +24,11 @@ Persona លំនាំដើមស្ថិតនៅ `persona/cooler_bot_2050.t
 | Variable | Default | ប្រើសម្រាប់ |
 | --- | --- | --- |
 | `BOT_TOKEN` | គ្មាន | ចាំបាច់សម្រាប់ភ្ជាប់ Telegram bot។ |
-| `GEMINI_API_KEY` | គ្មាន | បើកជំនួយការសន្ទនា Gemini; បើគ្មាន key bot បង្ហាញសារថា AI មិនទាន់កំណត់។ |
+| `GEMINI_API_KEY` | គ្មាន | បើក Gemini សម្រាប់អត្ថបទ សំឡេង និងការវិភាគរូបភាព; បើគ្មាន key bot បង្ហាញសារថា AI មិនទាន់កំណត់។ |
 | `STABILITY_API_KEY` | គ្មាន | API key សម្រាប់មុខងារកែរូបភាព Stability AI។ |
 | `COOLER_PERSONA_PATH` | `persona/cooler_bot_2050.txt` | ទីតាំង persona file; អាចជា absolute ឬ relative path។ |
-| `AI_MODEL` | `gemini-2.0-flash` | Gemini model សម្រាប់សន្ទនា។ កូដបច្ចុប្បន្នប្រើ `gemini-1.5-flash` ជា fallback។ |
+| `AI_MODEL` | `gemini-2.0-flash` | Gemini model សម្រាប់ Chat និង Voice ដែលមានស្រាប់; fallback គឺ `gemini-1.5-flash`។ |
+| `AI_VISION_MODEL` | `gemini-3.8-flash` | Gemini Vision model ដាច់ដោយឡែកសម្រាប់ការវិភាគរូបភាព; fallback គឺ `gemini-3.6-flash`។ |
 | `AI_RATE_LIMIT_SECONDS` | `3` | ចន្លោះអប្បបរមារវាងសំណើពីអ្នកប្រើដដែល។ |
 | `AI_GLOBAL_RATE_LIMIT_SECONDS` | `0.5` | ចន្លោះអប្បបរមារវាងសំណើ Gemini ទូទាំង bot។ |
 | `AI_DAILY_LIMIT_PER_USER` | `50` | ចំនួនចម្លើយ AI ជោគជ័យអតិបរមាក្នុងមួយថ្ងៃសម្រាប់អ្នកប្រើម្នាក់។ តម្លៃ `0` បិទកម្រិតនេះ។ |
@@ -59,7 +60,7 @@ Persona លំនាំដើមស្ថិតនៅ `persona/cooler_bot_2050.t
 Bot នេះប្រើ Telegram long polling។ វាមិនចាំបាច់មាន public domain ឬ `PORT` ទេ។ `railway.json` កំណត់ start command ជា `python bot.py`; Railway អាចរកឃើញ Python dependencies ពី `requirements.txt` ដោយស្វ័យប្រវត្តិ។
 
 1. ក្នុង Railway ចុច **New Project → Deploy from GitHub Repo** ហើយជ្រើស `kn8508827-arch/Bot-Smos-Smea` និង branch `main`។
-2. នៅផ្ទាំង **Variables** របស់ service បន្ថែម `BOT_TOKEN`។ បន្ថែម `GEMINI_API_KEY` បើចង់បើក AI; វាមិនចាំបាច់សម្រាប់ polling និងការស្វែងរកទីតាំងទេ។ កុំដាក់តម្លៃសម្ងាត់ក្នុង Git ឬផ្ញើតាម chat។
+2. នៅផ្ទាំង **Variables** របស់ service បន្ថែម `BOT_TOKEN` និង `GEMINI_API_KEY` ដើម្បីប្រើមុខងារ AI។ `AI_VISION_MODEL` អាចទុកតាម default ឬកំណត់ model ផ្សេងដែលគាំទ្រ image input។ កុំដាក់តម្លៃសម្ងាត់ក្នុង Git ឬផ្ញើតាម chat។
 3. ភ្ជាប់ Railway Volume ទៅ service ដោយ mount path `/app/data` ហើយកំណត់ `BOT_DB_PATH=/app/data/bot_database.db`។ ត្រូវភ្ជាប់ Volume មុនពេលចាប់ផ្តើមរក្សាទុកទិន្នន័យដែលចង់រក្សាទុក ព្រោះ filesystem ខាងក្រៅ Volume អាចបាត់ពេល deploy ថ្មី។ បើ service ចាស់មាន database ត្រូវបម្រុងទុក ហើយចម្លងចូល Volume មុនប្តូរ `BOT_DB_PATH`។
 4. រក្សា service ឱ្យដំណើរការតែមួយ replica ខណៈប្រើ SQLite។ កុំបង្កើត public domain សម្រាប់ bot នេះ។
 5. Deploy ហើយពិនិត្យ deploy logs: គួរឃើញ bot ចាប់ផ្តើម polling ដោយគ្មាន error។ បន្ទាប់មកសាក `/start` ក្នុង Telegram។
@@ -71,7 +72,7 @@ Bot នេះប្រើ Telegram long polling។ វាមិនចាំប�
 ## រចនាសម្ព័ន្ធសំខាន់
 
 - `bot.py` — Telegram handlers និង long polling entry point។
-- `ai_assistant.py` — Gemini requests, persona/system instruction, chat context, throttling និង daily usage limit។
+- `ai_assistant.py` — Gemini requests សម្រាប់ Chat/Voice ដើម និង Gemini Vision ផ្លូវដាច់ដោយឡែក, persona/system instruction, chat context, throttling និង daily usage limit។
 - `persona/cooler_bot_2050.txt` — persona ជាភាសាខ្មែរដែលអាចកែបាន។
 - `config.py` — environment settings និង `.env` loading។
 - `database.py` — SQLite storage សម្រាប់សមាជិក ប្រវត្តិសន្ទនា និង usage។

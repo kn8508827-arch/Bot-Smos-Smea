@@ -26,6 +26,10 @@ _gemini_last_request_at = 0.0
 
 DEFAULT_GEMINI_MODEL = getattr(config, "AI_MODEL", None) or "gemini-2.0-flash"
 FALLBACK_GEMINI_MODEL = "gemini-1.5-flash"
+DEFAULT_GEMINI_VISION_MODEL = getattr(config, "AI_VISION_MODEL", None) or "gemini-3.8-flash"
+FALLBACK_GEMINI_VISION_MODEL = "gemini-3.6-flash"
+MAX_INLINE_IMAGE_BYTES = 10 * 1024 * 1024
+ALLOWED_IMAGE_MIME_TYPES = frozenset({"image/jpeg", "image/png", "image/webp", "image/heic", "image/heif"})
 GEMINI_MAX_ATTEMPTS = 3
 GEMINI_MAX_RETRY_AFTER_SECONDS = 15.0
 
@@ -442,6 +446,100 @@ async def generate_gemini_response(
     raise GeminiEmptyResponseError("Gemini request failed without a usable response")
 
 
+async def generate_gemini_image_response(
+    api_key: str,
+    prompt: str,
+    image_bytes: bytes,
+    mime_type: str,
+    history: List[Dict[str, str]],
+    user_name: Optional[str] = None,
+    user_id: Optional[int] = None,
+    db_path: Optional[str] = None,
+    client: Optional[httpx.AsyncClient] = None
+) -> str:
+    """Send an image-only multimodal request without changing the existing text generator."""
+    contents = []
+    try:
+        for msg in build_context(user_id=user_id, history=history, db_path=db_path):
+            role = "user" if msg["role"] == "user" else "model"
+            contents.append({"role": role, "parts": [{"text": msg["content"][:1500]}]})
+    except Exception:
+        for msg in history[-6:]:
+            role = "user" if msg["role"] == "user" else "model"
+            contents.append({"role": role, "parts": [{"text": msg.get("content", "")[:1500]}]})
+        while contents and contents[0]["role"] != "user":
+            contents.pop(0)
+
+    image_part = {
+        "inline_data": {
+            "mime_type": mime_type,
+            "data": base64.b64encode(bytes(image_bytes)).decode("ascii")
+        }
+    }
+    contents.append({
+        "role": "user",
+        "parts": [image_part, {"text": prompt}]
+    })
+    payload = {
+        "system_instruction": {"parts": [{"text": get_system_instruction(user_name, user_id=user_id)}]},
+        "contents": contents,
+        "generationConfig": {"maxOutputTokens": 1024}
+    }
+    headers = {"x-goog-api-key": api_key, "Content-Type": "application/json"}
+    http_client = client or await get_shared_http_client()
+    current_model = DEFAULT_GEMINI_VISION_MODEL
+
+    for attempt in range(GEMINI_MAX_ATTEMPTS):
+        await _wait_for_gemini_request_slot()
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/{current_model}:generateContent"
+        try:
+            response = await http_client.post(url, json=payload, headers=headers)
+        except httpx.TransportError:
+            if attempt >= GEMINI_MAX_ATTEMPTS - 1:
+                raise
+            await asyncio.sleep(_backoff_delay(attempt))
+            continue
+
+        if response.status_code == 200:
+            try:
+                data = response.json()
+                candidates = data.get("candidates") or []
+                parts = (candidates[0].get("content") or {}).get("parts") or [] if candidates else []
+                reply_text = clean_markdown_for_telegram(
+                    "\n".join((part.get("text") or "").strip() for part in parts if part.get("text"))
+                )
+            except Exception:
+                reply_text = ""
+            if not reply_text:
+                raise GeminiEmptyResponseError("Gemini returned no image-analysis text")
+            return reply_text
+
+        if (
+            response.status_code in (404, 500, 502, 503, 504)
+            and current_model != FALLBACK_GEMINI_VISION_MODEL
+        ):
+            logger.warning(
+                "Gemini vision model %s returned %s; switching to %s",
+                current_model,
+                response.status_code,
+                FALLBACK_GEMINI_VISION_MODEL
+            )
+            current_model = FALLBACK_GEMINI_VISION_MODEL
+            await asyncio.sleep(0.2)
+            continue
+
+        if attempt < GEMINI_MAX_ATTEMPTS - 1 and response.status_code in (408, 429, 500, 502, 503, 504):
+            await asyncio.sleep(_backoff_delay(attempt, response))
+            continue
+        if response.status_code == 429:
+            raise httpx.HTTPStatusError("Gemini rate limit", request=response.request, response=response)
+        if response.status_code in (401, 403):
+            raise PermissionError("Invalid Gemini API key")
+        response.raise_for_status()
+
+    raise GeminiEmptyResponseError("Gemini image request failed without a usable response")
+
+
 async def ask_ai(user_id: int, user_message: str, user_name: Optional[str] = None, db_path: Optional[str] = None) -> str:
     cleaned_prompt = normalize_text(user_message or "")
     if not cleaned_prompt:
@@ -521,6 +619,116 @@ async def ask_ai(user_id: int, user_message: str, user_name: Optional[str] = Non
         return getattr(messages, "AI_GENERIC_ERROR", "មានបញ្ហាបច្ចេកទេស។")
     except Exception as e:
         logger.error(f"Error AI: {type(e).__name__}")
+        return getattr(messages, "AI_GENERIC_ERROR", "មានបញ្ហាបច្ចេកទេស។")
+
+
+async def ask_ai_with_image(
+    user_id: int,
+    image_bytes: bytes,
+    caption: Optional[str] = None,
+    mime_type: str = "image/jpeg",
+    user_name: Optional[str] = None,
+    db_path: Optional[str] = None
+) -> str:
+    """Analyze a Telegram photo with Gemini Vision and answer its optional caption in Khmer."""
+    if not isinstance(image_bytes, (bytes, bytearray)) or not image_bytes:
+        return "សូមផ្ញើរូបភាពដែលអាចបើកបានម្ដងទៀត។"
+    if len(image_bytes) > MAX_INLINE_IMAGE_BYTES:
+        return "រូបភាពមានទំហំធំពេក។ សូមផ្ញើរូបភាពតូចជាង 10 MB។"
+    if mime_type not in ALLOWED_IMAGE_MIME_TYPES:
+        return "ប្រភេទរូបភាពនេះមិនទាន់អាចវិភាគបានទេ។ សូមផ្ញើជា JPG, PNG ឬ WEBP។"
+
+    gemini_key = getattr(config, "GEMINI_API_KEY", "")
+    if not gemini_key:
+        return getattr(messages, "AI_NOT_CONFIGURED", "AI មិនទាន់កំណត់ API Key នៅឡើយទេ។")
+
+    allowed, seconds_left = check_rate_limit(user_id)
+    if not allowed:
+        return getattr(messages, "AI_COOLDOWN", "សូមរង់ចាំ {seconds} វិនាទីសិន!").format(seconds=seconds_left)
+
+    daily_limit = getattr(config, "AI_DAILY_LIMIT_PER_USER", 50)
+    try:
+        current_count = database.get_daily_usage(user_id, db_path)
+    except Exception as exc:
+        logger.warning("Could not read image AI daily usage (%s)", type(exc).__name__)
+        return getattr(messages, "AI_GENERIC_ERROR", "មានបញ្ហាបច្ចេកទេស។")
+    if daily_limit > 0 and current_count >= daily_limit:
+        return getattr(messages, "AI_DAILY_LIMIT_REACHED", "អ្នកប្រើអស់កូតាថ្ងៃនេះហើយ ({current_usage}/{max_limit})។").format(
+            current_usage=current_count,
+            max_limit=daily_limit
+        )
+
+    cleaned_caption = normalize_text(caption or "")[:1024]
+    if cleaned_caption:
+        prompt = (
+            "សូមពិនិត្យរូបភាពនេះ ហើយឆ្លើយសំណួរ ឬសំណើដែលអ្នកប្រើសរសេរនៅក្នុង Caption ខាងក្រោម។ "
+            "ពន្យល់អ្វីដែលអាចមើលឃើញ រួមទាំងអត្ថបទក្នុងរូបភាព ប្រសិនបើអាចអានបាន។ "
+            "សូមឆ្លើយជាភាសាខ្មែរធម្មជាតិ លុះត្រាតែអ្នកប្រើស្នើភាសាផ្សេង។ "
+            "កុំសន្និដ្ឋានព័ត៌មានដែលមិនអាចមើលឃើញ ហើយប្រាប់ឱ្យច្បាស់នៅពេលមិនប្រាកដ។\n\n"
+            f"Caption / សំណួរ៖ {cleaned_caption}"
+        )
+    else:
+        prompt = (
+            "សូមពិពណ៌នា និងវិភាគរូបភាពនេះជាភាសាខ្មែរធម្មជាតិ។ "
+            "រៀបរាប់វត្ថុ សកម្មភាព ប្លង់ ឬអត្ថបទដែលអាចមើលឃើញ ហើយជួយឆ្លើយសំណួរដែលអាចឆ្លើយបានពីរូបភាព។ "
+            "កុំសន្និដ្ឋានព័ត៌មានដែលមិនអាចមើលឃើញ ហើយប្រាប់ឱ្យច្បាស់នៅពេលមិនប្រាកដ។"
+        )
+
+    if not user_name:
+        try:
+            with database.get_db(db_path) as conn:
+                cursor = conn.cursor()
+                cursor.execute("SELECT first_name FROM users WHERE user_id = ?", (user_id,))
+                row = cursor.fetchone()
+                if row and row["first_name"]:
+                    user_name = row["first_name"]
+        except Exception:
+            pass
+
+    history = []
+    try:
+        history = database.get_chat_history(
+            user_id=user_id,
+            limit=getattr(config, "AI_CONTEXT_MESSAGE_LIMIT", 8),
+            db_path=db_path
+        )
+    except Exception:
+        history = []
+
+    try:
+        ai_reply = await generate_gemini_image_response(
+            api_key=gemini_key,
+            prompt=prompt,
+            image_bytes=image_bytes,
+            mime_type=mime_type,
+            history=history,
+            user_name=user_name,
+            user_id=user_id,
+            db_path=db_path
+        )
+        try:
+            database.check_and_increment_daily_usage(user_id, daily_limit, db_path)
+        except Exception:
+            logger.debug("Could not record image AI usage")
+        user_record = f"[Photo] {cleaned_caption}".strip()
+        try:
+            database.add_chat_message(user_id, "user", user_record, db_path)
+            database.add_chat_message(user_id, "assistant", ai_reply, db_path)
+        except Exception:
+            logger.debug("Could not persist photo analysis to DB")
+        return ai_reply
+    except httpx.TimeoutException:
+        return getattr(messages, "AI_TIMEOUT_ERROR", "ប្រព័ន្ធឆ្លើយតបយឺតពេក (Timeout)។")
+    except httpx.HTTPStatusError as exc:
+        if getattr(exc.response, "status_code", None) == 429:
+            return getattr(messages, "AI_RATE_LIMIT_ERROR", "សំណើច្រើនពេក សូមរង់ចាំមួយភ្លែត។")
+        return getattr(messages, "AI_GENERIC_ERROR", "មានបញ្ហាបច្ចេកទេស។")
+    except PermissionError:
+        return getattr(messages, "AI_AUTH_ERROR", "API Key មិនត្រឹមត្រូវ។")
+    except GeminiEmptyResponseError:
+        return getattr(messages, "AI_GENERIC_ERROR", "មានបញ្ហាបច្ចេកទេស។")
+    except Exception as exc:
+        logger.error("Error analyzing photo with Gemini (%s)", type(exc).__name__)
         return getattr(messages, "AI_GENERIC_ERROR", "មានបញ្ហាបច្ចេកទេស។")
 
 

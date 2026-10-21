@@ -26,6 +26,7 @@ import messages
 import ai_assistant
 import scheduler
 import location_service
+import weather_service
 
 logging.basicConfig(
     level=logging.INFO, 
@@ -142,6 +143,7 @@ def setup_bot_commands():
             BotCommand("dailycare", "🛠️ គ្រប់គ្រង Daily Care (Admin)"),
             BotCommand("fuel", "⛽ ស្វែងរកកន្លែងចាក់សាំង"),
             BotCommand("ev", "⚡ ស្វែងរកស្ថានីយសាក EV"),
+            BotCommand("weather", "🌤️ ព្យាករណ៍អាកាសធាតុតាមខេត្ត"),
         ]
         bot.set_my_commands(commands)
         logger.info("Bot commands menu registered successfully.")
@@ -158,6 +160,7 @@ def _location_menu_keyboard():
         InlineKeyboardButton("📍 ស្វែងរកជិតខ្ញុំ", callback_data="location:nearby"),
         InlineKeyboardButton("🗺️ មើលផែនទី", callback_data="location:map"),
         InlineKeyboardButton("🔎 ស្វែងរកតាមខេត្ត", callback_data="location:province"),
+        InlineKeyboardButton("🌤️ អាកាសធាតុ", callback_data="weather:menu"),
     )
     return markup
 
@@ -279,6 +282,68 @@ def _send_location_results(message, query="", kind=None, lat=None, lon=None):
     bot.reply_to(message, text, reply_markup=markup)
 
 
+_WEATHER_MENU_TEXT = "🌤️ សូមជ្រើសរើសខេត្តដែលចង់ដឹងអាកាសធាតុ៖"
+_WEATHER_ERROR_TEXT = "មិនអាចទាញទិន្នន័យអាកាសធាតុបានទេឥឡូវនេះ។ សូមសាកល្បងម្ដងទៀតពេលក្រោយ។"
+
+
+def _weather_menu_keyboard():
+    markup = InlineKeyboardMarkup()
+    markup.row_width = 3
+    markup.add(*[
+        InlineKeyboardButton(info[0], callback_data=f"weather:{slug}")
+        for slug, info in weather_service.PROVINCES.items()
+    ])
+    return markup
+
+
+def _weather_result_keyboard():
+    markup = InlineKeyboardMarkup()
+    markup.add(InlineKeyboardButton("🔙 ជ្រើសខេត្តផ្សេង", callback_data="weather:menu"))
+    return markup
+
+
+def _send_weather(message, slug):
+    try:
+        text = weather_service.get_weather_text(slug)
+    except weather_service.WeatherError:
+        bot.reply_to(message, _WEATHER_ERROR_TEXT)
+        return
+    bot.reply_to(message, text, reply_markup=_weather_result_keyboard())
+
+
+def _send_weather_menu(message):
+    bot.reply_to(message, _WEATHER_MENU_TEXT, reply_markup=_weather_menu_keyboard())
+
+
+def _handle_weather_callback(call, chat, data):
+    key = data.split(":", 1)[1]
+    message = getattr(call, "message", None)
+    if chat is None or message is None:
+        bot.answer_callback_query(call.id)
+        return
+
+    def show(text, markup):
+        try:
+            bot.edit_message_text(text, chat.id, message.message_id, reply_markup=markup)
+        except Exception:
+            bot.send_message(chat.id, text, reply_markup=markup)
+
+    if key == "menu":
+        bot.answer_callback_query(call.id)
+        show(_WEATHER_MENU_TEXT, _weather_menu_keyboard())
+        return
+    if key not in weather_service.PROVINCES:
+        bot.answer_callback_query(call.id)
+        return
+    bot.answer_callback_query(call.id, "កំពុងទាញទិន្នន័យ...")
+    try:
+        text = weather_service.get_weather_text(key)
+    except weather_service.WeatherError:
+        bot.send_message(chat.id, _WEATHER_ERROR_TEXT)
+        return
+    show(text, _weather_result_keyboard())
+
+
 def keep_typing(chat_id: int, stop_event: threading.Event):
     """បញ្ជូនសញ្ញា typing រៀងរាល់ ៤ វិនាទីម្តង រហូតដល់ AI រៀបចំចម្លើយរួចរាល់"""
     while not stop_event.is_set():
@@ -330,6 +395,20 @@ def ev_search_command(message):
     _location_prompt(message, "ev")
 
 
+@registered_message_handler(commands=['weather'])
+def weather_command(message):
+    parts = (message.text or "").split(maxsplit=1)
+    arg = parts[1] if len(parts) > 1 else ""
+    slug = weather_service.find_province(arg)
+    if arg and slug is None:
+        bot.reply_to(message, "រកមិនឃើញខេត្តនោះទេ។ សូមជ្រើសរើសពីបញ្ជីខាងក្រោម។")
+        _send_weather_menu(message)
+    elif slug:
+        _send_weather(message, slug)
+    else:
+        _send_weather_menu(message)
+
+
 @registered_message_handler(commands=['about'])
 def send_about(message):
     bot.reply_to(message, "នេះគឺជា Bot-Smos-Snea 🤖 ដែលបង្កើតឡើងដើម្បីជួយសម្រួលការងារ និងទំនាក់ទំនងរបស់អ្នក។")
@@ -362,7 +441,8 @@ def send_help(message):
         "• /events - កាលវិភាគព្រឹត្តិការណ៍\n"
         "• /register - ចុះឈ្មោះ (Mini Web App)\n"
         "• /reset - សម្អាតប្រវត្តិសន្ទនាជាមួយ AI\n\n"
-        "• /notifications - បើក ឬបិទសារ Daily Care\n\n"
+        "• /notifications - បើក ឬបិទសារ Daily Care\n"
+        "• /weather - ព្យាករណ៍អាកាសធាតុតាមខេត្ត\n\n"
         "💡 *អ្នកអាចវាយសំណួរ ឬផ្ញើសារជាសំឡេង (Voice Note) ឬរូបភាពមកជជែកជាមួយ AI បានគ្រប់ពេល!*"
     )
     try:
@@ -400,6 +480,10 @@ def callback_query(call):
         message = getattr(call, "message", None)
         chat = getattr(message, "chat", None)
         user_id = getattr(getattr(call, "from_user", None), "id", None)
+
+        if data.startswith("weather:"):
+            _handle_weather_callback(call, chat, data)
+            return
 
         if data.startswith("location:"):
             if data.startswith("location:next:"):
@@ -683,6 +767,13 @@ def echo_all(message):
     user_id = message.from_user.id
     user_text = message.text
     if not user_text:
+        return
+    if weather_service.has_weather_intent(user_text):
+        weather_slug = weather_service.find_province(user_text)
+        if weather_slug:
+            _send_weather(message, weather_slug)
+        else:
+            _send_weather_menu(message)
         return
     pending, pending_kind = _take_pending_location_mode(user_id)
     if user_text.strip() == "🔎 ស្វែងរកតាមខេត្ត":

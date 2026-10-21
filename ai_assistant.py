@@ -373,9 +373,7 @@ async def generate_gemini_response(
         "system_instruction": {"parts": [{"text": system_inst}]},
         "contents": contents,
         "generationConfig": {
-            "temperature": 0.7,
-            "maxOutputTokens": 1024,
-            "topP": 0.95
+            "maxOutputTokens": 1024
         }
     }
 
@@ -702,7 +700,7 @@ async def ask_ai_with_audio(user_id: int, audio_bytes: bytes, mime_type: str = "
                 }
             ]
         }],
-        "generationConfig": {"temperature": 0.7, "maxOutputTokens": 1024}
+        "generationConfig": {"maxOutputTokens": 1024}
     }
 
     headers = {"x-goog-api-key": gemini_key, "Content-Type": "application/json"}

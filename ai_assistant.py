@@ -1,6 +1,6 @@
 """
 ម៉ូឌុល AI Conversational Assistant សម្រាប់ Team ស្មោះស្នេហ៍ (Production-safe upgrade)
-គាំទ្រ Google Gemini (gemini-2.0-flash / fallback gemini-1.5-flash)
+គាំទ្រ Google Gemini (gemini-3.8-flash / fallback gemini-3.6-flash)
 """
 import asyncio
 import time
@@ -24,8 +24,11 @@ _user_last_query_time: Dict[int, float] = {}
 _gemini_throttle_lock = asyncio.Lock()
 _gemini_last_request_at = 0.0
 
-DEFAULT_GEMINI_MODEL = getattr(config, "AI_MODEL", None) or "gemini-2.0-flash"
-FALLBACK_GEMINI_MODEL = "gemini-1.5-flash"
+DEFAULT_GEMINI_MODEL = getattr(config, "AI_MODEL", None) or "gemini-3.8-flash"
+DEFAULT_GEMINI_VISION_MODEL = getattr(config, "AI_VISION_MODEL", None) or "gemini-3.8-flash"
+FALLBACK_GEMINI_MODEL = "gemini-3.6-flash"
+MAX_INLINE_IMAGE_BYTES = 10 * 1024 * 1024
+ALLOWED_IMAGE_MIME_TYPES = frozenset({"image/jpeg", "image/png", "image/webp", "image/heic", "image/heif"})
 GEMINI_MAX_ATTEMPTS = 3
 GEMINI_MAX_RETRY_AFTER_SECONDS = 15.0
 
@@ -337,7 +340,8 @@ async def generate_gemini_response(
     client: Optional[httpx.AsyncClient] = None,
     *,
     user_id: Optional[int] = None,
-    db_path: Optional[str] = None
+    db_path: Optional[str] = None,
+    inline_data: Optional[Dict[str, str]] = None
 ) -> str:
     primary_model = model_name or getattr(config, "AI_MODEL", None) or DEFAULT_GEMINI_MODEL
     current_model = primary_model
@@ -358,7 +362,11 @@ async def generate_gemini_response(
         while contents and contents[0]["role"] != "user":
             contents.pop(0)
 
-    contents.append({"role": "user", "parts": [{"text": prompt}]})
+    user_parts: List[Dict[str, Any]] = []
+    if inline_data:
+        user_parts.append({"inline_data": inline_data})
+    user_parts.append({"text": prompt})
+    contents.append({"role": "user", "parts": user_parts})
 
     system_inst = get_system_instruction(user_name, user_id=user_id)
     payload = {
@@ -524,8 +532,127 @@ async def ask_ai(user_id: int, user_message: str, user_name: Optional[str] = Non
         return getattr(messages, "AI_GENERIC_ERROR", "មានបញ្ហាបច្ចេកទេស។")
 
 
+async def ask_ai_with_image(
+    user_id: int,
+    image_bytes: bytes,
+    caption: Optional[str] = None,
+    mime_type: str = "image/jpeg",
+    user_name: Optional[str] = None,
+    db_path: Optional[str] = None
+) -> str:
+    """Analyze a Telegram photo with Gemini and answer its optional caption in Khmer."""
+    if not isinstance(image_bytes, (bytes, bytearray)) or not image_bytes:
+        return "សូមផ្ញើរូបភាពដែលអាចបើកបានម្ដងទៀត។"
+    if len(image_bytes) > MAX_INLINE_IMAGE_BYTES:
+        return "រូបភាពមានទំហំធំពេក។ សូមផ្ញើរូបភាពតូចជាង 10 MB។"
+    if mime_type not in ALLOWED_IMAGE_MIME_TYPES:
+        return "ប្រភេទរូបភាពនេះមិនទាន់អាចវិភាគបានទេ។ សូមផ្ញើជា JPG, PNG ឬ WEBP។"
+
+    gemini_key = getattr(config, "GEMINI_API_KEY", "")
+    if not gemini_key:
+        return getattr(messages, "AI_NOT_CONFIGURED", "AI មិនទាន់កំណត់ API Key នៅឡើយទេ។")
+
+    allowed, seconds_left = check_rate_limit(user_id)
+    if not allowed:
+        return getattr(messages, "AI_COOLDOWN", "សូមរង់ចាំ {seconds} វិនាទីសិន!").format(seconds=seconds_left)
+
+    daily_limit = getattr(config, "AI_DAILY_LIMIT_PER_USER", 50)
+    try:
+        current_count = database.get_daily_usage(user_id, db_path)
+    except Exception as exc:
+        logger.warning("Could not read image AI daily usage (%s)", type(exc).__name__)
+        return getattr(messages, "AI_GENERIC_ERROR", "មានបញ្ហាបច្ចេកទេស។")
+
+    if daily_limit > 0 and current_count >= daily_limit:
+        return getattr(messages, "AI_DAILY_LIMIT_REACHED", "អ្នកប្រើអស់កូតាថ្ងៃនេះហើយ ({current_usage}/{max_limit})។").format(
+            current_usage=current_count,
+            max_limit=daily_limit
+        )
+
+    cleaned_caption = normalize_text(caption or "")[:1024]
+    if cleaned_caption:
+        prompt = (
+            "សូមពិនិត្យរូបភាពនេះ ហើយឆ្លើយសំណួរ ឬសំណើដែលអ្នកប្រើសរសេរនៅក្នុង Caption ខាងក្រោម។ "
+            "ពន្យល់អ្វីដែលអាចមើលឃើញ រួមទាំងអត្ថបទក្នុងរូបភាព ប្រសិនបើអាចអានបាន។ "
+            "សូមឆ្លើយជាភាសាខ្មែរធម្មជាតិ លុះត្រាតែអ្នកប្រើស្នើភាសាផ្សេង។ "
+            "កុំសន្និដ្ឋានព័ត៌មានដែលមិនអាចមើលឃើញ ហើយប្រាប់ឱ្យច្បាស់នៅពេលមិនប្រាកដ។\n\n"
+            f"Caption / សំណួរ៖ {cleaned_caption}"
+        )
+    else:
+        prompt = (
+            "សូមពិពណ៌នា និងវិភាគរូបភាពនេះជាភាសាខ្មែរធម្មជាតិ។ "
+            "រៀបរាប់វត្ថុ សកម្មភាព ប្លង់ ឬអត្ថបទដែលអាចមើលឃើញ ហើយជួយឆ្លើយសំណួរដែលអាចឆ្លើយបានពីរូបភាព។ "
+            "កុំសន្និដ្ឋានព័ត៌មានដែលមិនអាចមើលឃើញ ហើយប្រាប់ឱ្យច្បាស់នៅពេលមិនប្រាកដ។"
+        )
+
+    if not user_name:
+        try:
+            with database.get_db(db_path) as conn:
+                cursor = conn.cursor()
+                cursor.execute("SELECT first_name FROM users WHERE user_id = ?", (user_id,))
+                row = cursor.fetchone()
+                if row and row["first_name"]:
+                    user_name = row["first_name"]
+        except Exception:
+            pass
+
+    history = []
+    try:
+        history = database.get_chat_history(
+            user_id=user_id,
+            limit=getattr(config, "AI_CONTEXT_MESSAGE_LIMIT", 8),
+            db_path=db_path
+        )
+    except Exception:
+        history = []
+
+    inline_data = {
+        "mime_type": mime_type,
+        "data": base64.b64encode(bytes(image_bytes)).decode("ascii")
+    }
+
+    try:
+        ai_reply = await generate_gemini_response(
+            api_key=gemini_key,
+            prompt=prompt,
+            history=history,
+            user_name=user_name,
+            model_name=DEFAULT_GEMINI_VISION_MODEL,
+            user_id=user_id,
+            db_path=db_path,
+            inline_data=inline_data
+        )
+
+        try:
+            database.check_and_increment_daily_usage(user_id, daily_limit, db_path)
+        except Exception:
+            logger.debug("Could not record image AI usage")
+
+        user_record = f"[Photo] {cleaned_caption}".strip()
+        try:
+            database.add_chat_message(user_id, "user", user_record, db_path)
+            database.add_chat_message(user_id, "assistant", ai_reply, db_path)
+        except Exception:
+            logger.debug("Could not persist photo analysis to DB")
+        return ai_reply
+
+    except httpx.TimeoutException:
+        return getattr(messages, "AI_TIMEOUT_ERROR", "ប្រព័ន្ធឆ្លើយតបយឺតពេក (Timeout)។")
+    except httpx.HTTPStatusError as exc:
+        if getattr(exc.response, "status_code", None) == 429:
+            return getattr(messages, "AI_RATE_LIMIT_ERROR", "សំណើច្រើនពេក សូមរង់ចាំមួយភ្លែត។")
+        return getattr(messages, "AI_GENERIC_ERROR", "មានបញ្ហាបច្ចេកទេស។")
+    except PermissionError:
+        return getattr(messages, "AI_AUTH_ERROR", "API Key មិនត្រឹមត្រូវ។")
+    except GeminiEmptyResponseError:
+        return getattr(messages, "AI_GENERIC_ERROR", "មានបញ្ហាបច្ចេកទេស។")
+    except Exception as exc:
+        logger.error("Error analyzing photo with Gemini (%s)", type(exc).__name__)
+        return getattr(messages, "AI_GENERIC_ERROR", "មានបញ្ហាបច្ចេកទេស។")
+
+
 async def ask_ai_with_audio(user_id: int, audio_bytes: bytes, mime_type: str = "audio/ogg", user_name: Optional[str] = None, db_path: Optional[str] = None) -> str:
-    """បញ្ជូនសំឡេង Voice Note ទៅឱ្យ Gemini 2.0 Flash ស្តាប់ផ្ទាល់ (Multimodal)"""
+    """បញ្ជូនសំឡេង Voice Note ទៅឱ្យ Gemini Flash ស្តាប់ផ្ទាល់ (Multimodal)"""
     gemini_key = getattr(config, "GEMINI_API_KEY", "")
     if not gemini_key:
         return getattr(messages, "AI_NOT_CONFIGURED", "AI មិនទាន់កំណត់ API Key នៅឡើយទេ។")

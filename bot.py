@@ -363,7 +363,7 @@ def send_help(message):
         "• /register - ចុះឈ្មោះ (Mini Web App)\n"
         "• /reset - សម្អាតប្រវត្តិសន្ទនាជាមួយ AI\n\n"
         "• /notifications - បើក ឬបិទសារ Daily Care\n\n"
-        "💡 *អ្នកអាចវាយសំណួរ ឬផ្ញើសារជាសំឡេង (Voice Note) មកជជែកជាមួយ AI បានគ្រប់ពេល!*"
+        "💡 *អ្នកអាចវាយសំណួរ ផ្ញើសារជាសំឡេង ឬរូបភាពមកជជែក និងស្នើឱ្យ AI វិភាគបាន!*"
     )
     try:
         bot.reply_to(message, help_text, parse_mode="Markdown")
@@ -575,6 +575,75 @@ def handle_voice(message):
         ))
     except Exception as e:
         logger.error(f"Error handling voice message: {e}")
+        reply = messages.AI_GENERIC_ERROR
+    finally:
+        stop_typing_event.set()
+
+    try:
+        bot.reply_to(message, reply, parse_mode="Markdown")
+    except Exception:
+        bot.reply_to(message, reply)
+
+
+# =========================================================
+# Photo Handler (AI វិភាគរូបភាព)
+# =========================================================
+
+@registered_message_handler(content_types=['photo'])
+def handle_photo(message):
+    photo_sizes = getattr(message, "photo", None) or []
+    if not photo_sizes:
+        bot.reply_to(message, "មិនអាចអានរូបភាពបានទេ។ សូមផ្ញើម្ដងទៀត។")
+        return
+
+    largest_photo = max(
+        photo_sizes,
+        key=lambda photo: (
+            (getattr(photo, "width", 0) or 0) * (getattr(photo, "height", 0) or 0),
+            getattr(photo, "file_size", 0) or 0,
+        ),
+    )
+    max_image_bytes = ai_assistant.MAX_INLINE_IMAGE_BYTES
+    declared_size = getattr(largest_photo, "file_size", None)
+    if declared_size and declared_size > max_image_bytes:
+        bot.reply_to(message, "រូបភាពមានទំហំធំពេក។ សូមផ្ញើរូបភាពតូចជាង 10 MB។")
+        return
+
+    user = getattr(message, "from_user", None)
+    user_id = getattr(user, "id", None)
+    if user_id is None:
+        bot.reply_to(message, messages.AI_GENERIC_ERROR)
+        return
+
+    stop_typing_event = threading.Event()
+    typing_thread = threading.Thread(
+        target=keep_typing,
+        args=(message.chat.id, stop_typing_event),
+        daemon=True
+    )
+    typing_thread.start()
+
+    try:
+        file_info = bot.get_file(largest_photo.file_id)
+        remote_size = getattr(file_info, "file_size", None)
+        if remote_size and remote_size > max_image_bytes:
+            reply = "រូបភាពមានទំហំធំពេក។ សូមផ្ញើរូបភាពតូចជាង 10 MB។"
+        else:
+            downloaded_photo = bot.download_file(file_info.file_path)
+            if not downloaded_photo:
+                reply = "មិនអាចទាញយករូបភាពបានទេ។ សូមផ្ញើម្ដងទៀត។"
+            elif len(downloaded_photo) > max_image_bytes:
+                reply = "រូបភាពមានទំហំធំពេក។ សូមផ្ញើរូបភាពតូចជាង 10 MB។"
+            else:
+                reply = asyncio.run(ai_assistant.ask_ai_with_image(
+                    user_id=user_id,
+                    image_bytes=downloaded_photo,
+                    caption=getattr(message, "caption", None),
+                    mime_type="image/jpeg",
+                    user_name=getattr(user, "first_name", None)
+                ))
+    except Exception as exc:
+        logger.error("Error handling photo message (%s)", type(exc).__name__)
         reply = messages.AI_GENERIC_ERROR
     finally:
         stop_typing_event.set()

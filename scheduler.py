@@ -16,6 +16,7 @@ from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 
 import ai_assistant
+import async_runner
 import config
 import database
 import messages
@@ -94,7 +95,7 @@ def generate_care_message(category: str) -> str:
             "and natural Khmer. Do not include a name, private details, markdown, links, or a claim "
             "that you know the recipient personally. Return only the message."
         )
-        response = asyncio.run(
+        response = async_runner.run_sync(
             ai_assistant.generate_gemini_response(
                 api_key=api_key,
                 prompt=prompt,

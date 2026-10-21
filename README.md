@@ -27,7 +27,7 @@ Persona លំនាំដើមស្ថិតនៅ `persona/cooler_bot_2050.t
 | `GEMINI_API_KEY` | គ្មាន | បើក Gemini សម្រាប់អត្ថបទ សំឡេង និងការវិភាគរូបភាព; បើគ្មាន key bot បង្ហាញសារថា AI មិនទាន់កំណត់។ |
 | `STABILITY_API_KEY` | គ្មាន | API key សម្រាប់មុខងារកែរូបភាព Stability AI។ |
 | `COOLER_PERSONA_PATH` | `persona/cooler_bot_2050.txt` | ទីតាំង persona file; អាចជា absolute ឬ relative path។ |
-| `AI_MODEL` | `gemini-2.0-flash` | Gemini model សម្រាប់សន្ទនាចាស់; fallback គឺ `gemini-1.5-flash`។ |
+| `AI_MODEL` | `gemini-2.0-flash` | Gemini model សម្រាប់ Chat និង Voice ដែលមានស្រាប់; fallback គឺ `gemini-1.5-flash`។ |
 | `AI_VISION_MODEL` | `gemini-3.8-flash` | Gemini Vision model ដាច់ដោយឡែកសម្រាប់ការវិភាគរូបភាព; fallback គឺ `gemini-3.6-flash`។ |
 | `AI_RATE_LIMIT_SECONDS` | `3` | ចន្លោះអប្បបរមារវាងសំណើពីអ្នកប្រើដដែល។ |
 | `AI_GLOBAL_RATE_LIMIT_SECONDS` | `0.5` | ចន្លោះអប្បបរមារវាងសំណើ Gemini ទូទាំង bot។ |
@@ -60,7 +60,7 @@ Persona លំនាំដើមស្ថិតនៅ `persona/cooler_bot_2050.t
 Bot នេះប្រើ Telegram long polling។ វាមិនចាំបាច់មាន public domain ឬ `PORT` ទេ។ `railway.json` កំណត់ start command ជា `python bot.py`; Railway អាចរកឃើញ Python dependencies ពី `requirements.txt` ដោយស្វ័យប្រវត្តិ។
 
 1. ក្នុង Railway ចុច **New Project → Deploy from GitHub Repo** ហើយជ្រើស `kn8508827-arch/Bot-Smos-Smea` និង branch `main`។
-2. នៅផ្ទាំង **Variables** របស់ service បន្ថែម `BOT_TOKEN` និង `GEMINI_API_KEY` ដើម្បីប្រើមុខងារ AI។ `AI_VISION_MODEL` អាចទុកតាម default ឬកំណត់ model ផ្សេងដែលគាំទ្រ image input។ កុំដាក់តម្លៃសម្ងាត់ក្នុង Git ឬផ្ញើតាម chat។ កុំដាក់តម្លៃសម្ងាត់ក្នុង Git ឬផ្ញើតាម chat។
+2. នៅផ្ទាំង **Variables** របស់ service បន្ថែម `BOT_TOKEN` និង `GEMINI_API_KEY` ដើម្បីប្រើមុខងារ AI។ `AI_VISION_MODEL` អាចទុកតាម default ឬកំណត់ model ផ្សេងដែលគាំទ្រ image input។ កុំដាក់តម្លៃសម្ងាត់ក្នុង Git ឬផ្ញើតាម chat។
 3. ភ្ជាប់ Railway Volume ទៅ service ដោយ mount path `/app/data` ហើយកំណត់ `BOT_DB_PATH=/app/data/bot_database.db`។ ត្រូវភ្ជាប់ Volume មុនពេលចាប់ផ្តើមរក្សាទុកទិន្នន័យដែលចង់រក្សាទុក ព្រោះ filesystem ខាងក្រៅ Volume អាចបាត់ពេល deploy ថ្មី។ បើ service ចាស់មាន database ត្រូវបម្រុងទុក ហើយចម្លងចូល Volume មុនប្តូរ `BOT_DB_PATH`។
 4. រក្សា service ឱ្យដំណើរការតែមួយ replica ខណៈប្រើ SQLite។ កុំបង្កើត public domain សម្រាប់ bot នេះ។
 5. Deploy ហើយពិនិត្យ deploy logs: គួរឃើញ bot ចាប់ផ្តើម polling ដោយគ្មាន error។ បន្ទាប់មកសាក `/start` ក្នុង Telegram។

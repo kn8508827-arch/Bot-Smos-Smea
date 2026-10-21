@@ -24,6 +24,7 @@ import config
 import database
 import messages
 import ai_assistant
+import async_runner
 import scheduler
 import location_service
 
@@ -567,7 +568,7 @@ def handle_voice(message):
         downloaded_voice = bot.download_file(file_info.file_path)
 
         # បញ្ជូនសំឡេងទៅកាន់ Gemini AI ឱ្យស្តាប់
-        reply = asyncio.run(ai_assistant.ask_ai_with_audio(
+        reply = async_runner.run_sync(ai_assistant.ask_ai_with_audio(
             user_id=user_id,
             audio_bytes=downloaded_voice,
             mime_type="audio/ogg",
@@ -635,7 +636,7 @@ def handle_photo(message):
             elif len(downloaded_photo) > max_image_bytes:
                 reply = "រូបភាពមានទំហំធំពេក។ សូមផ្ញើរូបភាពតូចជាង 10 MB។"
             else:
-                reply = asyncio.run(ai_assistant.ask_ai_with_image(
+                reply = async_runner.run_sync(ai_assistant.ask_ai_with_image(
                     user_id=user_id,
                     image_bytes=downloaded_photo,
                     caption=getattr(message, "caption", None),
@@ -720,7 +721,7 @@ def echo_all(message):
     typing_thread.start()
 
     try:
-        reply = asyncio.run(ai_assistant.ask_ai(
+        reply = async_runner.run_sync(ai_assistant.ask_ai(
             user_id=user_id, 
             user_message=user_text, 
             user_name=user_name
@@ -758,5 +759,6 @@ if __name__ == '__main__':
         logger.info("Bot process interrupted. Shutting down gracefully...")
     finally:
         scheduler.shutdown_scheduler(dailycare_scheduler)
-        asyncio.run(ai_assistant.close_shared_http_client())
+        async_runner.run_sync(ai_assistant.close_shared_http_client(), timeout=10)
+        async_runner.shutdown_loop()
         logger.info("Cleaned up network connections.")

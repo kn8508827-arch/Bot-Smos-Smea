@@ -309,9 +309,66 @@ def _heartbeat_scheduler_lease(scheduler: Any) -> None:
     shutdown_scheduler(scheduler)
 
 
-def start_scheduler(bot: Any) -> Optional[BackgroundScheduler]:
-    """Start one leased in-process scheduler; Railway also requires persistent SQLite."""
+_scheduler_retry_thread: Optional[threading.Thread] = None
+_scheduler_retry_stop = threading.Event()
+_SCHEDULER_LOCK_RETRY_INTERVAL_SECONDS = 5
+
+
+def _start_scheduler_with_lease(bot: Any, owner_id: str) -> Optional[BackgroundScheduler]:
+    """Start the scheduled jobs after the caller acquires the database lease."""
     global _scheduler_instance, _scheduler_lock_owner
+    ttl_seconds = int(getattr(config, "DAILYCARE_LOCK_TTL_SECONDS", 90))
+    scheduler = BackgroundScheduler(timezone=CAMBODIA_TIMEZONE, daemon=True)
+    try:
+        register_dailycare_jobs(scheduler, bot)
+        scheduler.add_job(
+            _heartbeat_scheduler_lease,
+            trigger="interval",
+            seconds=max(5, ttl_seconds // 3),
+            args=(scheduler,),
+            id="dailycare_scheduler_lease_heartbeat",
+            replace_existing=True,
+            coalesce=True,
+            max_instances=1,
+        )
+        scheduler.start()
+        _scheduler_lock_owner = owner_id
+        _scheduler_instance = scheduler
+        logger.info("Daily-care scheduler started for Asia/Phnom_Penh")
+        return scheduler
+    except Exception:
+        if scheduler.running:
+            scheduler.shutdown(wait=False)
+        database.release_scheduler_lock(owner_id)
+        logger.exception("Could not start Daily-care scheduler")
+        return None
+
+
+def _retry_start_scheduler(bot: Any) -> None:
+    """Retry lease acquisition in the background during overlapping deployments."""
+    global _scheduler_retry_thread
+    ttl_seconds = int(getattr(config, "DAILYCARE_LOCK_TTL_SECONDS", 90))
+    while not _scheduler_retry_stop.wait(_SCHEDULER_LOCK_RETRY_INTERVAL_SECONDS):
+        with _scheduler_guard:
+            if _scheduler_retry_stop.is_set():
+                _scheduler_retry_thread = None
+                return
+            if _scheduler_instance is not None and _scheduler_instance.running:
+                _scheduler_retry_thread = None
+                return
+            owner_id = f"{os.getpid()}:{uuid.uuid4().hex}"
+            if not database.acquire_scheduler_lock(owner_id, ttl_seconds=ttl_seconds):
+                continue
+            _scheduler_retry_thread = None
+            _start_scheduler_with_lease(bot, owner_id)
+            return
+    with _scheduler_guard:
+        _scheduler_retry_thread = None
+
+
+def start_scheduler(bot: Any) -> Optional[BackgroundScheduler]:
+    """Start one leased in-process scheduler; retry asynchronously if a deployment overlaps."""
+    global _scheduler_instance, _scheduler_retry_thread
     with _scheduler_guard:
         if _scheduler_instance is not None and _scheduler_instance.running:
             return _scheduler_instance
@@ -323,47 +380,39 @@ def start_scheduler(bot: Any) -> Optional[BackgroundScheduler]:
 
         owner_id = f"{os.getpid()}:{uuid.uuid4().hex}"
         ttl_seconds = int(getattr(config, "DAILYCARE_LOCK_TTL_SECONDS", 90))
-        if not database.acquire_scheduler_lock(owner_id, ttl_seconds=ttl_seconds):
-            logger.info("Daily-care scheduler not started: another process holds the database lease")
-            return None
+        if database.acquire_scheduler_lock(owner_id, ttl_seconds=ttl_seconds):
+            return _start_scheduler_with_lease(bot, owner_id)
 
-        scheduler = BackgroundScheduler(timezone=CAMBODIA_TIMEZONE, daemon=True)
-        try:
-            register_dailycare_jobs(scheduler, bot)
-            scheduler.add_job(
-                _heartbeat_scheduler_lease,
-                trigger="interval",
-                seconds=max(5, ttl_seconds // 3),
-                args=(scheduler,),
-                id="dailycare_scheduler_lease_heartbeat",
-                replace_existing=True,
-                coalesce=True,
-                max_instances=1,
+        logger.info(
+            "Daily-care scheduler waiting for the database lease; retrying in the background"
+        )
+        if _scheduler_retry_thread is None or not _scheduler_retry_thread.is_alive():
+            _scheduler_retry_stop.clear()
+            _scheduler_retry_thread = threading.Thread(
+                target=_retry_start_scheduler,
+                args=(bot,),
+                name="dailycare-scheduler-lease-retry",
+                daemon=True,
             )
-            scheduler.start()
-            _scheduler_lock_owner = owner_id
-            _scheduler_instance = scheduler
-            logger.info("Daily-care scheduler started for Asia/Phnom_Penh")
-            return scheduler
-        except Exception:
-            database.release_scheduler_lock(owner_id)
-            logger.exception("Could not start Daily-care scheduler")
-            return None
+            _scheduler_retry_thread.start()
+        return None
 
 
 def shutdown_scheduler(scheduler: Optional[BackgroundScheduler]) -> None:
     global _scheduler_instance, _scheduler_lock_owner
-    if scheduler is None:
-        return
-    try:
-        if scheduler.running:
-            scheduler.shutdown(wait=False)
-    finally:
+    _scheduler_retry_stop.set()
+    with _scheduler_guard:
+        target = scheduler if scheduler is not None else _scheduler_instance
+        if target is None:
+            return
         owner_id = None
-        with _scheduler_guard:
-            if _scheduler_instance is scheduler:
-                _scheduler_instance = None
-                owner_id = _scheduler_lock_owner
-                _scheduler_lock_owner = None
+        if _scheduler_instance is target:
+            _scheduler_instance = None
+            owner_id = _scheduler_lock_owner
+            _scheduler_lock_owner = None
+    try:
+        if target.running:
+            target.shutdown(wait=False)
+    finally:
         if owner_id:
             database.release_scheduler_lock(owner_id)

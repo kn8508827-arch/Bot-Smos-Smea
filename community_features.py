@@ -3,10 +3,16 @@
 Additive SQLite tables only. No paid gambling or cash-prize mechanics.
 """
 import random
+import html
+import logging
 import sqlite3
+from contextlib import contextmanager
 from datetime import datetime
+from functools import wraps
+from types import SimpleNamespace
 from zoneinfo import ZoneInfo
 
+logger = logging.getLogger(__name__)
 TZ = ZoneInfo("Asia/Phnom_Penh")
 QUIZ = [
     ("តើរាជធានីនៃប្រទេសកម្ពុជាគឺអ្វី?", ["សៀមរាប", "ភ្នំពេញ", "បាត់ដំបង", "កំពត"], 1),
@@ -20,11 +26,16 @@ POINTS_QUIZ = 10
 POINTS_REFERRAL = 25
 
 
+@contextmanager
 def _connect(config):
     path = getattr(config, "BOT_DB_PATH", "bot_database.db")
     conn = sqlite3.connect(path, timeout=15)
     conn.row_factory = sqlite3.Row
-    return conn
+    try:
+        with conn:
+            yield conn
+    finally:
+        conn.close()
 
 
 def _init_schema(config):
@@ -82,6 +93,50 @@ def register(bot, database, config):
     """Register feature handlers before the existing catch-all handlers."""
     _init_schema(config)
 
+    def register_interaction(user, chat):
+        if user is None or chat is None or getattr(user, "id", None) is None:
+            return
+        try:
+            database.register_or_update_user(
+                user_id=user.id,
+                chat_id=chat.id,
+                username=getattr(user, "username", None),
+                first_name=getattr(user, "first_name", None),
+                last_name=getattr(user, "last_name", None),
+                chat_type=getattr(chat, "type", "unknown"),
+            )
+        except Exception as exc:
+            logger.warning("Could not register community interaction (%s)", type(exc).__name__)
+
+    def registered_message_handler(*handler_args, **handler_kwargs):
+        def decorate(handler):
+            @wraps(handler)
+            def wrapped(message, *args, **kwargs):
+                register_interaction(
+                    getattr(message, "from_user", None),
+                    getattr(message, "chat", None),
+                )
+                return handler(message, *args, **kwargs)
+
+            return bot.message_handler(*handler_args, **handler_kwargs)(wrapped)
+
+        return decorate
+
+    def registered_callback_handler(*handler_args, **handler_kwargs):
+        def decorate(handler):
+            @wraps(handler)
+            def wrapped(call, *args, **kwargs):
+                message = getattr(call, "message", None)
+                register_interaction(
+                    getattr(call, "from_user", None),
+                    getattr(message, "chat", None),
+                )
+                return handler(call, *args, **kwargs)
+
+            return bot.callback_query_handler(*handler_args, **handler_kwargs)(wrapped)
+
+        return decorate
+
     def profile_text(user_id, name):
         with _connect(config) as conn:
             _ensure_user(conn, user_id)
@@ -91,20 +146,20 @@ def register(bot, database, config):
                 (points,),
             ).fetchone()
         return (
-            f"🌟 <b>{name or 'ប្រិយមិត្ត'}</b>\n"
+            f"🌟 <b>{html.escape(name or 'ប្រិយមិត្ត')}</b>\n"
             f"🎖️ កម្រិត៖ {_level(points, vip)}\n"
             f"⭐ ពិន្ទុ៖ <b>{points}</b>\n"
             f"🏆 ចំណាត់ថ្នាក់៖ #{rank_row['rank']}\n\n"
             "ប្រើ /checkin ដើម្បីទទួលពិន្ទុប្រចាំថ្ងៃ ឬ /quiz ដើម្បីលេង Quiz។"
         )
 
-    @bot.message_handler(commands=["profile", "points"])
+    @registered_message_handler(commands=["profile", "points"])
     def profile(message):
         if not getattr(message, "from_user", None):
             return
         bot.reply_to(message, profile_text(message.from_user.id, message.from_user.first_name), parse_mode="HTML")
 
-    @bot.message_handler(commands=["checkin"])
+    @registered_message_handler(commands=["checkin"])
     def checkin(message):
         user_id = message.from_user.id
         today = datetime.now(TZ).date().isoformat()
@@ -127,7 +182,7 @@ def register(bot, database, config):
         else:
             bot.reply_to(message, f"🎉 Check-in ជោគជ័យ! អ្នកទទួលបាន +{POINTS_CHECKIN} ពិន្ទុ។\n⭐ ពិន្ទុសរុប៖ {points}")
 
-    @bot.message_handler(commands=["leaderboard", "top"])
+    @registered_message_handler(commands=["leaderboard", "top"])
     def leaderboard(message):
         with _connect(config) as conn:
             rows = conn.execute(
@@ -141,11 +196,12 @@ def register(bot, database, config):
         lines = ["🏆 <b>Top 10 ប្រិយមិត្ត</b>", ""]
         for i, row in enumerate(rows, 1):
             name = row["first_name"] or (("@" + row["username"]) if row["username"] else f"សមាជិក {row['user_id']}")
+            name = html.escape(name)
             badge = " 👑" if row["vip"] else ""
             lines.append(f"{i}. {name}{badge} — ⭐ {row['points']}")
         bot.reply_to(message, "\n".join(lines), parse_mode="HTML")
 
-    @bot.message_handler(commands=["quiz"])
+    @registered_message_handler(commands=["quiz"])
     def quiz(message):
         user_id = message.from_user.id
         today = datetime.now(TZ).date().isoformat()
@@ -167,7 +223,7 @@ def register(bot, database, config):
             markup.add(InlineKeyboardButton(option, callback_data=f"community:quiz:{qid}:{i}"))
         bot.reply_to(message, f"🧠 <b>Quiz ប្រចាំថ្ងៃ</b>\n\n{question}\n\nចម្លើយត្រឹមត្រូវទទួលបាន +{POINTS_QUIZ} ពិន្ទុ!", reply_markup=markup, parse_mode="HTML")
 
-    @bot.callback_query_handler(func=lambda call: (call.data or "").startswith("community:"))
+    @registered_callback_handler(func=lambda call: (call.data or "").startswith("community:"))
     def community_callback(call):
         data = call.data or ""
         user_id = getattr(call.from_user, "id", None)
@@ -177,25 +233,36 @@ def register(bot, database, config):
         parts = data.split(":")
         if len(parts) == 4 and parts[1] == "menu":
             action = parts[2]
-            commands = {
-                "checkin": "/checkin",
-                "quiz": "/quiz",
-                "top": "/leaderboard",
-                "profile": "/profile",
-                "invite": "/invite",
-                "vip": "/vip",
+            actions = {
+                "checkin": checkin,
+                "quiz": quiz,
+                "top": leaderboard,
+                "profile": profile,
+                "invite": invite,
+                "vip": vip,
             }
-            command = commands.get(action)
+            handler = actions.get(action)
             bot.answer_callback_query(call.id)
-            if command:
-                bot.send_message(call.message.chat.id, "សូមវាយពាក្យបញ្ជានេះ ដើម្បីបន្ត៖ " + command)
+            if handler and getattr(call, "message", None):
+                source_message = call.message
+                callback_message = SimpleNamespace(
+                    from_user=call.from_user,
+                    chat=source_message.chat,
+                    message_id=source_message.message_id,
+                    text="",
+                )
+                handler(callback_message)
             return
         if len(parts) != 4 or parts[1] != "quiz":
             bot.answer_callback_query(call.id, "ជម្រើសនេះមិនត្រឹមត្រូវទេ។", show_alert=True)
             return
         try:
             qid, choice = int(parts[2]), int(parts[3])
+            if qid < 0 or qid >= len(QUIZ):
+                raise ValueError("invalid question")
             question, options, correct = QUIZ[qid]
+            if choice < 0 or choice >= len(options):
+                raise ValueError("invalid choice")
         except (ValueError, IndexError):
             bot.answer_callback_query(call.id, "សំណួរនេះមិនត្រឹមត្រូវទេ។", show_alert=True)
             return
@@ -219,7 +286,7 @@ def register(bot, database, config):
         result = f"✅ ចម្លើយត្រឹមត្រូវ៖ {options[correct]}" if is_correct else f"❌ ចម្លើយត្រឹមត្រូវគឺ៖ {options[correct]}"
         bot.send_message(call.message.chat.id, f"{result}\n⭐ ពិន្ទុសរុប៖ {points}\n\nប្រើ /quiz ដើម្បីបន្ត។")
 
-    @bot.message_handler(commands=["invite"])
+    @registered_message_handler(commands=["invite"])
     def invite(message):
         user_id = message.from_user.id
         try:
@@ -233,7 +300,7 @@ def register(bot, database, config):
         link = f"https://t.me/{username}?start=ref_{user_id}"
         bot.reply_to(message, f"🤝 <b>អញ្ជើញមិត្តភក្តិ</b>\n\nចែករំលែកតំណនេះ៖\n{link}\n\nអ្នកទាំងពីរទទួលបាន +{POINTS_REFERRAL} ពិន្ទុ នៅពេលមិត្តថ្មីចូលតាមតំណជាលើកដំបូង។", parse_mode="HTML")
 
-    @bot.message_handler(commands=["start"], func=lambda m: bool(getattr(m, "text", None)) and " ref_" in m.text)
+    @registered_message_handler(commands=["start"], func=lambda m: bool(getattr(m, "text", None)) and " ref_" in m.text)
     def referral_start(message):
         user = getattr(message, "from_user", None)
         if not user:
@@ -264,7 +331,7 @@ def register(bot, database, config):
         text = "🎉 អ្នកបានចូលរួមតាមតំណអញ្ជើញ! អ្នកទាំងពីរទទួលបានពិន្ទុ។" if awarded else "សួស្ដី! អ្នកបានចូលរួមតាមតំណអញ្ជើញរួចហើយ។"
         bot.reply_to(message, text + "\n\nប្រើ /menu ដើម្បីមើលសេវាកម្ម ឬ /profile ដើម្បីមើលពិន្ទុ។")
 
-    @bot.message_handler(commands=["vip"])
+    @registered_message_handler(commands=["vip"])
     def vip(message):
         user_id = message.from_user.id
         with _connect(config) as conn:
@@ -273,7 +340,7 @@ def register(bot, database, config):
         text = "👑 អ្នកជាសមាជិក VIP!" if is_vip else f"ស្ថានភាពបច្ចុប្បន្ន៖ {_level(points, is_vip)}\n\nVIP ត្រូវបានកំណត់ដោយ Admin។ សូមប្រើ /profile ដើម្បីមើលពិន្ទុ និងកម្រិត។"
         bot.reply_to(message, text)
 
-    @bot.message_handler(commands=["communityadmin"])
+    @registered_message_handler(commands=["communityadmin"])
     def community_admin(message):
         user_id = getattr(getattr(message, "from_user", None), "id", None)
         if user_id not in getattr(config, "ADMIN_IDS", []):
@@ -298,7 +365,7 @@ def register(bot, database, config):
             vip_count = conn.execute("SELECT COUNT(*) AS n FROM community_points WHERE vip=1").fetchone()["n"]
         bot.reply_to(message, f"🛠️ <b>Community Admin</b>\n👥 សមាជិកមាន Profile៖ {members}\n⭐ ពិន្ទុសរុប៖ {points_total}\n👑 VIP៖ {vip_count}\n\nកំណត់ VIP៖ <code>/communityadmin vip USER_ID</code>", parse_mode="HTML")
 
-    @bot.message_handler(commands=["community"])
+    @registered_message_handler(commands=["community"])
     def community_menu(message):
         from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
         markup = InlineKeyboardMarkup(row_width=2)

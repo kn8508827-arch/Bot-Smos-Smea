@@ -42,6 +42,7 @@ import family_tips
 import subscription
 import backup_tools
 import fortune
+import game_center
 
 logging.basicConfig(
     level=logging.INFO, 
@@ -149,6 +150,8 @@ def _fortune_vision(prompt, image_bytes):
 
 # Fortune telling for fun: /fortune (12 Khmer years), /number, /palm (photo), /dream
 fortune.register(bot, config, _fan_ask_gemini, _fortune_vision)
+# Instant Telegram dice games with points and a daily Top: /play /duel /top
+game_center.register(bot, config)
 
 
 def register_interaction(from_user, chat) -> bool:
@@ -261,7 +264,7 @@ def _clear_command_overrides():
 
 
 MENU_COMMANDS = (
-    "start", "menu", "pay", "myplan", "prompt", "studio", "rap", "games", "fortune", "quiz", "card", "checkin",
+    "start", "menu", "pay", "myplan", "prompt", "studio", "rap", "play", "games", "fortune", "quiz", "card", "checkin",
     "health", "sos", "parent", "pet", "rate", "gold", "news", "weather", "fuel", "trip", "follow", "contact", "help",
 )
 
@@ -300,6 +303,9 @@ def setup_bot_commands():
             BotCommand("code", "🎟️ វាយកូដសម្ងាត់ពី MV"),
             BotCommand("pay", "💳 បង់ 1$ ប្រើគ្រប់មុខងារ 30 ថ្ងៃ"),
             BotCommand("myplan", "📅 ស្ថានភាពសមាជិករបស់ខ្ញុំ"),
+            BotCommand("play", "🎮 Game Center លេងភ្លាម 🎲🎯🏀⚽🎳🎰"),
+            BotCommand("duel", "⚔️ ប្រកួតឡុកឡាក់ជាមួយមិត្ត (Group)"),
+            BotCommand("gametop", "🏆 Top Game ថ្ងៃនេះ"),
             BotCommand("fortune", "🔮 ទស្សន៍ទាយ ១២ ឆ្នាំ បាតដៃ សុបិន"),
             BotCommand("number", "🔢 លេខជីវិតតាមថ្ងៃខែឆ្នាំកំណើត"),
             BotCommand("palm", "🖐️ ទាយបាតដៃ (ផ្ញើរូប)"),
@@ -915,7 +921,8 @@ def _category_view(key, user_id=None):
         m.row(B("🎨 កែរូប AI", callback_data="nav:studio"), B("🎤 AI Rap", callback_data="nav:rap"))
     elif key == "fun":
         text = "🎮 <b>កម្សាន្ត & ហ្វេន</b>\nលេងហ្គេម ឆ្លើយ Quiz ប្រមូលពិន្ទុ យក Fan Card 🃏"
-        m.row(B("🎮 ហ្គេម Vid Cooler", callback_data="nav:games"), B("🧠 Quiz", callback_data="community:menu:quiz:0"))
+        m.row(B("🎮 Game Center — លេងភ្លាម 🎲🎯🏀⚽🎳🎰", callback_data="gc:menu"))
+        m.row(B("🕹️ ហ្គេម 3D Vid Cooler", callback_data="nav:games"), B("🧠 Quiz", callback_data="community:menu:quiz:0"))
         m.row(B("🃏 Fan Card", callback_data="community:menu:card:0"), B("🎁 Check-in", callback_data="community:menu:checkin:0"))
         m.row(B("🔮 ទស្សន៍ទាយ · បាតដៃ · សុបិន", callback_data="fort:menu"))
         m.row(B("🌟 សហគមន៍ & ពិន្ទុ", callback_data="nav:community"))
@@ -1046,6 +1053,7 @@ def _handle_nav_callback(call, data):
         _show_in_place(call, "🌟 <b>សហគមន៍ VidCooler</b>\nប្រមូលពិន្ទុ ឡើងកម្រិត ហើយប្រកួតលើ Leaderboard!", _community_nav_keyboard())
     elif key == "games":
         games_kb = _fan.games_markup(getattr(message.chat, "type", None) == "private")
+        games_kb.row(InlineKeyboardButton("🎮 Game Center — លេងភ្លាមក្នុង Telegram", callback_data="gc:menu"))
         games_kb.row(_home_button())
         _show_in_place(call, "🎮 <b>ហ្គេមរបស់ Vid Cooler</b>\nចុចដើម្បីលេងភ្លាម 👇", games_kb)
     elif key == "rap":
@@ -1179,6 +1187,7 @@ def send_help(message):
         "• /trip - កន្លែងដើរលេងល្អៗនៅកម្ពុជា\n"
         "• /pay - បង់ 1$ ប្រើគ្រប់មុខងារ 30 ថ្ងៃ (Group 5$)\n"
         "• /myplan - ស្ថានភាពសមាជិក\n"
+        "• /play - 🎮 Game Center 🎲🎯🏀⚽🎳🎰 · /duel - ប្រកួតមិត្ត · /gametop - Top ថ្ងៃនេះ\n"
         "• /fortune - ទស្សន៍ទាយ ១២ ឆ្នាំខ្មែរ\n"
         "• /number - លេខជីវិត · /palm - ទាយបាតដៃ · /dream - ទាយសុបិន\n"
         "• /parent - មើលកូន ១-៦ ឆ្នាំ\n"

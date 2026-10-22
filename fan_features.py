@@ -1,6 +1,6 @@
 """Fan features for Cooler Bot (Vid Cooler, rapper in Cambodia).
 
-  /games  — Vid Cooler's 3 games as Telegram Mini App buttons
+  /games  — Vid Cooler's 4 games as Telegram Mini App buttons
   /music  — Vid Cooler's official music channel (MUSIC_YOUTUBE_URL)
   /rap    — AI writes a short, ORIGINAL Khmer rap verse from the fan's words
   /movie  — AI recommends dramas/movies and where to watch them OFFICIALLY
@@ -19,6 +19,7 @@ logger = logging.getLogger(__name__)
 
 GAMES = (
     # (key, button label, env var, default URL)
+    ("fly", "🚀 Cooler Fly 3D (ថ្មី!)", "GAME_COOLER_FLY_URL", "https://kn8508827-arch.github.io/Blue-Gold-Rush/cooler-fly/"),
     ("bgr", "⚡ Blue Gold Rush", "GAME_BLUE_GOLD_RUSH_URL", "https://kn8508827-arch.github.io/Blue-Gold-Rush/"),
     ("logo", "🧩 Logo Crush 3D", "GAME_LOGO_CRUSH_URL", "https://logo-crush-3d-production.up.railway.app/"),
     ("spin", "🎡 Spin & Drink", "GAME_SPIN_AND_DRINK_URL", "https://spin-and-drink-production.up.railway.app/"),
@@ -107,6 +108,7 @@ def register(bot, config, ask_gemini):
         bot.reply_to(
             message,
             "🎮 <b>ហ្គេមរបស់ Vid Cooler</b>\n\n"
+            "🚀 <b>Cooler Fly 3D</b> — ហោះកាត់ភ្នំពេញ 2050 អង្គរ Hologram ដល់អវកាស 🌌 (ថ្មី!)\n"
             "⚡ <b>Blue Gold Rush</b> — រត់ ប្រមូលកាក់ ជិះ Sky Bike 🚲\n"
             "🧩 <b>Logo Crush 3D</b> — ផ្គូផ្គង logo ៣ ឡើងកម្រិត\n"
             "🎡 <b>Spin &amp; Drink</b> — កង់សំណាងលេងជាក្រុម\n\n"

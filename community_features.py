@@ -507,14 +507,16 @@ def register(bot, database, config):
             ).fetchone()["n"]
         level = _level(points, vip)
         rank_title = level.split(" ", 1)[-1]
+        use_template = fan_card.has_template()
         avatar = None
-        try:
-            photos = bot.get_user_profile_photos(user.id, limit=1)
-            if photos and photos.total_count:
-                file_info = bot.get_file(photos.photos[0][-1].file_id)
-                avatar = bot.download_file(file_info.file_path)
-        except Exception:
-            avatar = None
+        if not use_template:
+            try:
+                photos = bot.get_user_profile_photos(user.id, limit=1)
+                if photos and photos.total_count:
+                    file_info = bot.get_file(photos.photos[0][-1].file_id)
+                    avatar = bot.download_file(file_info.file_path)
+            except Exception:
+                avatar = None
         footer = "Cooler Bot"
         try:
             me = bot.get_me()
@@ -523,8 +525,11 @@ def register(bot, database, config):
         except Exception:
             pass
         try:
-            image = fan_card.render(fan_card.latin_name(user.first_name, user.username), rank_title, points,
-                                    fan_number, avatar=avatar, footer=footer)
+            name = fan_card.latin_name(user.first_name, user.username)
+            if use_template:
+                image = fan_card.render_template(name, rank_title, points, fan_number, footer)
+            else:
+                image = fan_card.render(name, rank_title, points, fan_number, avatar=avatar, footer=footer)
         except Exception as exc:
             logger.warning("fan card failed (%s)", type(exc).__name__)
             bot.reply_to(message, "សុំទោស មិនអាចបង្កើតកាតបានទេឥឡូវនេះ។")

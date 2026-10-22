@@ -5,6 +5,7 @@ Khmer first name falls back to the @username or "Cooler Fan". The Khmer caption 
 sent with the photo instead.
 """
 import io
+import os
 from typing import Optional
 
 from PIL import Image, ImageDraw, ImageFilter, ImageFont
@@ -14,6 +15,103 @@ NAVY = (8, 22, 52)
 BLUE = (32, 200, 255)
 GOLD = (255, 200, 71)
 WHITE = (240, 248, 255)
+
+
+_HERE = os.path.dirname(os.path.abspath(__file__))
+TEMPLATE = os.path.join(_HERE, "assets", "fan_card_template.jpg")
+BOLD_FONT = os.path.join(_HERE, "assets", "fonts", "DejaVuSans-Bold.ttf")
+
+# Text areas on the template (x0, y0, x1, y1) that are repainted with fresh text.
+_SLOTS = {
+    "name": (926, 432, 1372, 518),
+    "rank": (1044, 590, 1366, 652),
+    "points": (984, 748, 1330, 812),
+    "fan": (1036, 868, 1350, 932),
+    "footer": (278, 878, 692, 932),
+}
+
+
+def _bold(size):
+    try:
+        return ImageFont.truetype(BOLD_FONT, size)
+    except OSError:
+        return _font(size)
+
+
+def _fit(draw, text, size, max_w, bold=True):
+    while size > 12:
+        f = _bold(size) if bold else _font(size)
+        box = draw.textbbox((0, 0), text, font=f)
+        if box[2] - box[0] <= max_w:
+            return f, box
+        size -= 2
+    f = _bold(size) if bold else _font(size)
+    return f, draw.textbbox((0, 0), text, font=f)
+
+
+def _erase(img, slot):
+    """Repaint a text area row by row, blending the colours just outside it."""
+    x0, y0, x1, y1 = slot
+    px = img.load()
+    for y in range(y0, y1):
+        left, right = px[x0 - 3, y], px[x1 + 3, y]
+        for x in range(x0, x1):
+            t = (x - x0) / max(1, x1 - x0)
+            px[x, y] = tuple(int(left[i] + (right[i] - left[i]) * t) for i in range(3))
+
+
+def _glow_text(img, xy, text, font, fill, glow, radius=6):
+    layer = Image.new("RGBA", img.size, (0, 0, 0, 0))
+    ImageDraw.Draw(layer).text(xy, text, font=font, fill=glow + (200,))
+    layer = layer.filter(ImageFilter.GaussianBlur(radius))
+    img.paste(layer, (0, 0), layer)
+    ImageDraw.Draw(img).text(xy, text, font=font, fill=fill)
+
+
+def has_template() -> bool:
+    return os.path.exists(TEMPLATE) and os.path.exists(BOLD_FONT)
+
+
+def render_template(name: str, rank: str, points: int, fan_number: int, footer: str) -> bytes:
+    img = Image.open(TEMPLATE).convert("RGB")
+    for slot in _SLOTS.values():
+        _erase(img, slot)
+    img = img.convert("RGBA")
+    d = ImageDraw.Draw(img)
+
+    def place(slot, text, size, align="left", pad=0):
+        x0, y0, x1, y1 = slot
+        f, box = _fit(d, text, size, x1 - x0 - pad * 2)
+        w, h = box[2] - box[0], box[3] - box[1]
+        x = x0 + pad - box[0] if align == "left" else x0 + (x1 - x0 - w) / 2 - box[0]
+        y = y0 + (y1 - y0 - h) / 2 - box[1]
+        return f, (x, y), w
+
+    f, xy, _ = place(_SLOTS["name"], name, 60, pad=8)
+    _glow_text(img, xy, name, f, (255, 255, 255), (90, 170, 255), 8)
+
+    f, xy, _ = place(_SLOTS["rank"], f"RANK  {rank.upper()}", 50, pad=10)
+    _glow_text(img, xy, f"RANK  {rank.upper()}", f, (32, 18, 4), (255, 236, 160), 3)
+
+    sx0, sy0, sx1, sy1 = _SLOTS["points"]
+    label, value = "POINTS", f"{points:,}"
+    fl, bl = _fit(d, label, 42, 200, bold=False)
+    fv, bv = _fit(d, value, 52, sx1 - sx0 - (bl[2] - bl[0]) - 40)
+    x = sx0 + 10
+    d.text((x - bl[0], sy0 + (sy1 - sy0 - (bl[3] - bl[1])) / 2 - bl[1]), label, font=fl, fill=(235, 242, 255))
+    x += bl[2] - bl[0] + 30
+    _glow_text(img, (x - bv[0], sy0 + (sy1 - sy0 - (bv[3] - bv[1])) / 2 - bv[1]), value, fv,
+               (255, 214, 92), (255, 170, 40), 6)
+
+    f, xy, _ = place(_SLOTS["fan"], f"FAN #{fan_number:04d}", 52, pad=8)
+    d.text(xy, f"FAN #{fan_number:04d}", font=f, fill=(24, 14, 4))
+
+    f, xy, _ = place(_SLOTS["footer"], footer, 34, align="center")
+    d.text(xy, footer, font=f, fill=(235, 242, 255))
+
+    out = io.BytesIO()
+    img.convert("RGB").save(out, format="JPEG", quality=92, optimize=True)
+    return out.getvalue()
 
 
 def _font(size):

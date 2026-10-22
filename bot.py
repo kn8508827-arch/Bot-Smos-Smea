@@ -34,6 +34,7 @@ import fan_features
 import group_manager
 import health_features
 import health_more
+import trip_places
 
 logging.basicConfig(
     level=logging.INFO, 
@@ -66,6 +67,8 @@ community_features.register(bot, database, config)
 group_manager.register(bot, config)
 # Health & exercise for older people: /health /exercise /balance /warning /sos
 health_features.register(bot, config)
+# Travel ideas around Cambodia: /trip
+trip_places.register(bot, config)
 
 
 def _fan_ask_gemini(prompt):
@@ -222,6 +225,7 @@ def setup_bot_commands():
             BotCommand("myname", "🗣️ AI បង្កើតឈ្មោះ Rapper ឲ្យអ្នក"),
             BotCommand("card", "🃏 Fan Card របស់អ្នក"),
             BotCommand("code", "🎟️ វាយកូដសម្ងាត់ពី MV"),
+            BotCommand("trip", "🧭 កន្លែងដើរលេងល្អៗនៅកម្ពុជា"),
             BotCommand("health", "🧓 សុខភាព និងលំហាត់ប្រាណ"),
             BotCommand("exercise", "🏃 លំហាត់ ១០ នាទីថ្ងៃនេះ"),
             BotCommand("balance", "⚖️ លំហាត់ទប់លំនឹង ការពារការដួល"),
@@ -734,6 +738,7 @@ def _main_menu_keyboard():
         InlineKeyboardButton("👥 ក្រុមយើង", callback_data="nav:team"),
         InlineKeyboardButton("📅 ព្រឹត្តិការណ៍", callback_data="nav:events"),
     )
+    markup.row(InlineKeyboardButton("🧭 Trip ដើរលេងកម្ពុជា", callback_data="trip:menu"))
     markup.row(InlineKeyboardButton("🚀 Team App (Trip Dashboard)", web_app=WebAppInfo(url=WEB_APP_URL)))
     markup.row(
         InlineKeyboardButton("🔔 ការជូនដំណឹង", callback_data="nav:notifications"),
@@ -930,7 +935,8 @@ def send_help(message):
         "• /movie - ណែនាំរឿង + កន្លែងមើលផ្លូវការ\n"
         "• /myname - AI បង្កើតឈ្មោះ Rapper\n"
         "• /card - Fan Card សម្រាប់ Share\n"
-        "• /code - វាយកូដសម្ងាត់ពី MV/Live\n\n"
+        "• /code - វាយកូដសម្ងាត់ពី MV/Live\n"
+        "• /trip - កន្លែងដើរលេងល្អៗនៅកម្ពុជា\n\n"
         "🧓 **សុខភាព**\n"
         "• /health - សុខភាព និងលំហាត់ប្រាណ\n"
         "• /exercise - លំហាត់ ១០ នាទីថ្ងៃនេះ\n"

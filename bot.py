@@ -41,6 +41,7 @@ import market_info
 import family_tips
 import subscription
 import backup_tools
+import fortune
 
 logging.basicConfig(
     level=logging.INFO, 
@@ -137,6 +138,17 @@ _fan = fan_features.register(bot, config, _fan_ask_gemini)
 health_more.register(bot, config, _fan_ask_gemini)
 # Parenting (kids 1-6) and dog/cat training tips: /parent /pet /askfamily
 family_tips.register(bot, config, _fan_ask_gemini)
+
+
+def _fortune_vision(prompt, image_bytes):
+    return async_runner.run_sync(ai_assistant.generate_gemini_image_response(
+        api_key=getattr(config, "GEMINI_API_KEY", ""), prompt=prompt, image_bytes=image_bytes,
+        mime_type="image/jpeg", history=[], db_path=database.DB_PATH,
+    ), timeout=90)
+
+
+# Fortune telling for fun: /fortune (12 Khmer years), /number, /palm (photo), /dream
+fortune.register(bot, config, _fan_ask_gemini, _fortune_vision)
 
 
 def register_interaction(from_user, chat) -> bool:
@@ -249,7 +261,7 @@ def _clear_command_overrides():
 
 
 MENU_COMMANDS = (
-    "start", "menu", "pay", "myplan", "prompt", "studio", "rap", "games", "quiz", "card", "checkin",
+    "start", "menu", "pay", "myplan", "prompt", "studio", "rap", "games", "fortune", "quiz", "card", "checkin",
     "health", "sos", "parent", "pet", "rate", "gold", "news", "weather", "fuel", "trip", "follow", "contact", "help",
 )
 
@@ -288,6 +300,10 @@ def setup_bot_commands():
             BotCommand("code", "🎟️ វាយកូដសម្ងាត់ពី MV"),
             BotCommand("pay", "💳 បង់ 1$ ប្រើគ្រប់មុខងារ 30 ថ្ងៃ"),
             BotCommand("myplan", "📅 ស្ថានភាពសមាជិករបស់ខ្ញុំ"),
+            BotCommand("fortune", "🔮 ទស្សន៍ទាយ ១២ ឆ្នាំ បាតដៃ សុបិន"),
+            BotCommand("number", "🔢 លេខជីវិតតាមថ្ងៃខែឆ្នាំកំណើត"),
+            BotCommand("palm", "🖐️ ទាយបាតដៃ (ផ្ញើរូប)"),
+            BotCommand("dream", "💭 ទាយសុបិន"),
             BotCommand("parent", "👨‍👩‍👧 មើលកូន ១-៦ ឆ្នាំឲ្យស្ដាប់បង្គាប់"),
             BotCommand("pet", "🐶🐱 បង្ហាត់ឆ្កែ ឆ្មា"),
             BotCommand("rate", "💵 អត្រាប្ដូរប្រាក់ ដុល្លារ ↔ រៀល"),
@@ -901,6 +917,7 @@ def _category_view(key, user_id=None):
         text = "🎮 <b>កម្សាន្ត & ហ្វេន</b>\nលេងហ្គេម ឆ្លើយ Quiz ប្រមូលពិន្ទុ យក Fan Card 🃏"
         m.row(B("🎮 ហ្គេម Vid Cooler", callback_data="nav:games"), B("🧠 Quiz", callback_data="community:menu:quiz:0"))
         m.row(B("🃏 Fan Card", callback_data="community:menu:card:0"), B("🎁 Check-in", callback_data="community:menu:checkin:0"))
+        m.row(B("🔮 ទស្សន៍ទាយ · បាតដៃ · សុបិន", callback_data="fort:menu"))
         m.row(B("🌟 សហគមន៍ & ពិន្ទុ", callback_data="nav:community"))
     elif key == "health":
         text = "🧓 <b>សុខភាព & គ្រួសារ</b>\nលំហាត់ប្រាណ សម្ពាធឈាម មើលកូន និងបង្ហាត់សត្វ ❤️"
@@ -1162,6 +1179,8 @@ def send_help(message):
         "• /trip - កន្លែងដើរលេងល្អៗនៅកម្ពុជា\n"
         "• /pay - បង់ 1$ ប្រើគ្រប់មុខងារ 30 ថ្ងៃ (Group 5$)\n"
         "• /myplan - ស្ថានភាពសមាជិក\n"
+        "• /fortune - ទស្សន៍ទាយ ១២ ឆ្នាំខ្មែរ\n"
+        "• /number - លេខជីវិត · /palm - ទាយបាតដៃ · /dream - ទាយសុបិន\n"
         "• /parent - មើលកូន ១-៦ ឆ្នាំ\n"
         "• /pet - បង្ហាត់ឆ្កែ ឆ្មា\n"
         "• /rate - ដុល្លារ ↔ រៀល (ឧ. /rate 100)\n"

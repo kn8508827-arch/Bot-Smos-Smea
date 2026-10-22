@@ -4,12 +4,13 @@ A bot can always leave a group by itself (Telegram leaveChat), even when the bot
 owner is not an admin or member of that group. This module keeps a small list of
 groups the bot has seen and gives the owner/admins these commands:
 
-  /groups           list the groups, with a "🚪 ចាកចេញ" button for each
+  /groups, /group  list the groups, with a "🚪 ចាកចេញ" button for each
   /leave CHAT_ID    make the bot leave that group (in a private chat with the bot)
   /leave            sent inside a group by the owner/admin: the bot leaves that group
 """
 import html
 import logging
+import re
 import sqlite3
 from contextlib import contextmanager
 from types import SimpleNamespace
@@ -126,12 +127,29 @@ def register(bot, config):
         _mark_left(config, chat_id)
         return True, title
 
+    def refresh_titles(groups):
+        """Fill in missing group names from Telegram (also drops groups the bot already left)."""
+        for g in groups[:30]:
+            if g.get("title"):
+                continue
+            try:
+                chat = bot.get_chat(g["chat_id"])
+                g["title"] = getattr(chat, "title", None)
+                record_chat(config, chat)
+            except Exception as exc:
+                text = str(exc).lower()
+                if "not found" in text or "kicked" in text or "not a member" in text or "forbidden" in text:
+                    _mark_left(config, g["chat_id"])
+                    g["gone"] = True
+        return [g for g in groups if not g.get("gone")]
+
     def groups_view():
-        groups = active_groups(config)
+        groups = refresh_titles(active_groups(config))
         if not groups:
             return ("📭 Bot មិនទាន់ឃើញក្រុមណាទេ។\n\n"
-                    "ក្រុមដែលបន្ថែម bot មុនពេលមុខងារនេះ នឹងបង្ហាញពេលមាននរណាម្នាក់ប្រើ bot ក្នុងក្រុមនោះ។ "
-                    "ឬប្រើ <code>/leave CHAT_ID</code> បើដឹង ID ក្រុម។"), None
+                    "👉 វិធីងាយ៖ ចូលទៅក្នុងក្រុមនោះ ហើយ Cooler វាយ <code>/leave@" + bot_username() + "</code> "
+                    "Bot នឹងចេញភ្លាម។\n"
+                    "👉 ឬបើក្រុមមានឈ្មោះ @username៖ <code>/leave @ឈ្មោះក្រុម</code> ឬ <code>/leave https://t.me/ឈ្មោះក្រុម</code>"), None
         lines = [f"👥 <b>ក្រុមដែល Bot នៅក្នុង ({len(groups)})</b>", ""]
         markup = InlineKeyboardMarkup()
         for i, g in enumerate(groups[:30], 1):
@@ -144,11 +162,48 @@ def register(bot, config):
         lines.append("\nចុចប៊ូតុង ដើម្បីឲ្យ Bot ចាកចេញពីក្រុមនោះ។")
         return "\n".join(lines), markup
 
-    @bot.message_handler(commands=["groups"])
+    def bot_username():
+        try:
+            return bot.get_me().username or "bot"
+        except Exception:
+            return "bot"
+
+    def deny(message, user_id):
+        """Tell a non-owner (in private) why; shows only their own ID so the owner can set OWNER_ID."""
+        if getattr(message.chat, "type", None) != "private":
+            return
+        hint = ""
+        if not getattr(config, "OWNER_ID", 0):
+            hint = ("\n\n🔧 Bot មិនទាន់មាន OWNER_ID ទេ។ បើអ្នកជាម្ចាស់ Bot ដាក់ Variable "
+                    f"<code>OWNER_ID</code> = <code>{user_id}</code> នៅ Railway ហើយរង់ចាំ Deploy។")
+        else:
+            hint = (f"\n\n🆔 ID របស់អ្នក៖ <code>{user_id}</code>\n"
+                    "បើអ្នកជាម្ចាស់ Bot ពិនិត្យថា Variable <code>OWNER_ID</code> នៅ Railway ដូចលេខនេះ។")
+        bot.reply_to(message, "⛔ ពាក្យបញ្ជានេះសម្រាប់ម្ចាស់ Bot ប៉ុណ្ណោះ។" + hint, parse_mode="HTML")
+
+    def resolve_target(arg):
+        """CHAT_ID, @username or a t.me link → chat id (int) or None."""
+        arg = (arg or "").strip()
+        try:
+            return int(arg)
+        except ValueError:
+            pass
+        m = re.match(r"^(?:https?://)?(?:t\.me|telegram\.me)/([A-Za-z0-9_]{4,})/?$", arg) or \
+            re.match(r"^@([A-Za-z0-9_]{4,})$", arg)
+        if not m:
+            return None
+        try:
+            chat = bot.get_chat("@" + m.group(1))
+        except Exception:
+            return None
+        record_chat(config, chat)
+        return getattr(chat, "id", None)
+
+    @bot.message_handler(commands=["groups", "group"])
     def groups_command(message):
         user_id = getattr(getattr(message, "from_user", None), "id", None)
         if not is_manager(config, user_id):
-            bot.reply_to(message, "⛔ ពាក្យបញ្ជានេះសម្រាប់ម្ចាស់ Bot ប៉ុណ្ណោះ។")
+            deny(message, user_id)
             return
         if getattr(message.chat, "type", None) != "private":
             bot.reply_to(message, "សូមប្រើ /groups ក្នុង Private Chat ជាមួយ Bot។")
@@ -160,9 +215,8 @@ def register(bot, config):
     def leave_command(message):
         user_id = getattr(getattr(message, "from_user", None), "id", None)
         if not is_manager(config, user_id):
-            if getattr(message.chat, "type", None) == "private":
-                bot.reply_to(message, "⛔ ពាក្យបញ្ជានេះសម្រាប់ម្ចាស់ Bot ប៉ុណ្ណោះ។")
-            return  # ignore silently in groups
+            deny(message, user_id)  # silent in groups
+            return
         parts = (message.text or "").split()
         chat_type = getattr(message.chat, "type", None)
         if chat_type in GROUP_TYPES and len(parts) == 1:
@@ -172,13 +226,14 @@ def register(bot, config):
                 pass
             leave(message.chat.id)
             return
-        if len(parts) != 2:
-            bot.reply_to(message, "របៀបប្រើ៖ <code>/leave CHAT_ID</code>\nមើល ID ដោយ /groups", parse_mode="HTML")
+        if len(parts) == 1:  # private chat, no target: show the list with leave buttons
+            text, markup = groups_view()
+            bot.reply_to(message, text, reply_markup=markup, parse_mode="HTML")
             return
-        try:
-            target = int(parts[1])
-        except ValueError:
-            bot.reply_to(message, "CHAT_ID ត្រូវតែជាលេខ (ឧ. -1001234567890)។")
+        target = resolve_target(parts[1])
+        if target is None:
+            bot.reply_to(message, "❓ រកក្រុមនោះមិនឃើញទេ។ ប្រើ <code>/leave CHAT_ID</code>, "
+                         "<code>/leave @ឈ្មោះក្រុម</code> ឬវាយ /groups ដើម្បីមើលបញ្ជី។", parse_mode="HTML")
             return
         ok, title = leave(target)
         name = html.escape(title or str(target))

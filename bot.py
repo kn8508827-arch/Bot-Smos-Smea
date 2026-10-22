@@ -680,7 +680,7 @@ def _main_menu_keyboard():
         InlineKeyboardButton("👥 ក្រុមយើង", callback_data="nav:team"),
         InlineKeyboardButton("📅 ព្រឹត្តិការណ៍", callback_data="nav:events"),
     )
-    markup.row(InlineKeyboardButton("🚀 ចុះឈ្មោះ / Web App", web_app=WebAppInfo(url=WEB_APP_URL)))
+    markup.row(InlineKeyboardButton("🚀 Team App (Trip Dashboard)", web_app=WebAppInfo(url=WEB_APP_URL)))
     markup.row(
         InlineKeyboardButton("🔔 ការជូនដំណឹង", callback_data="nav:notifications"),
         InlineKeyboardButton("ℹ️ អំពី", callback_data="nav:about"),

@@ -36,6 +36,7 @@ import health_features
 import health_more
 import trip_places
 import prompt_studio
+import social_links
 
 logging.basicConfig(
     level=logging.INFO, 
@@ -70,6 +71,8 @@ group_manager.register(bot, config)
 health_features.register(bot, config)
 # Travel ideas around Cambodia: /trip
 trip_places.register(bot, config)
+# Vid Cooler's TikTok / YouTube / Facebook / Telegram: /follow
+_follow_markup = social_links.register(bot, config)
 
 
 def _fan_ask_gemini(prompt):
@@ -263,6 +266,8 @@ def setup_bot_commands():
             BotCommand("myname", "🗣️ AI បង្កើតឈ្មោះ Rapper ឲ្យអ្នក"),
             BotCommand("card", "🃏 Fan Card របស់អ្នក"),
             BotCommand("code", "🎟️ វាយកូដសម្ងាត់ពី MV"),
+            BotCommand("follow", "📲 តាមដាន Vid Cooler TikTok YouTube Facebook"),
+            BotCommand("contact", "💬 ទាក់ទង Vid Cooler"),
             BotCommand("prompt", "✍️ Prompt Studio កម្រិតខ្ពស់"),
             BotCommand("videoprompt", "🎬 Prompt វីដេអូ AI"),
             BotCommand("songprompt", "🎵 Prompt ចម្រៀង Suno"),
@@ -832,6 +837,7 @@ def _main_menu_keyboard():
         InlineKeyboardButton("🤖 ជជែកជាមួយ AI", callback_data="nav:chat"),
         InlineKeyboardButton("🎨 កែរូប AI", callback_data="nav:studio"),
     )
+    markup.row(InlineKeyboardButton("📲 តាមដាន & ទាក់ទង Vid Cooler", callback_data="follow:menu"))
     markup.row(InlineKeyboardButton("✍️ Prompt Studio (វីដេអូ · ចម្រៀង · រូប · រឿង)", callback_data="pstudio:menu"))
     markup.row(
         InlineKeyboardButton("🌤️ អាកាសធាតុ", callback_data="nav:weather"),
@@ -966,6 +972,7 @@ def send_welcome(message):
                     message.chat.id, photo,
                     caption=f"😎 សួស្ដី {raw_name}! ខ្ញុំគឺ Cooler Bot 🤖✨\nជំនួយការ AI របស់ Vid Cooler 🎤🇰🇭",
                     reply_to_message_id=getattr(message, "message_id", None),
+                    reply_markup=_follow_markup(with_home=False),
                 )
         except Exception as exc:
             logger.warning("Could not send mascot photo (%s)", type(exc).__name__)
@@ -1055,7 +1062,9 @@ def send_help(message):
         "• /myname - AI បង្កើតឈ្មោះ Rapper\n"
         "• /card - Fan Card សម្រាប់ Share\n"
         "• /code - វាយកូដសម្ងាត់ពី MV/Live\n"
-        "• /trip - កន្លែងដើរលេងល្អៗនៅកម្ពុជា\n\n"
+        "• /trip - កន្លែងដើរលេងល្អៗនៅកម្ពុជា\n"
+        "• /follow - តាមដាន Vid Cooler (TikTok, YouTube, Facebook)\n"
+        "• /contact - ទាក់ទង Vid Cooler តាម Telegram\n\n"
         "✍️ **Prompt Studio**\n"
         "• /prompt - ម៉ឺនុយ Prompt Studio\n"
         "• /videoprompt - Prompt វីដេអូ AI\n"

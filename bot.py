@@ -37,6 +37,7 @@ import health_more
 import trip_places
 import prompt_studio
 import social_links
+import market_info
 
 logging.basicConfig(
     level=logging.INFO, 
@@ -73,6 +74,8 @@ health_features.register(bot, config)
 trip_places.register(bot, config)
 # Vid Cooler's TikTok / YouTube / Facebook / Telegram: /follow
 _follow_markup = social_links.register(bot, config)
+# Dollar/riel rate, gold price, news: /market /rate /gold /news
+market_info.register(bot, config)
 
 
 def _fan_ask_gemini(prompt):
@@ -266,6 +269,9 @@ def setup_bot_commands():
             BotCommand("myname", "🗣️ AI បង្កើតឈ្មោះ Rapper ឲ្យអ្នក"),
             BotCommand("card", "🃏 Fan Card របស់អ្នក"),
             BotCommand("code", "🎟️ វាយកូដសម្ងាត់ពី MV"),
+            BotCommand("rate", "💵 អត្រាប្ដូរប្រាក់ ដុល្លារ ↔ រៀល"),
+            BotCommand("gold", "🪙 តម្លៃមាសថ្ងៃនេះ"),
+            BotCommand("news", "📰 ព័ត៌មានថ្មីៗ"),
             BotCommand("follow", "📲 តាមដាន Vid Cooler TikTok YouTube Facebook"),
             BotCommand("contact", "💬 ទាក់ទង Vid Cooler"),
             BotCommand("prompt", "✍️ Prompt Studio កម្រិតខ្ពស់"),
@@ -837,6 +843,7 @@ def _main_menu_keyboard():
         InlineKeyboardButton("🤖 ជជែកជាមួយ AI", callback_data="nav:chat"),
         InlineKeyboardButton("🎨 កែរូប AI", callback_data="nav:studio"),
     )
+    markup.row(InlineKeyboardButton("📈 ដុល្លារ · មាស · ព័ត៌មានថ្មីៗ", callback_data="mkt:menu"))
     markup.row(InlineKeyboardButton("📲 តាមដាន & ទាក់ទង Vid Cooler", callback_data="follow:menu"))
     markup.row(InlineKeyboardButton("✍️ Prompt Studio (វីដេអូ · ចម្រៀង · រូប · រឿង)", callback_data="pstudio:menu"))
     markup.row(
@@ -1063,6 +1070,9 @@ def send_help(message):
         "• /card - Fan Card សម្រាប់ Share\n"
         "• /code - វាយកូដសម្ងាត់ពី MV/Live\n"
         "• /trip - កន្លែងដើរលេងល្អៗនៅកម្ពុជា\n"
+        "• /rate - ដុល្លារ ↔ រៀល (ឧ. /rate 100)\n"
+        "• /gold - តម្លៃមាស ជី / ដំឡឹង\n"
+        "• /news - ព័ត៌មានថ្មីៗ\n"
         "• /follow - តាមដាន Vid Cooler (TikTok, YouTube, Facebook)\n"
         "• /contact - ទាក់ទង Vid Cooler តាម Telegram\n\n"
         "✍️ **Prompt Studio**\n"

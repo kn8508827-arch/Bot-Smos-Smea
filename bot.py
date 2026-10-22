@@ -39,6 +39,7 @@ import prompt_studio
 import social_links
 import market_info
 import family_tips
+import subscription
 
 logging.basicConfig(
     level=logging.INFO, 
@@ -64,6 +65,10 @@ if not TOKEN:
 
 # បើក threaded=True សម្រាប់ដំណើរការរលូនពេល User ផ្ញើសារច្រើនដំណាលគ្នា
 bot = telebot.TeleBot(TOKEN, threaded=True)
+
+# Paid membership gate (1$/user, 5$/group per 30 days). MUST be registered first so it runs
+# before every other handler. SUBSCRIPTION_ENABLED=false turns it off.
+_subscription = subscription.register(bot, config)
 
 # Register community commands before the catch-all AI handler so commands are not sent to AI.
 community_features.register(bot, database, config)
@@ -272,6 +277,8 @@ def setup_bot_commands():
             BotCommand("myname", "🗣️ AI បង្កើតឈ្មោះ Rapper ឲ្យអ្នក"),
             BotCommand("card", "🃏 Fan Card របស់អ្នក"),
             BotCommand("code", "🎟️ វាយកូដសម្ងាត់ពី MV"),
+            BotCommand("pay", "💳 បង់ 1$ ប្រើគ្រប់មុខងារ 30 ថ្ងៃ"),
+            BotCommand("myplan", "📅 ស្ថានភាពសមាជិករបស់ខ្ញុំ"),
             BotCommand("parent", "👨‍👩‍👧 មើលកូន ១-៦ ឆ្នាំឲ្យស្ដាប់បង្គាប់"),
             BotCommand("pet", "🐶🐱 បង្ហាត់ឆ្កែ ឆ្មា"),
             BotCommand("rate", "💵 អត្រាប្ដូរប្រាក់ ដុល្លារ ↔ រៀល"),
@@ -848,6 +855,8 @@ def _main_menu_keyboard():
         InlineKeyboardButton("🤖 ជជែកជាមួយ AI", callback_data="nav:chat"),
         InlineKeyboardButton("🎨 កែរូប AI", callback_data="nav:studio"),
     )
+    markup.row(InlineKeyboardButton("💳 សមាជិក 1$/ខែ · ស្ថានភាពខ្ញុំ", callback_data="sub:plan"),
+               InlineKeyboardButton("💳 បង់ប្រាក់", callback_data="sub:pay:u"))
     markup.row(InlineKeyboardButton("📈 ដុល្លារ · មាស · ព័ត៌មានថ្មីៗ", callback_data="mkt:menu"))
     markup.row(InlineKeyboardButton("👨‍👩‍👧 មើលកូន", callback_data="fam:kids"),
                InlineKeyboardButton("🐶🐱 បង្ហាត់សត្វ", callback_data="fam:pet"))
@@ -1077,6 +1086,8 @@ def send_help(message):
         "• /card - Fan Card សម្រាប់ Share\n"
         "• /code - វាយកូដសម្ងាត់ពី MV/Live\n"
         "• /trip - កន្លែងដើរលេងល្អៗនៅកម្ពុជា\n"
+        "• /pay - បង់ 1$ ប្រើគ្រប់មុខងារ 30 ថ្ងៃ (Group 5$)\n"
+        "• /myplan - ស្ថានភាពសមាជិក\n"
         "• /parent - មើលកូន ១-៦ ឆ្នាំ\n"
         "• /pet - បង្ហាត់ឆ្កែ ឆ្មា\n"
         "• /rate - ដុល្លារ ↔ រៀល (ឧ. /rate 100)\n"
@@ -1531,6 +1542,7 @@ if __name__ == '__main__':
     setup_bot_commands()
 
     dailycare_scheduler = scheduler.start_scheduler(bot)
+    _subscription.start_loop()
 
     logger.info("Bot is starting polling 24/7...")
     try:

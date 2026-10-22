@@ -79,14 +79,39 @@ def _fan_ask_gemini(prompt):
     ), timeout=90)
 
 
+PROMPT_MODEL_CHAIN = ("gemini-3.8-flash", "gemini-3.6-flash", "gemini-3.1-pro-preview")
+
+
+def _prompt_models():
+    """PROMPT_AI_MODEL first, then current Gemini models, then AI_MODEL — without duplicates."""
+    chain = [os.getenv("PROMPT_AI_MODEL", "").strip().strip('"').strip("'"), *PROMPT_MODEL_CHAIN,
+             getattr(config, "AI_MODEL", "")]
+    seen, models = set(), []
+    for model in chain:
+        if model and model not in seen:
+            seen.add(model)
+            models.append(model)
+    return models
+
+
 def _prompt_ask(system, prompt):
-    # Long, structured answers for Prompt Studio. PROMPT_AI_MODEL can pick a stronger model (e.g. gemini-2.5-pro).
-    return async_runner.run_sync(ai_assistant.generate_gemini_response(
-        api_key=getattr(config, "GEMINI_API_KEY", ""), prompt=prompt, history=[],
-        user_name=None, user_id=None, db_path=database.DB_PATH,
-        model_name=os.getenv("PROMPT_AI_MODEL", "").strip() or None,
-        system_instruction=system, max_output_tokens=8192, temperature=0.9, raw=True,
-    ), timeout=180)
+    # Long, structured answers for Prompt Studio; tries the next model when one is retired or failing.
+    errors = []
+    for model in _prompt_models():
+        try:
+            return async_runner.run_sync(ai_assistant.generate_gemini_response(
+                api_key=getattr(config, "GEMINI_API_KEY", ""), prompt=prompt, history=[],
+                user_name=None, user_id=None, db_path=database.DB_PATH, model_name=model,
+                system_instruction=system, max_output_tokens=8192, temperature=0.9, raw=True,
+                request_timeout=110,
+            ), timeout=150)
+        except Exception as exc:
+            status = getattr(getattr(exc, "response", None), "status_code", "")
+            errors.append(f"{model}: {type(exc).__name__} {status}".strip())
+            logger.warning("Prompt Studio model %s failed (%s %s)", model, type(exc).__name__, status)
+            if isinstance(exc, PermissionError) and "Invalid Key" in str(exc) and len(errors) > 2:
+                break
+    raise RuntimeError("; ".join(errors)[:300])
 
 
 # Prompt Studio: /prompt /videoprompt /songprompt /imageprompt /story
@@ -478,7 +503,8 @@ def _handle_weather_callback(call, chat, data):
 _STUDIO_INTRO_TEXT = (
     "🎨 *AI Photo Studio*\n\n"
     "សូមផ្ញើរូបថតមួយសន្លឹកមក (មុខច្បាស់ ពន្លឺល្អ) ហើយខ្ញុំនឹងឲ្យអ្នកជ្រើសម៉ូដ។\n"
-    "មុខដើមរបស់អ្នកនឹងត្រូវរក្សាទុក មានតែសម្លៀកបំពាក់ និងផ្ទៃខាងក្រោយដែលប្ដូរ។"
+    "មុខដើមរបស់អ្នកនឹងត្រូវរក្សាទុក មានតែសម្លៀកបំពាក់ និងផ្ទៃខាងក្រោយដែលប្ដូរ។\n\n"
+    "💡 ឬផ្ញើរូប + សរសេរ Prompt នៅ Caption (ឧ. Prompt ពី /imageprompt) ខ្ញុំបង្កើតរូបភ្លាម។"
 )
 _STUDIO_CHOOSE_TEXT = "🎨 សូមជ្រើសម៉ូដដែលចង់បាន៖"
 _STUDIO_NOT_CONFIGURED_TEXT = "🎨 Photo Studio មិនទាន់បើកដំណើរការនៅឡើយទេ។"
@@ -636,6 +662,79 @@ def _handle_studio_callback(call, chat, data):
         _studio_busy.discard(user_id)
 
 
+_QUESTION_STARTS = ("what", "who", "why", "how", "where", "when", "which", "is ", "are ", "can ", "could ",
+                    "does ", "do ", "explain", "describe", "តើ", "អ្វី", "ពន្យល់", "ពិពណ៌នា", "មើល", "សួរ")
+
+
+def _caption_is_prompt(caption: str) -> bool:
+    """A photo caption that reads like an edit/generation prompt (not a question about the photo)."""
+    text = " ".join((caption or "").split())
+    if len(text) < 15 or text.startswith("/"):
+        return False
+    low = text.lower().lstrip("> ").strip()
+    if low.endswith(("?", "？")) or low.startswith(_QUESTION_STARTS):
+        return False
+    return True
+
+
+def _studio_error_text(exc, user_id) -> str:
+    code = getattr(exc, "code", "")
+    if code == "not_configured":
+        return _STUDIO_NOT_CONFIGURED_TEXT
+    if code == "billing":
+        return _STUDIO_ERROR_TEXT + (_STUDIO_BILLING_HINT if _studio_is_privileged(user_id) else "")
+    if code == "rate_limited":
+        return _STUDIO_BUSY_TEXT
+    if code in ("blocked", "no_image"):
+        return _STUDIO_BLOCKED_TEXT
+    return _STUDIO_ERROR_TEXT
+
+
+def _studio_from_caption(message, user_id, file_id, prompt) -> None:
+    """Photo + prompt caption → edit the photo with that prompt right away (keeps the person's face)."""
+    if _studio_remaining(user_id) <= 0:
+        bot.reply_to(message, "អ្នកបានប្រើ Photo Studio អស់សម្រាប់ថ្ងៃនេះហើយ។ សូមត្រឡប់មកវិញថ្ងៃស្អែក 🙏")
+        return
+    if user_id in _studio_busy:
+        bot.reply_to(message, "កំពុងបង្កើតរូបមុនរបស់អ្នក សូមរង់ចាំបន្តិច...")
+        return
+    _studio_busy.add(user_id)
+    status = None
+    try:
+        status = bot.reply_to(message, "🎨 កំពុងបង្កើតរូបតាម Prompt របស់អ្នក... (ប្រហែល 10-40 វិនាទី)")
+    except Exception:
+        pass
+    try:
+        try:
+            bot.send_chat_action(message.chat.id, "upload_photo")
+        except Exception:
+            pass
+        file_info = bot.get_file(file_id)
+        photo_bytes = bot.download_file(file_info.file_path)
+        result = async_runner.run_sync(
+            photo_studio.transform_photo(photo_bytes, style_key="custom", custom_prompt=prompt[:900]),
+            timeout=180,
+        )
+        _studio_record_use(user_id)
+        bot.send_photo(message.chat.id, result,
+                       caption="✨ រួចរាល់! បង្កើតតាម Prompt របស់អ្នក\n"
+                               "💡 ចង់ឲ្យ AI ពិពណ៌នារូបវិញ សរសេរសំណួរ ហើយបញ្ចប់ដោយ ?",
+                       reply_to_message_id=message.message_id)
+    except photo_studio.StudioError as exc:
+        logger.error("Photo studio caption error (%s)", exc.code)
+        bot.send_message(message.chat.id, _studio_error_text(exc, user_id))
+    except Exception as exc:
+        logger.error("Photo studio caption error (%s): %s", type(exc).__name__, exc)
+        bot.send_message(message.chat.id, _STUDIO_ERROR_TEXT)
+    finally:
+        _studio_busy.discard(user_id)
+        if status is not None:
+            try:
+                bot.delete_message(message.chat.id, status.message_id)
+            except Exception:
+                pass
+
+
 def keep_typing(chat_id: int, stop_event: threading.Event):
     """បញ្ជូនសញ្ញា typing រៀងរាល់ ៤ វិនាទីម្តង រហូតដល់ AI រៀបចំចម្លើយរួចរាល់"""
     while not stop_event.is_set():
@@ -696,7 +795,8 @@ _CHAT_HELP_TEXT = (
     "🤖 <b>ជជែកជាមួយ AI</b>\n\n"
     "• ✍️ វាយសំណួរអ្វីក៏បាន\n"
     "• 🎙️ ផ្ញើ Voice Note — AI ស្ដាប់ ហើយឆ្លើយ\n"
-    "• 🖼️ ផ្ញើរូបភាព — AI មើល និងពន្យល់\n"
+    "• 🖼️ ផ្ញើរូបភាព — AI មើល និងពន្យល់ (សួរសំណួរបញ្ចប់ដោយ ?)\n"
+    "• 🎨 ផ្ញើរូប + Prompt នៅ Caption — AI បង្កើតរូបថ្មីភ្លាម\n"
     "• 🧹 /reset — សម្អាតប្រវត្តិសន្ទនា"
 )
 _ABOUT_TEXT = (
@@ -1244,6 +1344,12 @@ def handle_photo(message):
             bot.reply_to(message, _STUDIO_NOT_CONFIGURED_TEXT)
         else:
             _studio_accept_photo(message, user_id, largest_photo.file_id)
+        return
+
+    # Photo + a prompt in the caption (not a question) → make the image straight away
+    raw_caption = (getattr(message, "caption", None) or "").strip()
+    if _studio_enabled() and _caption_is_prompt(raw_caption):
+        _studio_from_caption(message, user_id, largest_photo.file_id, raw_caption.lstrip("> ").strip())
         return
 
     stop_typing_event = threading.Event()

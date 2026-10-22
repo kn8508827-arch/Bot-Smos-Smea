@@ -40,6 +40,7 @@ import social_links
 import market_info
 import family_tips
 import subscription
+import backup_tools
 
 logging.basicConfig(
     level=logging.INFO, 
@@ -69,6 +70,8 @@ bot = telebot.TeleBot(TOKEN, threaded=True)
 # Paid membership gate (1$/user, 5$/group per 30 days). MUST be registered first so it runs
 # before every other handler. SUBSCRIPTION_ENABLED=false turns it off.
 _subscription = subscription.register(bot, config)
+# Owner: /backup and a daily database copy to OWNER_ID (members and payments).
+_start_daily_backup = backup_tools.register(bot, config)
 
 # Register community commands before the catch-all AI handler so commands are not sent to AI.
 community_features.register(bot, database, config)
@@ -245,6 +248,12 @@ def _clear_command_overrides():
                 logger.debug("delete_my_commands skipped (%s)", type(exc).__name__)
 
 
+MENU_COMMANDS = (
+    "start", "menu", "pay", "myplan", "prompt", "studio", "rap", "games", "quiz", "card", "checkin",
+    "health", "sos", "parent", "pet", "rate", "gold", "news", "weather", "fuel", "trip", "follow", "contact", "help",
+)
+
+
 def setup_bot_commands():
     """ចុះឈ្មោះ Menu Button ជាប់ប្រអប់ Chat លើ Telegram UI"""
     try:
@@ -302,6 +311,9 @@ def setup_bot_commands():
             BotCommand("sleep", "😴 គន្លឹះគេងលក់ស្រួល"),
             BotCommand("askhealth", "🤖 សួរ AI អំពីសុខភាព"),
         ]
+        # Keep the "/" menu short: only the main commands are listed (all others still work, see /help).
+        by_name = {c.command: c for c in commands}
+        commands = [by_name[n] for n in MENU_COMMANDS if n in by_name]
         _clear_command_overrides()
         bot.set_my_commands(commands)
         logger.info("Bot commands menu registered successfully.")
@@ -850,49 +862,103 @@ def _back_markup():
 
 
 def _main_menu_keyboard():
+    """Main menu grouped by category (each category opens a sub-menu in place)."""
     markup = InlineKeyboardMarkup()
     markup.row(
         InlineKeyboardButton("🤖 ជជែកជាមួយ AI", callback_data="nav:chat"),
         InlineKeyboardButton("🎨 កែរូប AI", callback_data="nav:studio"),
     )
-    markup.row(InlineKeyboardButton("💳 សមាជិក 1$/ខែ · ស្ថានភាពខ្ញុំ", callback_data="sub:plan"),
-               InlineKeyboardButton("💳 បង់ប្រាក់", callback_data="sub:pay:u"))
-    markup.row(InlineKeyboardButton("📈 ដុល្លារ · មាស · ព័ត៌មានថ្មីៗ", callback_data="mkt:menu"))
-    markup.row(InlineKeyboardButton("👨‍👩‍👧 មើលកូន", callback_data="fam:kids"),
-               InlineKeyboardButton("🐶🐱 បង្ហាត់សត្វ", callback_data="fam:pet"))
-    markup.row(InlineKeyboardButton("📲 តាមដាន & ទាក់ទង Vid Cooler", callback_data="follow:menu"))
-    markup.row(InlineKeyboardButton("✍️ Prompt Studio (វីដេអូ · ចម្រៀង · រូប · រឿង)", callback_data="pstudio:menu"))
     markup.row(
-        InlineKeyboardButton("🌤️ អាកាសធាតុ", callback_data="nav:weather"),
-        InlineKeyboardButton("⛽ សាំង & ⚡ EV", callback_data="nav:location"),
+        InlineKeyboardButton("✍️ AI បង្កើត", callback_data="nav:cat:create"),
+        InlineKeyboardButton("🎮 កម្សាន្ត & ហ្វេន", callback_data="nav:cat:fun"),
     )
     markup.row(
-        InlineKeyboardButton("🌟 សហគមន៍", callback_data="nav:community"),
-        InlineKeyboardButton("🎁 Check-in", callback_data="community:menu:checkin:0"),
+        InlineKeyboardButton("🧓 សុខភាព & គ្រួសារ", callback_data="nav:cat:health"),
+        InlineKeyboardButton("📈 ព័ត៌មាន & ជីវិត", callback_data="nav:cat:life"),
     )
     markup.row(
-        InlineKeyboardButton("🎮 ហ្គេម", callback_data="nav:games"),
-        InlineKeyboardButton("🎤 AI Rap", callback_data="nav:rap"),
+        InlineKeyboardButton("💳 សមាជិក", callback_data="nav:cat:member"),
+        InlineKeyboardButton("📲 Vid Cooler", callback_data="follow:menu"),
     )
     markup.row(
-        InlineKeyboardButton("🃏 Fan Card", callback_data="community:menu:card:0"),
-        InlineKeyboardButton("🧠 Quiz", callback_data="community:menu:quiz:0"),
-    )
-    markup.row(
-        InlineKeyboardButton("🧓 សុខភាព & លំហាត់", callback_data="health:menu"),
         InlineKeyboardButton("🆘 លេខបន្ទាន់", callback_data="health:sos"),
-    )
-    markup.row(
-        InlineKeyboardButton("👥 ក្រុមយើង", callback_data="nav:team"),
-        InlineKeyboardButton("📅 ព្រឹត្តិការណ៍", callback_data="nav:events"),
-    )
-    markup.row(InlineKeyboardButton("🧭 Trip ដើរលេងកម្ពុជា", callback_data="trip:menu"))
-    markup.row(InlineKeyboardButton("🚀 Team App (Trip Dashboard)", web_app=WebAppInfo(url=WEB_APP_URL)))
-    markup.row(
-        InlineKeyboardButton("🔔 ការជូនដំណឹង", callback_data="nav:notifications"),
-        InlineKeyboardButton("ℹ️ អំពី", callback_data="nav:about"),
+        InlineKeyboardButton("ℹ️ អំពី & ជំនួយ", callback_data="nav:cat:info"),
     )
     return markup
+
+
+def _category_view(key, user_id=None):
+    """(text, markup) for a main-menu category, or None for an unknown key."""
+    B = InlineKeyboardButton
+    m = InlineKeyboardMarkup()
+    if key == "create":
+        text = ("✍️ <b>AI បង្កើត</b>\nសរសេរ Prompt វីដេអូ ចម្រៀង រូបភាព រៀបចំរឿង កែរូប និងសរសេរ Rap 🔥")
+        m.row(B("✍️ Prompt Studio", callback_data="pstudio:menu"))
+        m.row(B("🎬 វីដេអូ AI", callback_data="pstudio:m:video"), B("🎵 ចម្រៀង Suno", callback_data="pstudio:m:song"))
+        m.row(B("🖼️ រូបភាព", callback_data="pstudio:m:image"), B("🎞️ រឿង & Scene", callback_data="pstudio:m:story"))
+        m.row(B("🎨 កែរូប AI", callback_data="nav:studio"), B("🎤 AI Rap", callback_data="nav:rap"))
+    elif key == "fun":
+        text = "🎮 <b>កម្សាន្ត & ហ្វេន</b>\nលេងហ្គេម ឆ្លើយ Quiz ប្រមូលពិន្ទុ យក Fan Card 🃏"
+        m.row(B("🎮 ហ្គេម Vid Cooler", callback_data="nav:games"), B("🧠 Quiz", callback_data="community:menu:quiz:0"))
+        m.row(B("🃏 Fan Card", callback_data="community:menu:card:0"), B("🎁 Check-in", callback_data="community:menu:checkin:0"))
+        m.row(B("🌟 សហគមន៍ & ពិន្ទុ", callback_data="nav:community"))
+    elif key == "health":
+        text = "🧓 <b>សុខភាព & គ្រួសារ</b>\nលំហាត់ប្រាណ សម្ពាធឈាម មើលកូន និងបង្ហាត់សត្វ ❤️"
+        m.row(B("🧓 សុខភាព & លំហាត់", callback_data="health:menu"), B("🆘 លេខបន្ទាន់", callback_data="health:sos"))
+        m.row(B("👨‍👩‍👧 មើលកូន", callback_data="fam:kids"), B("🐶🐱 បង្ហាត់សត្វ", callback_data="fam:pet"))
+    elif key == "life":
+        text = "📈 <b>ព័ត៌មាន & ជីវិតប្រចាំថ្ងៃ</b>\nដុល្លារ មាស ព័ត៌មាន អាកាសធាតុ សាំង និងកន្លែងដើរលេង 🇰🇭"
+        m.row(B("💵 ដុល្លារ · 🪙 មាស · 📰 ព័ត៌មាន", callback_data="mkt:menu"))
+        m.row(B("🌤️ អាកាសធាតុ", callback_data="nav:weather"), B("⛽ សាំង & ⚡ EV", callback_data="nav:location"))
+        m.row(B("🧭 Trip ដើរលេង", callback_data="trip:menu"),
+              B("🚀 Team App", web_app=WebAppInfo(url=WEB_APP_URL)))
+    elif key == "member":
+        until = subscription.paid_until(config, "u", user_id) if user_id else 0
+        st = subscription.settings()
+        if _is_owner_or_admin(user_id):
+            status = "👑 អ្នកជា Owner/Admin — ប្រើគ្រប់មុខងារ"
+        elif until > time.time():
+            status = f"✅ សមាជិករហូតដល់ <b>{subscription.fmt_date(until)}</b>"
+        else:
+            status = "🔒 មិនទាន់ជាសមាជិក"
+        text = (f"💳 <b>សមាជិក Cooler Bot</b>\n\n{status}\n\n"
+                f"👤 ម្នាក់៖ {st.user_price} / {st.days} ថ្ងៃ · 👥 Group៖ {st.group_price} / {st.days} ថ្ងៃ\n"
+                "🙏 អរគុណដែលគាំទ្រ Vid Cooler ❤️")
+        m.row(B(f"💳 បង់ / បន្ត {st.user_price}", callback_data="sub:pay:u"), B("🆓 មុខងារឥតគិតថ្លៃ", callback_data="sub:free"))
+        m.row(B("💬 ទាក់ទង Vid Cooler", callback_data="follow:menu"))
+    elif key == "info":
+        text = "ℹ️ <b>អំពី & ជំនួយ</b>"
+        m.row(B("👥 ក្រុមយើង", callback_data="nav:team"), B("📅 ព្រឹត្តិការណ៍", callback_data="nav:events"))
+        m.row(B("🔔 ការជូនដំណឹង", callback_data="nav:notifications"), B("ℹ️ អំពី Bot", callback_data="nav:about"))
+    else:
+        return None
+    m.row(B("🏠 ម៉ឺនុយមេ", callback_data="nav:main"))
+    return text, m
+
+
+def _all_menu_rows():
+    """Main-menu rows plus every category's rows (handy for checks and tests)."""
+    rows = list(_main_menu_keyboard().keyboard)
+    for key in ("create", "fun", "health", "life", "member", "info"):
+        rows += _category_view(key)[1].keyboard
+    return rows
+
+
+def _is_owner_or_admin(user_id):
+    return user_id is not None and (user_id == getattr(config, "OWNER_ID", 0) or user_id in getattr(config, "ADMIN_IDS", []))
+
+
+def _main_menu_text(user_id=None):
+    """Main-menu text with the person's membership status on top."""
+    status = ""
+    if user_id is not None and subscription.settings().enabled:
+        if _is_owner_or_admin(user_id):
+            status = "👑 Owner/Admin\n"
+        else:
+            until = subscription.paid_until(config, "u", user_id)
+            status = (f"✅ សមាជិក · ដល់ {subscription.fmt_date(until)[:10]}\n" if until > time.time()
+                      else "🔒 មិនទាន់ជាសមាជិក — ចុច 💳 សមាជិក\n")
+    return status + _MAIN_MENU_TEXT
 
 
 def _community_nav_keyboard():
@@ -914,7 +980,8 @@ def _community_nav_keyboard():
 
 
 def _send_main_menu(message):
-    bot.reply_to(message, _MAIN_MENU_TEXT, reply_markup=_main_menu_keyboard(), parse_mode="HTML")
+    bot.reply_to(message, _main_menu_text(getattr(getattr(message, "from_user", None), "id", None)),
+                 reply_markup=_main_menu_keyboard(), parse_mode="HTML")
 
 
 def _show_in_place(call, text, markup, parse_mode="HTML"):
@@ -941,7 +1008,11 @@ def _handle_nav_callback(call, data):
         return
     bot.answer_callback_query(call.id)
     if key == "main":
-        _show_in_place(call, _MAIN_MENU_TEXT, _main_menu_keyboard())
+        _show_in_place(call, _main_menu_text(getattr(call.from_user, "id", None)), _main_menu_keyboard())
+    elif key.startswith("cat:"):
+        view = _category_view(key[4:], getattr(call.from_user, "id", None))
+        if view:
+            _show_in_place(call, *view)
     elif key == "chat":
         _show_in_place(call, _CHAT_HELP_TEXT, _back_markup())
     elif key == "about":
@@ -999,7 +1070,10 @@ def send_welcome(message):
                 )
         except Exception as exc:
             logger.warning("Could not send mascot photo (%s)", type(exc).__name__)
-    bot.send_message(message.chat.id, welcome_text, reply_markup=_main_menu_keyboard(), parse_mode="HTML")
+    user_id = getattr(getattr(message, "from_user", None), "id", None)
+    bot.send_message(message.chat.id, _main_menu_text(user_id).split("\n")[0] + "\n\n" + welcome_text
+                     if user_id is not None and subscription.settings().enabled else welcome_text,
+                     reply_markup=_main_menu_keyboard(), parse_mode="HTML")
 
 
 @registered_message_handler(commands=['menu'])
@@ -1543,6 +1617,7 @@ if __name__ == '__main__':
 
     dailycare_scheduler = scheduler.start_scheduler(bot)
     _subscription.start_loop()
+    _start_daily_backup()
 
     logger.info("Bot is starting polling 24/7...")
     try:

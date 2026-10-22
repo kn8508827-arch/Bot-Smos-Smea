@@ -36,7 +36,8 @@ FREE_COMMANDS = {
     "follow", "social", "tiktok", "contact", "vidcooler",
     "sos", "health", "exercise", "balance", "warning", "water", "sleep",
 }
-FREE_CALLBACKS = ("nav:main", "nav:about", "sub:", "follow:menu", "health:", "hmore:water", "hmore:sleep")
+FREE_CALLBACKS = ("nav:main", "nav:about", "nav:cat:", "nav:team", "nav:events", "sub:", "follow:menu", "health:",
+                  "hmore:water", "hmore:sleep")
 GROUP_FREE_COMMANDS = {"pay", "subscribe", "member", "myplan", "plan", "leave", "groups", "group"}
 
 

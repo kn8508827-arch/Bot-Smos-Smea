@@ -29,6 +29,7 @@ import scheduler
 import location_service
 import weather_service
 import photo_studio
+import community_features
 
 logging.basicConfig(
     level=logging.INFO, 
@@ -54,6 +55,9 @@ if not TOKEN:
 
 # បើក threaded=True សម្រាប់ដំណើរការរលូនពេល User ផ្ញើសារច្រើនដំណាលគ្នា
 bot = telebot.TeleBot(TOKEN, threaded=True)
+
+# Register community commands before the catch-all AI handler so commands are not sent to AI.
+community_features.register(bot, database, config)
 
 
 def register_interaction(from_user, chat) -> bool:
@@ -152,6 +156,13 @@ def setup_bot_commands():
             BotCommand("ev", "⚡ ស្វែងរកស្ថានីយសាក EV"),
             BotCommand("weather", "🌤️ ព្យាករណ៍អាកាសធាតុតាមខេត្ត"),
             BotCommand("studio", "🎨 កែរូបដោយ AI (Photo Studio)"),
+            BotCommand("community", "🌟 មឺនុយសហគមន៍"),
+            BotCommand("profile", "⭐ ប្រវត្តិរូប និងពិន្ទុ"),
+            BotCommand("checkin", "🎁 Check-in ប្រចាំថ្ងៃ"),
+            BotCommand("quiz", "🧠 Quiz ប្រចាំថ្ងៃ"),
+            BotCommand("leaderboard", "🏆 ចំណាត់ថ្នាក់សមាជិក"),
+            BotCommand("invite", "🤝 អញ្ជើញមិត្តភក្តិ"),
+            BotCommand("vip", "👑 ស្ថានភាព VIP"),
         ]
         bot.set_my_commands(commands)
         logger.info("Bot commands menu registered successfully.")
@@ -664,7 +675,14 @@ def send_help(message):
         "• /reset - សម្អាតប្រវត្តិសន្ទនាជាមួយ AI\n\n"
         "• /notifications - បើក ឬបិទសារ Daily Care\n"
         "• /weather - ព្យាករណ៍អាកាសធាតុតាមខេត្ត\n"
-        "• /studio - កែរូបដោយ AI (Photo Studio)\n\n"
+        "• /studio - កែរូបដោយ AI (Photo Studio)\n"
+        "• /community - មឺនុយសហគមន៍\n"
+        "• /profile - ពិន្ទុ និងកម្រិត\n"
+        "• /checkin - ពិន្ទុប្រចាំថ្ងៃ\n"
+        "• /quiz - Quiz ប្រចាំថ្ងៃ\n"
+        "• /leaderboard - ចំណាត់ថ្នាក់\n"
+        "• /invite - អញ្ជើញមិត្តភក្តិ\n"
+        "• /vip - ស្ថានភាព VIP\n\n"
         "💡 *អ្នកអាចវាយសំណួរ ឬផ្ញើសារជាសំឡេង (Voice Note) ឬរូបភាពមកជជែកជាមួយ AI បានគ្រប់ពេល!*"
     )
     try:
@@ -998,6 +1016,17 @@ def handle_shared_location(message):
     )
 
 
+def _is_bare_province_name(text: str) -> bool:
+    cleaned = " ".join((text or "").replace("ខេត្ត", " ").replace("រាជធានី", " ").split()).strip(" .!?។៖")
+    if not cleaned:
+        return False
+    folded = cleaned.casefold()
+    return any(
+        cleaned == khmer or folded == english.casefold()
+        for khmer, english in location_service.PROVINCES.items()
+    )
+
+
 @registered_message_handler(func=lambda message: True)
 def echo_all(message):
     user_id = message.from_user.id
@@ -1020,6 +1049,10 @@ def echo_all(message):
     location_intent = (
         parsed["kind"] is not None
         or pending
+        # A message that is ONLY a province name (e.g. the user typed "កំពត" after
+        # "🔎 ស្វែងរកតាមខេត្ត" and the pending state was lost on restart) is a
+        # location search. A province mentioned inside a normal sentence goes to AI.
+        or _is_bare_province_name(user_text)
         or any(
             term in lowered
             for term in (

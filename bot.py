@@ -370,14 +370,17 @@ _STUDIO_INTRO_TEXT = (
     "មុខដើមរបស់អ្នកនឹងត្រូវរក្សាទុក មានតែសម្លៀកបំពាក់ និងផ្ទៃខាងក្រោយដែលប្ដូរ។"
 )
 _STUDIO_CHOOSE_TEXT = "🎨 សូមជ្រើសម៉ូដដែលចង់បាន៖"
-_STUDIO_NOT_CONFIGURED_TEXT = "🎨 Photo Studio មិនទាន់បើកដំណើរការនៅឡើយទេ។ (Admin ត្រូវដាក់ STABILITY_API_KEY)"
+_STUDIO_NOT_CONFIGURED_TEXT = "🎨 Photo Studio មិនទាន់បើកដំណើរការនៅឡើយទេ។"
+_STUDIO_BILLING_HINT = "\n\n🔧 (Admin) Gemini key ត្រូវបើក Billing នៅ Google AI Studio ទើបកែរូបបាន។"
+_STUDIO_BLOCKED_TEXT = "AI មិនអាចកែរូបនេះបានទេ (អាចជារូបមិនច្បាស់ ឬខុសគោលការណ៍)។ សូមសាករូបផ្សេង។"
+_STUDIO_BUSY_TEXT = "ប្រព័ន្ធកែរូបរវល់ពេកឥឡូវនេះ។ សូមសាកម្ដងទៀតក្នុងមួយភ្លែតទៀត។"
 _STUDIO_EXPIRED_TEXT = "រូបនេះផុតកំណត់ហើយ។ សូមវាយ /studio ហើយផ្ញើរូបម្ដងទៀត។"
 _STUDIO_ERROR_TEXT = "សុំទោស មិនអាចកែរូបបានទេឥឡូវនេះ។ សូមសាកល្បងម្ដងទៀតពេលក្រោយ។"
 _STUDIO_CAPTION_TRIGGERS = ("/studio", "studio", "កែរូប")
 
 
 def _studio_enabled() -> bool:
-    return bool(getattr(config, "STABILITY_API_KEY", ""))
+    return bool(getattr(config, "STUDIO_ENABLED", False) and getattr(config, "GEMINI_API_KEY", ""))
 
 
 def _studio_is_privileged(user_id) -> bool:
@@ -393,7 +396,7 @@ def _studio_today() -> str:
 def _studio_remaining(user_id) -> int:
     if _studio_is_privileged(user_id):
         return 10**6
-    limit = max(0, int(getattr(config, "STUDIO_DAILY_LIMIT", 3)))
+    limit = max(0, int(getattr(config, "STUDIO_DAILY_LIMIT", 1)))
     return max(0, limit - _studio_usage.get((user_id, _studio_today()), 0))
 
 
@@ -427,6 +430,9 @@ def _start_studio(message):
         bot.reply_to(message, _STUDIO_NOT_CONFIGURED_TEXT)
         return
     if _studio_remaining(user_id) <= 0:
+        if int(getattr(config, "STUDIO_DAILY_LIMIT", 1)) <= 0:
+            bot.reply_to(message, "🎨 Photo Studio បើកសម្រាប់តែ Admin ប៉ុណ្ណោះពេលនេះ។")
+            return
         bot.reply_to(message, "អ្នកបានប្រើ Photo Studio អស់សម្រាប់ថ្ងៃនេះហើយ។ សូមត្រឡប់មកវិញថ្ងៃស្អែក 🙏")
         return
     _studio_waiting[user_id] = time.monotonic() + _STUDIO_TTL_SECONDS
@@ -482,9 +488,8 @@ def _handle_studio_callback(call, chat, data):
     _studio_busy.add(user_id)
     style_name = photo_studio.STYLES[key]["name_kh"]
     bot.answer_callback_query(call.id, "កំពុងកែរូប...")
-    show(f"⏳ កំពុងកែរូបជាម៉ូដ {style_name} ... (ប្រហែល 20-60 វិនាទី)")
+    show(f"⏳ កំពុងកែរូបជាម៉ូដ {style_name} ... (ប្រហែល 10-40 វិនាទី)")
 
-    tmp_path = None
     try:
         try:
             bot.send_chat_action(chat.id, "upload_photo")
@@ -492,35 +497,32 @@ def _handle_studio_callback(call, chat, data):
             pass
         file_info = bot.get_file(state["file_id"])
         photo_bytes = bot.download_file(file_info.file_path)
-        import tempfile
-        with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as tmp:
-            tmp.write(photo_bytes)
-            tmp_path = tmp.name
         result = async_runner.run_sync(
-            photo_studio.transform_photo(tmp_path, style_key=key),
-            timeout=150,
+            photo_studio.transform_photo(photo_bytes, style_key=key),
+            timeout=180,
         )
         _studio_record_use(user_id)
         _studio_photos.pop(user_id, None)
         caption = f"✨ រួចរាល់! ម៉ូដ៖ {style_name}\nវាយ /studio ដើម្បីកែរូបផ្សេងទៀត។"
         bot.send_photo(chat.id, result, caption=caption)
         show(f"✅ កែរូបជាម៉ូដ {style_name} រួចរាល់។")
-    except ValueError as exc:
-        if "STABILITY_API_KEY" in str(exc):
+    except photo_studio.StudioError as exc:
+        logger.error("Photo studio error (%s)", exc.code)
+        if exc.code == "not_configured":
             show(_STUDIO_NOT_CONFIGURED_TEXT)
+        elif exc.code == "billing":
+            show(_STUDIO_ERROR_TEXT + (_STUDIO_BILLING_HINT if _studio_is_privileged(user_id) else ""))
+        elif exc.code == "rate_limited":
+            show(_STUDIO_BUSY_TEXT)
+        elif exc.code in ("blocked", "no_image"):
+            show(_STUDIO_BLOCKED_TEXT)
         else:
-            logger.error("Photo studio error (%s)", type(exc).__name__)
             show(_STUDIO_ERROR_TEXT)
     except Exception as exc:
         logger.error("Photo studio error (%s): %s", type(exc).__name__, exc)
         show(_STUDIO_ERROR_TEXT)
     finally:
         _studio_busy.discard(user_id)
-        if tmp_path:
-            try:
-                os.remove(tmp_path)
-            except OSError:
-                pass
 
 
 def keep_typing(chat_id: int, stop_event: threading.Event):

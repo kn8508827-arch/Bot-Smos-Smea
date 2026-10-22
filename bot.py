@@ -922,7 +922,7 @@ def _category_view(key, user_id=None):
     elif key == "fun":
         text = "🎮 <b>កម្សាន្ត & ហ្វេន</b>\nលេងហ្គេម ឆ្លើយ Quiz ប្រមូលពិន្ទុ យក Fan Card 🃏"
         m.row(B("🎮 Game Center — លេងភ្លាម 🎲🎯🏀⚽🎳🎰", callback_data="gc:menu"))
-        m.row(B("🕹️ ហ្គេម 3D Vid Cooler", callback_data="nav:games"), B("🧠 Quiz", callback_data="community:menu:quiz:0"))
+        m.row(B(f"🕹️ ហ្គេមទាំងអស់ ({fan_features.GAME_COUNT})", callback_data="nav:games"), B("🧠 Quiz", callback_data="community:menu:quiz:0"))
         m.row(B("🃏 Fan Card", callback_data="community:menu:card:0"), B("🎁 Check-in", callback_data="community:menu:checkin:0"))
         m.row(B("🔮 ទស្សន៍ទាយ · បាតដៃ · សុបិន", callback_data="fort:menu"))
         m.row(B("🌟 សហគមន៍ & ពិន្ទុ", callback_data="nav:community"))
@@ -1055,7 +1055,7 @@ def _handle_nav_callback(call, data):
         games_kb = _fan.games_markup(getattr(message.chat, "type", None) == "private")
         games_kb.row(InlineKeyboardButton("🎮 Game Center — លេងភ្លាមក្នុង Telegram", callback_data="gc:menu"))
         games_kb.row(_home_button())
-        _show_in_place(call, "🎮 <b>ហ្គេមរបស់ Vid Cooler</b>\nចុចដើម្បីលេងភ្លាម 👇", games_kb)
+        _show_in_place(call, f"🎮 <b>ហ្គេម Vid Cooler — {fan_features.GAME_COUNT} ហ្គេម</b>\n👨‍👩‍👧 មនុស្សធំ · 🚀 3D · ⚡ ល្បឿន\nចុចដើម្បីលេងភ្លាម 👇", games_kb)
     elif key == "rap":
         proxy = SimpleNamespace(from_user=call.from_user, chat=message.chat,
                                 message_id=message.message_id, text="/rap")

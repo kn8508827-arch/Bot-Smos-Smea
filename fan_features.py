@@ -1,6 +1,6 @@
 """Fan features for Cooler Bot (Vid Cooler, rapper in Cambodia).
 
-  /games  — Vid Cooler's games (Arcade hub + 4 games) as Telegram Mini App buttons
+  /games  — every game as its own button (arcade games, 3D games) as Telegram Mini App buttons
   /music  — Vid Cooler's official music channel (MUSIC_YOUTUBE_URL)
   /rap    — AI writes a short, ORIGINAL Khmer rap verse from the fan's words
   /movie  — AI recommends dramas/movies and where to watch them OFFICIALLY
@@ -18,13 +18,27 @@ from types import SimpleNamespace
 logger = logging.getLogger(__name__)
 
 GAMES = (
-    # (key, button label, env var, default URL)
-    ("arcade", "🕹️ Cooler Arcade — ១២ ហ្គេម (ថ្មី!)", "GAME_ARCADE_URL", "https://kn8508827-arch.github.io/Blue-Gold-Rush/arcade/"),
+    # (key, button label, env var, default URL) — the big games, each its own site
     ("fly", "🚀 Cooler Fly 3D", "GAME_COOLER_FLY_URL", "https://kn8508827-arch.github.io/Blue-Gold-Rush/cooler-fly/"),
     ("bgr", "⚡ Blue Gold Rush", "GAME_BLUE_GOLD_RUSH_URL", "https://kn8508827-arch.github.io/Blue-Gold-Rush/"),
     ("logo", "🧩 Logo Crush 3D", "GAME_LOGO_CRUSH_URL", "https://logo-crush-3d-production.up.railway.app/"),
     ("spin", "🎡 Spin & Drink", "GAME_SPIN_AND_DRINK_URL", "https://spin-and-drink-production.up.railway.app/"),
 )
+ARCADE_URL_DEFAULT = "https://kn8508827-arch.github.io/Blue-Gold-Rush/arcade/"
+# Arcade games get their own buttons (opened with ?g=<key>) so players see every game.
+ARCADE_ADULT = (("khla", "🎲 ខ្លាឃ្លោក"), ("sudoku", "🔢 Sudoku"), ("solitaire", "🃏 Solitaire បៀ"), ("mahjong", "🀄 Mahjong"))
+ARCADE_FUN = (
+    ("2048", "🔢 2048"), ("snake", "🐍 ពស់ Neon"), ("memory", "🃏 ផ្គូផ្គងកាត"), ("whack", "🔨 វាយ Cooler"),
+    ("ttt", "❌ XO ប្រកួត AI"), ("brick", "🧱 បំបែកឥដ្ឋ"), ("sort", "🧪 តម្រៀបបាល់"), ("c4", "🔴 Connect 4"),
+    ("mines", "💣 រកមីន"), ("simon", "🎵 Simon ចាំភ្លេង"), ("slide", "🧩 Puzzle រំកិល"), ("tap", "🎯 ចុចលឿន"),
+)
+GAME_COUNT = len(GAMES) + len(ARCADE_ADULT) + len(ARCADE_FUN) + 6  # + 6 Game Center dice games
+
+
+def arcade_url(key=None):
+    base = os.getenv("GAME_ARCADE_URL", "").strip() or ARCADE_URL_DEFAULT
+    return f"{base}?g={key}" if key else base
+
 
 AI_DAILY_LIMIT = int(os.getenv("FAN_AI_DAILY_LIMIT", "5"))  # /rap + /movie per fan per day
 _MAX_INPUT = 120
@@ -94,11 +108,19 @@ def register(bot, config, ask_gemini):
 
     def games_markup(private):
         markup = InlineKeyboardMarkup()
-        for _key, label, url in game_links():
-            if private:  # Mini App buttons only work in private chats
-                markup.row(InlineKeyboardButton(label, web_app=WebAppInfo(url=url)))
-            else:
-                markup.row(InlineKeyboardButton(label, url=url))
+
+        def button(label, url):
+            # Mini App buttons only work in private chats; groups get normal links
+            return InlineKeyboardButton(label, web_app=WebAppInfo(url=url)) if private else InlineKeyboardButton(label, url=url)
+
+        def rows(items):
+            for i in range(0, len(items), 2):
+                markup.row(*items[i:i + 2])
+
+        rows([button(label, arcade_url(key)) for key, label in ARCADE_ADULT])
+        rows([button(label, url) for _key, label, url in game_links()])
+        rows([button(label, arcade_url(key)) for key, label in ARCADE_FUN])
+        markup.row(button(f"🕹️ Arcade ទាំងអស់ ({len(ARCADE_ADULT) + len(ARCADE_FUN)} ហ្គេម)", arcade_url()))
         return markup
 
     def is_private(message):
@@ -108,14 +130,10 @@ def register(bot, config, ask_gemini):
     def games(message):
         bot.reply_to(
             message,
-            "🎮 <b>ហ្គេមរបស់ Vid Cooler</b> — ២០+ ហ្គេម\n\n"
-            "🕹️ <b>Cooler Arcade</b> — ១២ ហ្គេម៖ 2048 · ពស់ · ផ្គូផ្គងកាត · វាយ Cooler · XO · បំបែកឥដ្ឋ · តម្រៀបបាល់ · Connect 4 · រកមីន · Simon · Puzzle · ចុចលឿន (ថ្មី!)\n"
-            "🚀 <b>Cooler Fly 3D</b> — ហោះកាត់ភ្នំពេញ 2050 អង្គរ Hologram ដល់អវកាស 🌌\n"
-            "⚡ <b>Blue Gold Rush</b> — រត់ ប្រមូលកាក់ ជិះ Sky Bike 🚲\n"
-            "🧩 <b>Logo Crush 3D</b> — ផ្គូផ្គង logo ៣ ឡើងកម្រិត\n"
-            "🎡 <b>Spin &amp; Drink</b> — កង់សំណាងលេងជាក្រុម\n\n"
-            "🎲 + Game Center ក្នុង Telegram: /play\n\n"
-            "ចុចប៊ូតុងខាងក្រោមដើម្បីលេងភ្លាម 👇",
+            f"🎮 <b>ហ្គេម Vid Cooler — {GAME_COUNT} ហ្គេម</b>\n\n"
+            "👨‍👩‍👧 មនុស្សធំ · 🚀 3D · ⚡ ល្បឿន និងប្រាជ្ញា\n"
+            "🎲 លេងក្នុង Telegram ផ្ទាល់៖ /play\n\n"
+            "ចុចហ្គេមដើម្បីលេងភ្លាម 👇",
             reply_markup=games_markup(is_private(message)),
             parse_mode="HTML",
         )

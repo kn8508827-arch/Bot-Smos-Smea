@@ -35,6 +35,7 @@ import group_manager
 import health_features
 import health_more
 import trip_places
+import prompt_studio
 
 logging.basicConfig(
     level=logging.INFO, 
@@ -78,6 +79,18 @@ def _fan_ask_gemini(prompt):
     ), timeout=90)
 
 
+def _prompt_ask(system, prompt):
+    # Long, structured answers for Prompt Studio. PROMPT_AI_MODEL can pick a stronger model (e.g. gemini-2.5-pro).
+    return async_runner.run_sync(ai_assistant.generate_gemini_response(
+        api_key=getattr(config, "GEMINI_API_KEY", ""), prompt=prompt, history=[],
+        user_name=None, user_id=None, db_path=database.DB_PATH,
+        model_name=os.getenv("PROMPT_AI_MODEL", "").strip() or None,
+        system_instruction=system, max_output_tokens=8192, temperature=0.9, raw=True,
+    ), timeout=180)
+
+
+# Prompt Studio: /prompt /videoprompt /songprompt /imageprompt /story
+_prompt_studio = prompt_studio.register(bot, config, _prompt_ask)
 # Fan features: /games /music /rap /movie (registered before the catch-all AI handler)
 _fan = fan_features.register(bot, config, _fan_ask_gemini)
 # More health tools: /bp /water /sleep /askhealth
@@ -225,6 +238,11 @@ def setup_bot_commands():
             BotCommand("myname", "🗣️ AI បង្កើតឈ្មោះ Rapper ឲ្យអ្នក"),
             BotCommand("card", "🃏 Fan Card របស់អ្នក"),
             BotCommand("code", "🎟️ វាយកូដសម្ងាត់ពី MV"),
+            BotCommand("prompt", "✍️ Prompt Studio កម្រិតខ្ពស់"),
+            BotCommand("videoprompt", "🎬 Prompt វីដេអូ AI"),
+            BotCommand("songprompt", "🎵 Prompt ចម្រៀង Suno"),
+            BotCommand("imageprompt", "🖼️ Prompt រូបភាព"),
+            BotCommand("story", "🎞️ រៀបចំរឿង Scene និងភាគ"),
             BotCommand("trip", "🧭 កន្លែងដើរលេងល្អៗនៅកម្ពុជា"),
             BotCommand("health", "🧓 សុខភាព និងលំហាត់ប្រាណ"),
             BotCommand("exercise", "🏃 លំហាត់ ១០ នាទីថ្ងៃនេះ"),
@@ -714,6 +732,7 @@ def _main_menu_keyboard():
         InlineKeyboardButton("🤖 ជជែកជាមួយ AI", callback_data="nav:chat"),
         InlineKeyboardButton("🎨 កែរូប AI", callback_data="nav:studio"),
     )
+    markup.row(InlineKeyboardButton("✍️ Prompt Studio (វីដេអូ · ចម្រៀង · រូប · រឿង)", callback_data="pstudio:menu"))
     markup.row(
         InlineKeyboardButton("🌤️ អាកាសធាតុ", callback_data="nav:weather"),
         InlineKeyboardButton("⛽ សាំង & ⚡ EV", callback_data="nav:location"),
@@ -937,6 +956,12 @@ def send_help(message):
         "• /card - Fan Card សម្រាប់ Share\n"
         "• /code - វាយកូដសម្ងាត់ពី MV/Live\n"
         "• /trip - កន្លែងដើរលេងល្អៗនៅកម្ពុជា\n\n"
+        "✍️ **Prompt Studio**\n"
+        "• /prompt - ម៉ឺនុយ Prompt Studio\n"
+        "• /videoprompt - Prompt វីដេអូ AI\n"
+        "• /songprompt - Prompt ចម្រៀង (Suno)\n"
+        "• /imageprompt - Prompt រូបភាព\n"
+        "• /story - រៀបចំរឿង Scene និងភាគ\n\n"
         "🧓 **សុខភាព**\n"
         "• /health - សុខភាព និងលំហាត់ប្រាណ\n"
         "• /exercise - លំហាត់ ១០ នាទីថ្ងៃនេះ\n"

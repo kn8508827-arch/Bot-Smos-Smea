@@ -33,6 +33,7 @@ import community_features
 import fan_features
 import group_manager
 import health_features
+import health_more
 
 logging.basicConfig(
     level=logging.INFO, 
@@ -76,6 +77,8 @@ def _fan_ask_gemini(prompt):
 
 # Fan features: /games /music /rap /movie (registered before the catch-all AI handler)
 _fan = fan_features.register(bot, config, _fan_ask_gemini)
+# More health tools: /bp /water /sleep /askhealth
+health_more.register(bot, config, _fan_ask_gemini)
 
 
 def register_interaction(from_user, chat) -> bool:
@@ -224,6 +227,10 @@ def setup_bot_commands():
             BotCommand("balance", "⚖️ លំហាត់ទប់លំនឹង ការពារការដួល"),
             BotCommand("warning", "🚨 សញ្ញាគ្រោះថ្នាក់ត្រូវទៅពេទ្យ"),
             BotCommand("sos", "🆘 លេខទូរស័ព្ទបន្ទាន់"),
+            BotCommand("bp", "🩸 កត់ត្រាសម្ពាធឈាម"),
+            BotCommand("water", "💧 ផឹកទឹកឲ្យគ្រប់ពេលក្ដៅ"),
+            BotCommand("sleep", "😴 គន្លឹះគេងលក់ស្រួល"),
+            BotCommand("askhealth", "🤖 សួរ AI អំពីសុខភាព"),
         ]
         _clear_command_overrides()
         bot.set_my_commands(commands)
@@ -929,7 +936,11 @@ def send_help(message):
         "• /exercise - លំហាត់ ១០ នាទីថ្ងៃនេះ\n"
         "• /balance - ទប់លំនឹង ការពារការដួល\n"
         "• /warning - សញ្ញាគ្រោះថ្នាក់\n"
-        "• /sos - លេខទូរស័ព្ទបន្ទាន់ (119)\n\n"
+        "• /sos - លេខទូរស័ព្ទបន្ទាន់ (119)\n"
+        "• /bp - កត់ត្រាសម្ពាធឈាម\n"
+        "• /water - ផឹកទឹកពេលក្ដៅ\n"
+        "• /sleep - គេងលក់ស្រួល\n"
+        "• /askhealth - សួរ AI អំពីសុខភាព\n\n"
         "💡 *អ្នកអាចវាយសំណួរ ឬផ្ញើសារជាសំឡេង (Voice Note) ឬរូបភាពមកជជែកជាមួយ AI បានគ្រប់ពេល!*"
     )
     try:

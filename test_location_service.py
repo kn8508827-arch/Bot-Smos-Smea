@@ -137,6 +137,40 @@ class TestLocationService(unittest.TestCase):
             with self.assertRaises(LocationSearchError):
                 self.service.search("រក PTT ជិតខ្ញុំ", lat=11, lon=104)
 
+    def test_phone_typed_khmer_and_short_ev_queries(self):
+        self.assertEqual(location_service.normalize_query("ចាក់សំាង")["kind"], "fuel")  # ំ before ា
+        self.assertIsNone(location_service.normalize_query("ចាក់\u200bសាំង")["location"])
+        self.assertEqual(location_service.normalize_query("EV សៀមរាប"), {"kind": "ev", "location": "siem reap", "operator": None})
+        self.assertNotEqual(location_service.normalize_query("every day")["kind"], "ev")
+
+    def test_provinces_do_not_need_the_geocoder(self):
+        calls = []
+        service = LocationService(get=lambda *a, **k: calls.append(a) or (_ for _ in ()).throw(httpx.ConnectError("blocked")))
+        self.assertEqual(service._geocode("phnom penh"), (11.5564, 104.9282))
+        self.assertEqual(service._geocode("kampot town"), location_service.PROVINCE_COORDS["kampot"])  # geocoder down -> province fallback
+        with self.assertRaises(httpx.HTTPError):
+            service._geocode("unknown village")
+        self.assertEqual(len(calls), 2)
+
+    def test_overpass_tries_mirrors_and_sends_form_data(self):
+        seen = []
+        class Resp:
+            def __init__(self, code, body): self.status_code = code; self._b = body
+            def raise_for_status(self):
+                if self.status_code >= 400:
+                    raise httpx.HTTPStatusError("bad", request=httpx.Request("POST", "x"), response=httpx.Response(self.status_code))
+            def json(self): return self._b
+        def post(url, content=None, **kw):
+            seen.append((url, content, kw["headers"].get("Content-Type")))
+            return Resp(429, {}) if len(seen) == 1 else Resp(200, {"elements": [{"type": "node", "id": 1, "lat": 11.55, "lon": 104.92, "tags": {"amenity": "fuel", "name": "PTT"}}]})
+        with patch.object(location_service, "_last_request_at", 0), patch("time.sleep"):
+            service = LocationService(post=post)
+            stations = service._fetch_stations(11.5564, 104.9282, 5000)
+        self.assertEqual([s["name"] for s in stations], ["PTT"])
+        self.assertEqual(seen[0][0], location_service.OVERPASS_URLS[0])
+        self.assertEqual(seen[1][0], location_service.OVERPASS_URLS[1])
+        self.assertTrue(seen[0][1].startswith("data=") and seen[0][2] == "application/x-www-form-urlencoded")
+
     def test_distance_radius_filter_and_missing_coordinates(self):
         stations = [
             _station(6, "Near", "fuel", 11.01, 104),

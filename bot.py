@@ -299,8 +299,12 @@ def _send_location_results(message, query="", kind=None, lat=None, lon=None):
             lon=lon,
             kind=kind,
         )
-    except location_service.LocationSearchError:
-        logger.warning("Location search provider request failed.")
+    except location_service.LocationSearchError as exc:
+        cause = exc.__cause__
+        logger.warning(
+            "Location search provider request failed: %s (%s)",
+            exc, location_service._describe_http_error(cause) if cause else "no cause",
+        )
         bot.reply_to(
             message,
             "មិនអាចភ្ជាប់ទៅទិន្នន័យផែនទីបានទេឥឡូវនេះ។ សូមសាកល្បងម្ដងទៀតពេលក្រោយ។",

@@ -32,6 +32,7 @@ import photo_studio
 import community_features
 import fan_features
 import group_manager
+import health_features
 
 logging.basicConfig(
     level=logging.INFO, 
@@ -62,6 +63,8 @@ bot = telebot.TeleBot(TOKEN, threaded=True)
 community_features.register(bot, database, config)
 # Owner tools: /groups and /leave (make the bot leave a group).
 group_manager.register(bot, config)
+# Health & exercise for older people: /health /exercise /balance /warning /sos
+health_features.register(bot, config)
 
 
 def _fan_ask_gemini(prompt):
@@ -216,6 +219,11 @@ def setup_bot_commands():
             BotCommand("myname", "🗣️ AI បង្កើតឈ្មោះ Rapper ឲ្យអ្នក"),
             BotCommand("card", "🃏 Fan Card របស់អ្នក"),
             BotCommand("code", "🎟️ វាយកូដសម្ងាត់ពី MV"),
+            BotCommand("health", "🧓 សុខភាព និងលំហាត់ប្រាណ"),
+            BotCommand("exercise", "🏃 លំហាត់ ១០ នាទីថ្ងៃនេះ"),
+            BotCommand("balance", "⚖️ លំហាត់ទប់លំនឹង ការពារការដួល"),
+            BotCommand("warning", "🚨 សញ្ញាគ្រោះថ្នាក់ត្រូវទៅពេទ្យ"),
+            BotCommand("sos", "🆘 លេខទូរស័ព្ទបន្ទាន់"),
         ]
         _clear_command_overrides()
         bot.set_my_commands(commands)
@@ -712,6 +720,10 @@ def _main_menu_keyboard():
         InlineKeyboardButton("🧠 Quiz", callback_data="community:menu:quiz:0"),
     )
     markup.row(
+        InlineKeyboardButton("🧓 សុខភាព & លំហាត់", callback_data="health:menu"),
+        InlineKeyboardButton("🆘 លេខបន្ទាន់", callback_data="health:sos"),
+    )
+    markup.row(
         InlineKeyboardButton("👥 ក្រុមយើង", callback_data="nav:team"),
         InlineKeyboardButton("📅 ព្រឹត្តិការណ៍", callback_data="nav:events"),
     )
@@ -912,6 +924,12 @@ def send_help(message):
         "• /myname - AI បង្កើតឈ្មោះ Rapper\n"
         "• /card - Fan Card សម្រាប់ Share\n"
         "• /code - វាយកូដសម្ងាត់ពី MV/Live\n\n"
+        "🧓 **សុខភាព**\n"
+        "• /health - សុខភាព និងលំហាត់ប្រាណ\n"
+        "• /exercise - លំហាត់ ១០ នាទីថ្ងៃនេះ\n"
+        "• /balance - ទប់លំនឹង ការពារការដួល\n"
+        "• /warning - សញ្ញាគ្រោះថ្នាក់\n"
+        "• /sos - លេខទូរស័ព្ទបន្ទាន់ (119)\n\n"
         "💡 *អ្នកអាចវាយសំណួរ ឬផ្ញើសារជាសំឡេង (Voice Note) ឬរូបភាពមកជជែកជាមួយ AI បានគ្រប់ពេល!*"
     )
     try:

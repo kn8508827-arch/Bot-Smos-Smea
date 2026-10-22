@@ -172,11 +172,10 @@ def register(bot, config):
         m.row(*[InlineKeyboardButton(TOPICS[k][0], callback_data=f"health:topic:{k}") for k in ("joint", "bone")])
         m.row(InlineKeyboardButton(TOPICS["food"][0], callback_data="health:topic:food"),
               InlineKeyboardButton("🚨 សញ្ញាគ្រោះថ្នាក់", callback_data="health:warning"))
-        m.row(InlineKeyboardButton("💊 រំលឹកលេបថ្នាំ", callback_data="hmore:medicine"),
-              InlineKeyboardButton("🩸 កត់សម្ពាធឈាម", callback_data="hmore:bp"))
+        m.row(InlineKeyboardButton("🩸 កត់សម្ពាធឈាម", callback_data="hmore:bp"),
+              InlineKeyboardButton("🤖 សួរ AI ពីសុខភាព", callback_data="hmore:ask"))
         m.row(InlineKeyboardButton("💧 ផឹកទឹក", callback_data="hmore:water"),
               InlineKeyboardButton("😴 គេងលក់ស្រួល", callback_data="hmore:sleep"))
-        m.row(InlineKeyboardButton("🤖 សួរ AI ពីសុខភាព", callback_data="hmore:ask"))
         m.row(InlineKeyboardButton("🆘 លេខបន្ទាន់", callback_data="health:sos"))
         return m
 

@@ -77,7 +77,7 @@ def _fan_ask_gemini(prompt):
 
 # Fan features: /games /music /rap /movie (registered before the catch-all AI handler)
 _fan = fan_features.register(bot, config, _fan_ask_gemini)
-# More health tools: /medicine /bp /water /sleep /askhealth
+# More health tools: /bp /water /sleep /askhealth
 health_more.register(bot, config, _fan_ask_gemini)
 
 
@@ -227,7 +227,6 @@ def setup_bot_commands():
             BotCommand("balance", "⚖️ លំហាត់ទប់លំនឹង ការពារការដួល"),
             BotCommand("warning", "🚨 សញ្ញាគ្រោះថ្នាក់ត្រូវទៅពេទ្យ"),
             BotCommand("sos", "🆘 លេខទូរស័ព្ទបន្ទាន់"),
-            BotCommand("medicine", "💊 រំលឹកលេបថ្នាំ"),
             BotCommand("bp", "🩸 កត់ត្រាសម្ពាធឈាម"),
             BotCommand("water", "💧 ផឹកទឹកឲ្យគ្រប់ពេលក្ដៅ"),
             BotCommand("sleep", "😴 គន្លឹះគេងលក់ស្រួល"),
@@ -938,7 +937,6 @@ def send_help(message):
         "• /balance - ទប់លំនឹង ការពារការដួល\n"
         "• /warning - សញ្ញាគ្រោះថ្នាក់\n"
         "• /sos - លេខទូរស័ព្ទបន្ទាន់ (119)\n"
-        "• /medicine - រំលឹកលេបថ្នាំ\n"
         "• /bp - កត់ត្រាសម្ពាធឈាម\n"
         "• /water - ផឹកទឹកពេលក្ដៅ\n"
         "• /sleep - គេងលក់ស្រួល\n"
@@ -1368,7 +1366,6 @@ if __name__ == '__main__':
     setup_bot_commands()
 
     dailycare_scheduler = scheduler.start_scheduler(bot)
-    medicine_reminders = health_more.start_reminder_loop(bot, config)
 
     logger.info("Bot is starting polling 24/7...")
     try:

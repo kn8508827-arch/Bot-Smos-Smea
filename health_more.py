@@ -1,8 +1,7 @@
-"""More health tools (Khmer): medicine reminders, blood-pressure log, water, sleep, AI health Q&A.
+"""More health tools (Khmer): blood-pressure log, water, sleep, AI health Q&A.
 
 General information only — never a diagnosis or a medicine dose.
 
-  /medicine   daily medicine reminders: /medicine 08:00 ថ្នាំសម្ពាធ  (max 5, private chat)
   /bp         blood-pressure log: /bp 130/85  (last 7 readings + what the numbers mean)
   /water      drinking-water tips for hot days
   /sleep      sleep tips
@@ -20,7 +19,6 @@ from zoneinfo import ZoneInfo
 
 logger = logging.getLogger(__name__)
 TZ = ZoneInfo("Asia/Phnom_Penh")
-MAX_REMINDERS = 5
 MAX_BP_ROWS = 60
 DISCLAIMER = "\n\n⚕️ <i>ព័ត៌មានទូទៅប៉ុណ្ណោះ មិនមែនជំនួសគ្រូពេទ្យទេ។</i>"
 
@@ -89,14 +87,6 @@ def _connect(config):
 
 def init_schema(config):
     with _connect(config) as conn:
-        conn.execute("""CREATE TABLE IF NOT EXISTS health_med_reminders (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            user_id INTEGER NOT NULL,
-            chat_id INTEGER NOT NULL,
-            hhmm TEXT NOT NULL,
-            label TEXT NOT NULL,
-            last_sent TEXT
-        )""")
         conn.execute("""CREATE TABLE IF NOT EXISTS health_bp_log (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             user_id INTEGER NOT NULL,
@@ -105,14 +95,6 @@ def init_schema(config):
             pulse INTEGER,
             taken_at TEXT NOT NULL
         )""")
-
-
-def parse_time(text):
-    m = re.fullmatch(r"\s*(\d{1,2})[:.h](\d{2})\s*", text or "")
-    if not m:
-        return None
-    h, mi = int(m.group(1)), int(m.group(2))
-    return f"{h:02d}:{mi:02d}" if 0 <= h < 24 and 0 <= mi < 60 else None
 
 
 def parse_bp(text):
@@ -147,60 +129,6 @@ def has_red_flag(text):
     return any(flag in low for flag in RED_FLAGS)
 
 
-def due_reminders(config, now):
-    """Reminders whose time has come today and were not sent yet (catches up within 30 minutes)."""
-    today, hhmm = now.strftime("%Y-%m-%d"), now.strftime("%H:%M")
-    with _connect(config) as conn:
-        rows = conn.execute(
-            "SELECT id, chat_id, hhmm, label FROM health_med_reminders "
-            "WHERE hhmm <= ? AND (last_sent IS NULL OR last_sent != ?)", (hhmm, today),
-        ).fetchall()
-    due = []
-    for r in rows:
-        h, m = map(int, r["hhmm"].split(":"))
-        late = (now.hour * 60 + now.minute) - (h * 60 + m)
-        if 0 <= late <= 30:
-            due.append(dict(r))
-    return due
-
-
-def mark_sent(config, reminder_id, today):
-    with _connect(config) as conn:
-        conn.execute("UPDATE health_med_reminders SET last_sent=? WHERE id=?", (today, reminder_id))
-
-
-def send_due(bot, config, now=None):
-    now = now or datetime.now(TZ)
-    sent = 0
-    for r in due_reminders(config, now):
-        try:
-            bot.send_message(
-                r["chat_id"],
-                f"⏰💊 <b>ដល់ម៉ោងលេបថ្នាំហើយ!</b>\n{html.escape(r['label'])} · {r['hhmm']}\n\n"
-                "លេបតាមពេទ្យប្រាប់ ជាមួយទឹក ១ កែវ 💧",
-                parse_mode="HTML",
-            )
-            sent += 1
-        except Exception as exc:
-            logger.warning("medicine reminder failed (%s)", type(exc).__name__)
-        mark_sent(config, r["id"], now.strftime("%Y-%m-%d"))  # never spam even if Telegram failed
-    return sent
-
-
-def start_reminder_loop(bot, config, interval=30):
-    stop = threading.Event()
-
-    def loop():
-        while not stop.wait(interval):
-            try:
-                send_due(bot, config)
-            except Exception as exc:
-                logger.warning("reminder loop error (%s)", type(exc).__name__)
-
-    threading.Thread(target=loop, name="medicine-reminders", daemon=True).start()
-    return stop
-
-
 def register(bot, config, ask_gemini=None):
     from telebot.types import InlineKeyboardButton, InlineKeyboardMarkup
 
@@ -218,68 +146,6 @@ def register(bot, config, ask_gemini=None):
 
     def reply(message, text, markup=None):
         bot.reply_to(message, text, reply_markup=markup or back(), parse_mode="HTML")
-
-    # ---------- 💊 medicine reminders ----------
-    def reminders_view(user_id):
-        with _connect(config) as conn:
-            rows = conn.execute("SELECT id, hhmm, label FROM health_med_reminders WHERE user_id=? ORDER BY hhmm",
-                                (user_id,)).fetchall()
-        m = InlineKeyboardMarkup()
-        lines = ["💊 <b>រំលឹកលេបថ្នាំ</b>", ""]
-        if rows:
-            for r in rows:
-                lines.append(f"⏰ {r['hhmm']} — {html.escape(r['label'])}")
-                m.row(InlineKeyboardButton(f"🗑️ លុប {r['hhmm']} {r['label'][:18]}", callback_data=f"hmed:del:{r['id']}"))
-        else:
-            lines.append("មិនទាន់មានការរំលឹកទេ។")
-        lines += ["", "➕ <b>បន្ថែម</b>៖ វាយ <code>/medicine 08:00 ថ្នាំសម្ពាធ</code>",
-                  f"(រហូតដល់ {MAX_REMINDERS} ការរំលឹក · ម៉ោងកម្ពុជា)"]
-        m.row(InlineKeyboardButton("🔙 សុខភាព", callback_data="health:menu"),
-              InlineKeyboardButton("🏠 មឺនុយមេ", callback_data="nav:main"))
-        return "\n".join(lines) + DISCLAIMER, m
-
-    @bot.message_handler(commands=["medicine", "pill"])
-    def medicine(message):
-        if getattr(message.chat, "type", None) != "private":
-            bot.reply_to(message, "💊 សូមប្រើ /medicine ក្នុង Private Chat ជាមួយ Bot ដើម្បីរក្សាឯកជនភាព។")
-            return
-        user_id = message.from_user.id
-        parts = (message.text or "").split(maxsplit=2)
-        if len(parts) >= 2:
-            hhmm = parse_time(parts[1])
-            label = (parts[2] if len(parts) > 2 else "ថ្នាំ").strip()[:40] or "ថ្នាំ"
-            if not hhmm:
-                reply(message, "⏰ ម៉ោងមិនត្រឹមត្រូវ។ ឧទាហរណ៍៖ <code>/medicine 08:00 ថ្នាំសម្ពាធ</code>")
-                return
-            with _connect(config) as conn:
-                n = conn.execute("SELECT COUNT(*) AS n FROM health_med_reminders WHERE user_id=?", (user_id,)).fetchone()["n"]
-                if n >= MAX_REMINDERS:
-                    reply(message, f"មានការរំលឹកគ្រប់ {MAX_REMINDERS} ហើយ។ លុបមួយចេញសិន 👇", reminders_view(user_id)[1])
-                    return
-                today = datetime.now(TZ).strftime("%Y-%m-%d")
-                already_past = hhmm <= datetime.now(TZ).strftime("%H:%M")
-                conn.execute("INSERT INTO health_med_reminders(user_id, chat_id, hhmm, label, last_sent) VALUES (?, ?, ?, ?, ?)",
-                             (user_id, message.chat.id, hhmm, label, today if already_past else None))
-            text, markup = reminders_view(user_id)
-            reply(message, f"✅ នឹងរំលឹក <b>{hhmm}</b> រាល់ថ្ងៃ — {html.escape(label)}\n\n" + text, markup)
-            return
-        reply(message, *reminders_view(user_id))
-
-    @bot.callback_query_handler(func=lambda call: (call.data or "").startswith("hmed:"))
-    def medicine_cb(call):
-        parts = (call.data or "").split(":")
-        user_id = call.from_user.id
-        if len(parts) == 3 and parts[1] == "del" and parts[2].isdigit():
-            with _connect(config) as conn:
-                conn.execute("DELETE FROM health_med_reminders WHERE id=? AND user_id=?", (int(parts[2]), user_id))
-            bot.answer_callback_query(call.id, "🗑️ បានលុប")
-        else:
-            bot.answer_callback_query(call.id)
-        text, markup = reminders_view(user_id)
-        try:
-            bot.edit_message_text(text, call.message.chat.id, call.message.message_id, reply_markup=markup, parse_mode="HTML")
-        except Exception:
-            pass
 
     # ---------- 🩸 blood pressure log ----------
     def bp_view(user_id):
@@ -384,11 +250,6 @@ def register(bot, config, ask_gemini=None):
             text = SLEEP_TEXT + DISCLAIMER
         elif key == "bp":
             text = bp_view(user_id)
-        elif key == "medicine":
-            if getattr(chat, "type", None) != "private":
-                text = "💊 សូមប្រើ /medicine ក្នុង Private Chat ជាមួយ Bot។"
-            else:
-                text, markup = reminders_view(user_id)
         elif key == "ask":
             waiting[user_id] = time.monotonic() + 300
             text = ("🩺 <b>សួរអំពីសុខភាព</b>\nសរសេរសំណួររបស់អ្នកមក (ឧ. <i>ឈឺជង្គង់ពេលឡើងជណ្ដើរ គួរធ្វើយ៉ាងម៉េច?</i>)\n\n"

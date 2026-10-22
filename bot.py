@@ -228,6 +228,7 @@ def _location_menu_keyboard():
         InlineKeyboardButton("🔎 ស្វែងរកតាមខេត្ត", callback_data="location:province"),
         InlineKeyboardButton("🌤️ អាកាសធាតុ", callback_data="weather:menu"),
     )
+    markup.row(InlineKeyboardButton("🏠 មឺនុយមេ", callback_data="nav:main"))
     return markup
 
 
@@ -370,12 +371,16 @@ def _weather_menu_keyboard():
         InlineKeyboardButton(info[0], callback_data=f"weather:{slug}")
         for slug, info in weather_service.PROVINCES.items()
     ])
+    markup.row(InlineKeyboardButton("🏠 មឺនុយមេ", callback_data="nav:main"))
     return markup
 
 
 def _weather_result_keyboard():
     markup = InlineKeyboardMarkup()
-    markup.add(InlineKeyboardButton("🔙 ជ្រើសខេត្តផ្សេង", callback_data="weather:menu"))
+    markup.row(
+        InlineKeyboardButton("🔙 ជ្រើសខេត្តផ្សេង", callback_data="weather:menu"),
+        InlineKeyboardButton("🏠 មឺនុយមេ", callback_data="nav:main"),
+    )
     return markup
 
 
@@ -633,34 +638,165 @@ def send_long_reply(message, text):
 
 
 # =========================================================
+# Main Menu (inline buttons, edited in place)
+# =========================================================
+
+WEB_APP_URL = os.getenv("WEB_APP_URL", "https://team-smos-snea.lovable.app")
+
+_MAIN_MENU_TEXT = (
+    "🏠 <b>មឺនុយមេ — Bot-Smos-Snea</b>\n"
+    "ជំនួយការ AI ផ្លូវការរបស់ Team ស្មោះស្នេហ៍ 🇰🇭\n\n"
+    "👇 ចុចលើប៊ូតុងខាងក្រោម ឬវាយសួរ AI ដោយផ្ទាល់ (អក្សរ សំឡេង ឬរូបភាព)"
+)
+_CHAT_HELP_TEXT = (
+    "🤖 <b>ជជែកជាមួយ AI</b>\n\n"
+    "• ✍️ វាយសំណួរអ្វីក៏បាន\n"
+    "• 🎙️ ផ្ញើ Voice Note — AI ស្ដាប់ ហើយឆ្លើយ\n"
+    "• 🖼️ ផ្ញើរូបភាព — AI មើល និងពន្យល់\n"
+    "• 🧹 /reset — សម្អាតប្រវត្តិសន្ទនា"
+)
+_ABOUT_TEXT = (
+    "ℹ️ <b>អំពី Bot-Smos-Snea</b>\n\n"
+    "ជំនួយការ AI ផ្លូវការរបស់ <b>Team ស្មោះស្នេហ៍</b> — ជជែក AI, អាកាសធាតុ, "
+    "ស្ថានីយសាំង/EV, កែរូប AI និងសហគមន៍ពិន្ទុ ទាំងអស់នៅកន្លែងតែមួយ។"
+)
+
+
+def _md_to_html(text: str) -> str:
+    """Convert the **bold** / *italic* used in messages.py to Telegram HTML."""
+    import html as _html
+    import re as _re
+    out = _html.escape(text, quote=False)
+    out = _re.sub(r"\*\*(.+?)\*\*", r"<b>\1</b>", out, flags=_re.S)
+    out = _re.sub(r"\*(.+?)\*", r"<i>\1</i>", out, flags=_re.S)
+    return out
+
+
+def _home_button():
+    return InlineKeyboardButton("🏠 មឺនុយមេ", callback_data="nav:main")
+
+
+def _back_markup():
+    markup = InlineKeyboardMarkup()
+    markup.row(_home_button())
+    return markup
+
+
+def _main_menu_keyboard():
+    markup = InlineKeyboardMarkup()
+    markup.row(
+        InlineKeyboardButton("🤖 ជជែកជាមួយ AI", callback_data="nav:chat"),
+        InlineKeyboardButton("🎨 កែរូប AI", callback_data="nav:studio"),
+    )
+    markup.row(
+        InlineKeyboardButton("🌤️ អាកាសធាតុ", callback_data="nav:weather"),
+        InlineKeyboardButton("⛽ សាំង & ⚡ EV", callback_data="nav:location"),
+    )
+    markup.row(
+        InlineKeyboardButton("🌟 សហគមន៍", callback_data="nav:community"),
+        InlineKeyboardButton("🎁 Check-in", callback_data="community:menu:checkin:0"),
+    )
+    markup.row(
+        InlineKeyboardButton("👥 ក្រុមយើង", callback_data="nav:team"),
+        InlineKeyboardButton("📅 ព្រឹត្តិការណ៍", callback_data="nav:events"),
+    )
+    markup.row(InlineKeyboardButton("🚀 Team App (Trip Dashboard)", web_app=WebAppInfo(url=WEB_APP_URL)))
+    markup.row(
+        InlineKeyboardButton("🔔 ការជូនដំណឹង", callback_data="nav:notifications"),
+        InlineKeyboardButton("ℹ️ អំពី", callback_data="nav:about"),
+    )
+    return markup
+
+
+def _community_nav_keyboard():
+    markup = InlineKeyboardMarkup()
+    markup.row(
+        InlineKeyboardButton("🎁 Check-in", callback_data="community:menu:checkin:0"),
+        InlineKeyboardButton("🧠 Quiz", callback_data="community:menu:quiz:0"),
+    )
+    markup.row(
+        InlineKeyboardButton("🏆 Leaderboard", callback_data="community:menu:top:0"),
+        InlineKeyboardButton("⭐ Profile", callback_data="community:menu:profile:0"),
+    )
+    markup.row(
+        InlineKeyboardButton("🤝 Invite", callback_data="community:menu:invite:0"),
+        InlineKeyboardButton("👑 VIP", callback_data="community:menu:vip:0"),
+    )
+    markup.row(_home_button())
+    return markup
+
+
+def _send_main_menu(message):
+    bot.reply_to(message, _MAIN_MENU_TEXT, reply_markup=_main_menu_keyboard(), parse_mode="HTML")
+
+
+def _show_in_place(call, text, markup, parse_mode="HTML"):
+    """Edit the menu message in place; fall back to a new message."""
+    message = call.message
+    try:
+        bot.edit_message_text(text, message.chat.id, message.message_id,
+                              reply_markup=markup, parse_mode=parse_mode)
+    except Exception as exc:
+        if "message is not modified" in str(exc):
+            return
+        try:
+            bot.send_message(message.chat.id, text, reply_markup=markup, parse_mode=parse_mode)
+        except Exception:
+            bot.send_message(message.chat.id, text, reply_markup=markup)
+
+
+def _handle_nav_callback(call, data):
+    from types import SimpleNamespace
+    key = data.split(":", 1)[1]
+    message = getattr(call, "message", None)
+    if message is None:
+        bot.answer_callback_query(call.id)
+        return
+    bot.answer_callback_query(call.id)
+    if key == "main":
+        _show_in_place(call, _MAIN_MENU_TEXT, _main_menu_keyboard())
+    elif key == "chat":
+        _show_in_place(call, _CHAT_HELP_TEXT, _back_markup())
+    elif key == "about":
+        _show_in_place(call, _ABOUT_TEXT, _back_markup())
+    elif key == "team":
+        _show_in_place(call, _md_to_html(messages.TEAM_MESSAGE), _back_markup())
+    elif key == "events":
+        _show_in_place(call, _md_to_html(messages.EVENTS_MESSAGE), _back_markup())
+    elif key == "weather":
+        _show_in_place(call, _WEATHER_MENU_TEXT, _weather_menu_keyboard(), parse_mode=None)
+    elif key == "location":
+        _show_in_place(call, "⛽ <b>សាំង & ⚡ EV នៅកម្ពុជា</b>\nជ្រើសសេវាកម្ម ឬវាយឈ្មោះខេត្ត៖", _location_menu_keyboard())
+    elif key == "community":
+        _show_in_place(call, "🌟 <b>សហគមន៍ VidCooler</b>\nប្រមូលពិន្ទុ ឡើងកម្រិត ហើយប្រកួតលើ Leaderboard!", _community_nav_keyboard())
+    elif key in ("studio", "notifications"):
+        proxy = SimpleNamespace(from_user=call.from_user, chat=message.chat,
+                                message_id=message.message_id, text=f"/{key}")
+        if key == "studio":
+            _start_studio(proxy)
+        else:
+            notifications_command(proxy)
+
+
+# =========================================================
 # Commands Handlers
 # =========================================================
 
 @registered_message_handler(commands=['start'])
 def send_welcome(message):
-    markup = InlineKeyboardMarkup()
-    markup.row_width = 2
-    markup.add(
-        InlineKeyboardButton("📋 មឺនុយ", callback_data="menu"),
-        InlineKeyboardButton("ℹ️ អំពីយើង", callback_data="about"),
-        InlineKeyboardButton("🚀 បើក Web App", web_app=WebAppInfo(url="https://team-smos-snea.lovable.app"))
-    )
-    
+    import html as _html
+    name = _html.escape(getattr(getattr(message, "from_user", None), "first_name", None) or "ប្រិយមិត្ត")
     welcome_text = (
-        "សួស្ដី! សូមស្វាគមន៍មកកាន់ Bot-Smos-Snea 🤖✨\n"
-        "ខ្ញុំជាជំនួយការ AI ផ្លូវការរបស់ Team ស្មោះស្នេហ៍។ តើមានអ្វីឱ្យខ្ញុំជួយអ្នកថ្ងៃនេះទេ?"
+        f"🙏 សួស្ដី <b>{name}</b>! សូមស្វាគមន៍មកកាន់ <b>Bot-Smos-Snea</b> 🤖✨\n"
+        "ជំនួយការ AI ផ្លូវការរបស់ Team ស្មោះស្នេហ៍ 🇰🇭\n\n"
+        "👇 ជ្រើសសេវាកម្មខាងក្រោម ឬវាយសួរ AI ដោយផ្ទាល់"
     )
-    bot.reply_to(message, welcome_text, reply_markup=markup)
-    bot.send_message(message.chat.id, "⛽ Fuel និង ⚡ EV នៅកម្ពុជា", reply_markup=_location_menu_keyboard())
+    bot.reply_to(message, welcome_text, reply_markup=_main_menu_keyboard(), parse_mode="HTML")
 
 
 @registered_message_handler(commands=['menu'])
 def send_menu(message):
-    bot.reply_to(
-        message,
-        "សូមជ្រើសរើសសេវាកម្ម ឬវាយឈ្មោះខេត្ត/ទីតាំង៖",
-        reply_markup=_location_menu_keyboard(),
-    )
+    _send_main_menu(message)
 
 
 @registered_message_handler(commands=['fuel'])
@@ -689,7 +825,7 @@ def weather_command(message):
 
 @registered_message_handler(commands=['about'])
 def send_about(message):
-    bot.reply_to(message, "នេះគឺជា Bot-Smos-Snea 🤖 ដែលបង្កើតឡើងដើម្បីជួយសម្រួលការងារ និងទំនាក់ទំនងរបស់អ្នក។")
+    bot.reply_to(message, _ABOUT_TEXT, reply_markup=_back_markup(), parse_mode="HTML")
 
 
 @registered_message_handler(commands=['team'])
@@ -749,7 +885,7 @@ def send_help(message):
 @registered_message_handler(commands=['register'])
 def send_register(message):
     markup = InlineKeyboardMarkup()
-    web_app = WebAppInfo(url="https://team-smos-snea.lovable.app")
+    web_app = WebAppInfo(url=WEB_APP_URL)
     markup.add(InlineKeyboardButton("🚀 បើកទម្រង់ចុះឈ្មោះ (Register)", web_app=web_app))
     bot.reply_to(message, "សូមចុចប៊ូតុងខាងក្រោមដើម្បីបើកមើលទម្រង់ចុះឈ្មោះក្នុង Mini App:", reply_markup=markup)
 
@@ -775,6 +911,10 @@ def callback_query(call):
         message = getattr(call, "message", None)
         chat = getattr(message, "chat", None)
         user_id = getattr(getattr(call, "from_user", None), "id", None)
+
+        if data.startswith("nav:"):
+            _handle_nav_callback(call, data)
+            return
 
         if data.startswith("weather:"):
             _handle_weather_callback(call, chat, data)
@@ -874,12 +1014,9 @@ def callback_query(call):
                     bot.answer_callback_query(call.id, messages.DAILYCARE_TEST_FAILED_TEXT, show_alert=True)
             return
 
-        if data == "menu":
-            bot.answer_callback_query(call.id, "កំពុងបើកមឺនុយ...")
-            bot.send_message(chat.id, "នេះជាបញ្ជីមឺនុយរបស់អ្នក! អ្នកអាចសាកល្បងចុច /team, /events ឬសួរ AI ដោយសេរី។")
-        elif data == "about":
-            bot.answer_callback_query(call.id, "ព័ត៌មាន Bot")
-            bot.send_message(chat.id, "Bot-Smos-Snea ត្រូវបានបង្កើតឡើងយ៉ាងពិសេសសម្រាប់អ្នក!")
+        if data in ("menu", "about"):
+            # buttons on old /start messages
+            _handle_nav_callback(call, "nav:main" if data == "menu" else "nav:about")
     except Exception as e:
         logger.error("Error handling callback (%s)", type(e).__name__)
 

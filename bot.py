@@ -30,6 +30,7 @@ import location_service
 import weather_service
 import photo_studio
 import community_features
+import group_manager
 
 logging.basicConfig(
     level=logging.INFO, 
@@ -58,12 +59,15 @@ bot = telebot.TeleBot(TOKEN, threaded=True)
 
 # Register community commands before the catch-all AI handler so commands are not sent to AI.
 community_features.register(bot, database, config)
+# Owner tools: /groups and /leave (make the bot leave a group).
+group_manager.register(bot, config)
 
 
 def register_interaction(from_user, chat) -> bool:
     """Record only real Telegram updates; private chat type gates DM eligibility."""
     if from_user is None or chat is None or getattr(from_user, "id", None) is None:
         return False
+    group_manager.record_chat(config, chat)
     try:
         database.register_or_update_user(
             user_id=from_user.id,
@@ -1141,7 +1145,11 @@ if __name__ == '__main__':
 
     logger.info("Bot is starting polling 24/7...")
     try:
-        bot.infinity_polling(skip_pending=True, timeout=20, long_polling_timeout=20)
+        bot.infinity_polling(
+            skip_pending=True, timeout=20, long_polling_timeout=20,
+            # my_chat_member = bot added to / removed from a group (for /groups)
+            allowed_updates=["message", "callback_query", "my_chat_member"],
+        )
     except (KeyboardInterrupt, SystemExit):
         logger.info("Bot process interrupted. Shutting down gracefully...")
     finally:

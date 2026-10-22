@@ -808,13 +808,25 @@ def _handle_nav_callback(call, data):
 @registered_message_handler(commands=['start'])
 def send_welcome(message):
     import html as _html
-    name = _html.escape(getattr(getattr(message, "from_user", None), "first_name", None) or "ប្រិយមិត្ត")
+    raw_name = getattr(getattr(message, "from_user", None), "first_name", None) or "ប្រិយមិត្ត"
+    name = _html.escape(raw_name)
     welcome_text = (
         f"🙏 សួស្ដី <b>{name}</b>! សូមស្វាគមន៍មកកាន់ <b>Bot-Smos-Snea</b> 🤖✨\n"
         "ជំនួយការ AI ផ្លូវការរបស់ Team ស្មោះស្នេហ៍ 🇰🇭\n\n"
         "👇 ជ្រើសសេវាកម្មខាងក្រោម ឬវាយសួរ AI ដោយផ្ទាល់"
     )
-    bot.reply_to(message, welcome_text, reply_markup=_main_menu_keyboard(), parse_mode="HTML")
+    mascot = os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets", "coolerbot_avatar.jpg")
+    if os.path.exists(mascot):
+        try:
+            with open(mascot, "rb") as photo:
+                bot.send_photo(
+                    message.chat.id, photo,
+                    caption=f"😎 សួស្ដី {raw_name}! ខ្ញុំគឺ Cooler Bot 🤖✨\nជំនួយការ AI របស់ Vid Cooler 🎤🇰🇭",
+                    reply_to_message_id=getattr(message, "message_id", None),
+                )
+        except Exception as exc:
+            logger.warning("Could not send mascot photo (%s)", type(exc).__name__)
+    bot.send_message(message.chat.id, welcome_text, reply_markup=_main_menu_keyboard(), parse_mode="HTML")
 
 
 @registered_message_handler(commands=['menu'])

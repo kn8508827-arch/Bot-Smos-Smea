@@ -28,6 +28,7 @@ import async_runner
 import scheduler
 import location_service
 import weather_service
+import photo_studio
 
 logging.basicConfig(
     level=logging.INFO, 
@@ -37,6 +38,11 @@ logger = logging.getLogger("TeamSmosSneaBot")
 
 _pending_location_modes = {}
 _location_result_pages = {}
+_studio_waiting = {}   # user_id -> expires_at: waiting for a photo after /studio
+_studio_photos = {}    # user_id -> {"file_id": str, "expires_at": float}
+_studio_usage = {}     # (user_id, "YYYY-MM-DD") -> number of edits today
+_studio_busy = set()   # user_ids with an edit in progress
+_STUDIO_TTL_SECONDS = 600
 _LOCATION_STATE_TTL = 900
 _LOCATION_PAGE_SIZE = 5
 
@@ -145,6 +151,7 @@ def setup_bot_commands():
             BotCommand("fuel", "⛽ ស្វែងរកកន្លែងចាក់សាំង"),
             BotCommand("ev", "⚡ ស្វែងរកស្ថានីយសាក EV"),
             BotCommand("weather", "🌤️ ព្យាករណ៍អាកាសធាតុតាមខេត្ត"),
+            BotCommand("studio", "🎨 កែរូបដោយ AI (Photo Studio)"),
         ]
         bot.set_my_commands(commands)
         logger.info("Bot commands menu registered successfully.")
@@ -352,6 +359,170 @@ def _handle_weather_callback(call, chat, data):
     show(text, _weather_result_keyboard())
 
 
+
+# =========================================================
+# AI Photo Studio (កែរូបដោយ AI)
+# =========================================================
+
+_STUDIO_INTRO_TEXT = (
+    "🎨 *AI Photo Studio*\n\n"
+    "សូមផ្ញើរូបថតមួយសន្លឹកមក (មុខច្បាស់ ពន្លឺល្អ) ហើយខ្ញុំនឹងឲ្យអ្នកជ្រើសម៉ូដ។\n"
+    "មុខដើមរបស់អ្នកនឹងត្រូវរក្សាទុក មានតែសម្លៀកបំពាក់ និងផ្ទៃខាងក្រោយដែលប្ដូរ។"
+)
+_STUDIO_CHOOSE_TEXT = "🎨 សូមជ្រើសម៉ូដដែលចង់បាន៖"
+_STUDIO_NOT_CONFIGURED_TEXT = "🎨 Photo Studio មិនទាន់បើកដំណើរការនៅឡើយទេ។ (Admin ត្រូវដាក់ STABILITY_API_KEY)"
+_STUDIO_EXPIRED_TEXT = "រូបនេះផុតកំណត់ហើយ។ សូមវាយ /studio ហើយផ្ញើរូបម្ដងទៀត។"
+_STUDIO_ERROR_TEXT = "សុំទោស មិនអាចកែរូបបានទេឥឡូវនេះ។ សូមសាកល្បងម្ដងទៀតពេលក្រោយ។"
+_STUDIO_CAPTION_TRIGGERS = ("/studio", "studio", "កែរូប")
+
+
+def _studio_enabled() -> bool:
+    return bool(getattr(config, "STABILITY_API_KEY", ""))
+
+
+def _studio_is_privileged(user_id) -> bool:
+    return user_id is not None and (
+        user_id == getattr(config, "OWNER_ID", 0) or user_id in getattr(config, "ADMIN_IDS", [])
+    )
+
+
+def _studio_today() -> str:
+    return time.strftime("%Y-%m-%d", time.localtime())
+
+
+def _studio_remaining(user_id) -> int:
+    if _studio_is_privileged(user_id):
+        return 10**6
+    limit = max(0, int(getattr(config, "STUDIO_DAILY_LIMIT", 3)))
+    return max(0, limit - _studio_usage.get((user_id, _studio_today()), 0))
+
+
+def _studio_record_use(user_id) -> None:
+    today = _studio_today()
+    for key in [k for k in _studio_usage if k[1] != today]:
+        _studio_usage.pop(key, None)
+    _studio_usage[(user_id, today)] = _studio_usage.get((user_id, today), 0) + 1
+
+
+def _studio_take_waiting(user_id) -> bool:
+    expires_at = _studio_waiting.pop(user_id, None)
+    return expires_at is not None and expires_at > time.monotonic()
+
+
+def _studio_keyboard():
+    markup = InlineKeyboardMarkup()
+    markup.row_width = 2
+    markup.add(*[
+        InlineKeyboardButton(style["name_kh"], callback_data=f"studio:{key}")
+        for key, style in photo_studio.STYLES.items()
+        if key != "custom"
+    ])
+    markup.row(InlineKeyboardButton("❌ បោះបង់", callback_data="studio:cancel"))
+    return markup
+
+
+def _start_studio(message):
+    user_id = getattr(getattr(message, "from_user", None), "id", None)
+    if not _studio_enabled():
+        bot.reply_to(message, _STUDIO_NOT_CONFIGURED_TEXT)
+        return
+    if _studio_remaining(user_id) <= 0:
+        bot.reply_to(message, "អ្នកបានប្រើ Photo Studio អស់សម្រាប់ថ្ងៃនេះហើយ។ សូមត្រឡប់មកវិញថ្ងៃស្អែក 🙏")
+        return
+    _studio_waiting[user_id] = time.monotonic() + _STUDIO_TTL_SECONDS
+    try:
+        bot.reply_to(message, _STUDIO_INTRO_TEXT, parse_mode="Markdown")
+    except Exception:
+        bot.reply_to(message, _STUDIO_INTRO_TEXT.replace("*", ""))
+
+
+def _studio_accept_photo(message, user_id, file_id) -> None:
+    _studio_photos[user_id] = {"file_id": file_id, "expires_at": time.monotonic() + _STUDIO_TTL_SECONDS}
+    bot.reply_to(message, _STUDIO_CHOOSE_TEXT, reply_markup=_studio_keyboard())
+
+
+def _handle_studio_callback(call, chat, data):
+    key = data.split(":", 1)[1]
+    message = getattr(call, "message", None)
+    user_id = getattr(getattr(call, "from_user", None), "id", None)
+    if chat is None or message is None or user_id is None:
+        bot.answer_callback_query(call.id)
+        return
+
+    def show(text):
+        try:
+            bot.edit_message_text(text, chat.id, message.message_id)
+        except Exception:
+            bot.send_message(chat.id, text)
+
+    if key == "cancel":
+        _studio_photos.pop(user_id, None)
+        bot.answer_callback_query(call.id)
+        show("បានបោះបង់ Photo Studio ហើយ។")
+        return
+    if key not in photo_studio.STYLES or key == "custom":
+        bot.answer_callback_query(call.id)
+        return
+
+    state = _studio_photos.get(user_id)
+    if state is None or state["expires_at"] <= time.monotonic():
+        _studio_photos.pop(user_id, None)
+        bot.answer_callback_query(call.id, _STUDIO_EXPIRED_TEXT, show_alert=True)
+        return
+    if not _studio_enabled():
+        bot.answer_callback_query(call.id, _STUDIO_NOT_CONFIGURED_TEXT, show_alert=True)
+        return
+    if _studio_remaining(user_id) <= 0:
+        bot.answer_callback_query(call.id, "អ្នកបានប្រើអស់សម្រាប់ថ្ងៃនេះហើយ។", show_alert=True)
+        return
+    if user_id in _studio_busy:
+        bot.answer_callback_query(call.id, "កំពុងកែរូបមុនរបស់អ្នក សូមរង់ចាំបន្តិច...", show_alert=True)
+        return
+
+    _studio_busy.add(user_id)
+    style_name = photo_studio.STYLES[key]["name_kh"]
+    bot.answer_callback_query(call.id, "កំពុងកែរូប...")
+    show(f"⏳ កំពុងកែរូបជាម៉ូដ {style_name} ... (ប្រហែល 20-60 វិនាទី)")
+
+    tmp_path = None
+    try:
+        try:
+            bot.send_chat_action(chat.id, "upload_photo")
+        except Exception:
+            pass
+        file_info = bot.get_file(state["file_id"])
+        photo_bytes = bot.download_file(file_info.file_path)
+        import tempfile
+        with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as tmp:
+            tmp.write(photo_bytes)
+            tmp_path = tmp.name
+        result = async_runner.run_sync(
+            photo_studio.transform_photo(tmp_path, style_key=key),
+            timeout=150,
+        )
+        _studio_record_use(user_id)
+        _studio_photos.pop(user_id, None)
+        caption = f"✨ រួចរាល់! ម៉ូដ៖ {style_name}\nវាយ /studio ដើម្បីកែរូបផ្សេងទៀត។"
+        bot.send_photo(chat.id, result, caption=caption)
+        show(f"✅ កែរូបជាម៉ូដ {style_name} រួចរាល់។")
+    except ValueError as exc:
+        if "STABILITY_API_KEY" in str(exc):
+            show(_STUDIO_NOT_CONFIGURED_TEXT)
+        else:
+            logger.error("Photo studio error (%s)", type(exc).__name__)
+            show(_STUDIO_ERROR_TEXT)
+    except Exception as exc:
+        logger.error("Photo studio error (%s): %s", type(exc).__name__, exc)
+        show(_STUDIO_ERROR_TEXT)
+    finally:
+        _studio_busy.discard(user_id)
+        if tmp_path:
+            try:
+                os.remove(tmp_path)
+            except OSError:
+                pass
+
+
 def keep_typing(chat_id: int, stop_event: threading.Event):
     """បញ្ជូនសញ្ញា typing រៀងរាល់ ៤ វិនាទីម្តង រហូតដល់ AI រៀបចំចម្លើយរួចរាល់"""
     while not stop_event.is_set():
@@ -473,6 +644,11 @@ def send_events(message):
         bot.reply_to(message, messages.EVENTS_MESSAGE)
 
 
+@registered_message_handler(commands=['studio'])
+def studio_command(message):
+    _start_studio(message)
+
+
 @registered_message_handler(commands=['help'])
 def send_help(message):
     help_text = (
@@ -485,7 +661,8 @@ def send_help(message):
         "• /register - ចុះឈ្មោះ (Mini Web App)\n"
         "• /reset - សម្អាតប្រវត្តិសន្ទនាជាមួយ AI\n\n"
         "• /notifications - បើក ឬបិទសារ Daily Care\n"
-        "• /weather - ព្យាករណ៍អាកាសធាតុតាមខេត្ត\n\n"
+        "• /weather - ព្យាករណ៍អាកាសធាតុតាមខេត្ត\n"
+        "• /studio - កែរូបដោយ AI (Photo Studio)\n\n"
         "💡 *អ្នកអាចវាយសំណួរ ឬផ្ញើសារជាសំឡេង (Voice Note) ឬរូបភាពមកជជែកជាមួយ AI បានគ្រប់ពេល!*"
     )
     try:
@@ -526,6 +703,10 @@ def callback_query(call):
 
         if data.startswith("weather:"):
             _handle_weather_callback(call, chat, data)
+            return
+
+        if data.startswith("studio:"):
+            _handle_studio_callback(call, chat, data)
             return
 
         if data.startswith("location:"):
@@ -743,6 +924,16 @@ def handle_photo(message):
     user_id = getattr(user, "id", None)
     if user_id is None:
         bot.reply_to(message, messages.AI_GENERIC_ERROR)
+        return
+
+    # Photo Studio: after /studio, or a photo captioned "studio"/"កែរូប"
+    caption_text = (getattr(message, "caption", None) or "").strip().lower()
+    wants_studio = _studio_take_waiting(user_id) or caption_text.startswith(_STUDIO_CAPTION_TRIGGERS)
+    if wants_studio:
+        if not _studio_enabled():
+            bot.reply_to(message, _STUDIO_NOT_CONFIGURED_TEXT)
+        else:
+            _studio_accept_photo(message, user_id, largest_photo.file_id)
         return
 
     stop_typing_event = threading.Event()

@@ -9,6 +9,7 @@ BOT_TOKEN = os.getenv("BOT_TOKEN", "")
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
 STABILITY_API_KEY = os.getenv("STABILITY_API_KEY", "")
+STUDIO_DAILY_LIMIT = int(os.getenv("STUDIO_DAILY_LIMIT", "3"))  # Photo Studio edits per user per day (owner/admins unlimited)
 
 # AI Configurations
 AI_PROVIDER = os.getenv("AI_PROVIDER", "gemini")

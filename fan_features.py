@@ -19,7 +19,7 @@ logger = logging.getLogger(__name__)
 
 GAMES = (
     # (key, button label, env var, default URL)
-    ("arcade", "🕹️ Cooler Arcade — ៦ ហ្គេម (ថ្មី!)", "GAME_ARCADE_URL", "https://kn8508827-arch.github.io/Blue-Gold-Rush/arcade/"),
+    ("arcade", "🕹️ Cooler Arcade — ១២ ហ្គេម (ថ្មី!)", "GAME_ARCADE_URL", "https://kn8508827-arch.github.io/Blue-Gold-Rush/arcade/"),
     ("fly", "🚀 Cooler Fly 3D", "GAME_COOLER_FLY_URL", "https://kn8508827-arch.github.io/Blue-Gold-Rush/cooler-fly/"),
     ("bgr", "⚡ Blue Gold Rush", "GAME_BLUE_GOLD_RUSH_URL", "https://kn8508827-arch.github.io/Blue-Gold-Rush/"),
     ("logo", "🧩 Logo Crush 3D", "GAME_LOGO_CRUSH_URL", "https://logo-crush-3d-production.up.railway.app/"),
@@ -108,8 +108,8 @@ def register(bot, config, ask_gemini):
     def games(message):
         bot.reply_to(
             message,
-            "🎮 <b>ហ្គេមរបស់ Vid Cooler</b> — ១០+ ហ្គេម\n\n"
-            "🕹️ <b>Cooler Arcade</b> — 2048 · ពស់ · ផ្គូផ្គងកាត · វាយ Cooler · XO · បំបែកឥដ្ឋ (ថ្មី!)\n"
+            "🎮 <b>ហ្គេមរបស់ Vid Cooler</b> — ២០+ ហ្គេម\n\n"
+            "🕹️ <b>Cooler Arcade</b> — ១២ ហ្គេម៖ 2048 · ពស់ · ផ្គូផ្គងកាត · វាយ Cooler · XO · បំបែកឥដ្ឋ · តម្រៀបបាល់ · Connect 4 · រកមីន · Simon · Puzzle · ចុចលឿន (ថ្មី!)\n"
             "🚀 <b>Cooler Fly 3D</b> — ហោះកាត់ភ្នំពេញ 2050 អង្គរ Hologram ដល់អវកាស 🌌\n"
             "⚡ <b>Blue Gold Rush</b> — រត់ ប្រមូលកាក់ ជិះ Sky Bike 🚲\n"
             "🧩 <b>Logo Crush 3D</b> — ផ្គូផ្គង logo ៣ ឡើងកម្រិត\n"

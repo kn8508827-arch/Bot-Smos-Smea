@@ -8,10 +8,29 @@ import time
 from typing import Any, Callable, Optional
 from urllib.parse import urlencode
 
+import logging
+
 import httpx
+
+_log = logging.getLogger(__name__)
+
+
+def _describe_http_error(exc: BaseException) -> str:
+    """Short, secret-free description of a provider error for the logs."""
+    response = getattr(exc, "response", None)
+    if response is not None and getattr(response, "status_code", None):
+        return f"HTTP {response.status_code}"
+    return type(exc).__name__
 
 
 OVERPASS_URL = "https://overpass-api.de/api/interpreter"
+# Public Overpass mirrors, tried in order when one is busy, rate-limited or blocks the server's IP.
+OVERPASS_URLS = (
+    OVERPASS_URL,
+    "https://overpass.private.coffee/api/interpreter",
+    "https://maps.mail.ru/osm/tools/overpass/api/interpreter",
+    "https://overpass.kumi.systems/api/interpreter",
+)
 NOMINATIM_URL = "https://nominatim.openstreetmap.org/search"
 USER_AGENT = "CoolerBot-Cambodia-Location-Search/1.0"
 RESULT_LIMIT = 5
@@ -46,6 +65,49 @@ PROVINCES = {
     "ប៉ៃលិន": "Pailin",
     "ត្បូងឃ្មុំ": "Tboung Khmum",
 }
+
+# Province centres (lat, lon), so the 25 provinces never need the Nominatim geocoder.
+PROVINCE_COORDS = {
+    "banteay meanchey": (13.5859, 102.9737),
+    "battambang": (13.0957, 103.2022),
+    "kampong cham": (11.9934, 105.4635),
+    "kampong chhnang": (12.2500, 104.6667),
+    "kampong speu": (11.4533, 104.5200),
+    "kampong thom": (12.7111, 104.8887),
+    "kampot": (10.6104, 104.1815),
+    "kandal": (11.4550, 104.9390),
+    "koh kong": (11.6153, 102.9838),
+    "kratie": (12.4881, 106.0188),
+    "mondulkiri": (12.4558, 107.1881),
+    "phnom penh": (11.5564, 104.9282),
+    "preah vihear": (13.8073, 104.9800),
+    "prey veng": (11.4868, 105.3253),
+    "pursat": (12.5388, 103.9192),
+    "ratanakiri": (13.7394, 106.9873),
+    "siem reap": (13.3671, 103.8448),
+    "preah sihanouk": (10.6253, 103.5234),
+    "sihanoukville": (10.6253, 103.5234),
+    "stung treng": (13.5259, 105.9683),
+    "svay rieng": (11.0878, 105.7993),
+    "takeo": (10.9908, 104.7850),
+    "oddar meanchey": (14.1818, 103.5176),
+    "kep": (10.4829, 104.3167),
+    "pailin": (12.8489, 102.6093),
+    "tboung khmum": (11.9200, 105.6700),
+}
+
+
+def _province_coords(location: str) -> Optional[tuple[float, float]]:
+    """Exact province name first, then the longest province name found inside the text."""
+    key = " ".join((location or "").casefold().split())
+    if key in PROVINCE_COORDS:
+        return PROVINCE_COORDS[key]
+    best = None
+    for name, coords in PROVINCE_COORDS.items():
+        if name in key and (best is None or len(name) > len(best[0])):
+            best = (name, coords)
+    return best[1] if best else None
+
 
 _FUEL_TERMS = (
     "ចាក់សាំង", "កន្លែងចាក់សាំង", "ស្ថានីយសាំង", "ស្ថានីយប្រេង",
@@ -97,12 +159,21 @@ def distance_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
     return earth_radius_km * 2 * math.atan2(math.sqrt(haversine), math.sqrt(1 - haversine))
 
 
+def _fix_khmer(text: str) -> str:
+    """Normalise how phones type Khmer: NFC, drop zero-width marks, and put
+    AA before NIKAHIT (some keyboards send "ំា" instead of "ាំ", e.g. សំាង)."""
+    import unicodedata
+    text = unicodedata.normalize("NFC", text or "")
+    text = re.sub(r"[\u200b\u200c\u200d\ufeff]", "", text)
+    return text.replace("\u17c6\u17b6", "\u17b6\u17c6")
+
+
 def normalize_query(query: str) -> dict[str, Optional[str]]:
     """Classify fuel/EV intent and extract a location or operator filter."""
-    cleaned = " ".join((query or "").strip().split())
+    cleaned = " ".join(_fix_khmer(query).strip().split())
     lowered = cleaned.lower()
     kind = "fuel" if any(term in lowered for term in _FUEL_TERMS) else None
-    if any(term in lowered for term in _EV_TERMS):
+    if any(term in lowered for term in _EV_TERMS) or re.search(r"(?<![a-z])ev(?![a-z])", lowered):
         kind = "ev"
 
     operator = next((brand for brand in _BRANDS if brand in lowered), None)
@@ -251,30 +322,33 @@ class LocationService:
             if wait > 0:
                 time.sleep(wait)
             _last_request_at = time.monotonic()
-        request_options = {"timeout": 20.0, "headers": {"User-Agent": USER_AGENT}}
+        headers = {"User-Agent": USER_AGENT, "Accept": "application/json", "Accept-Language": "km,en"}
         if data is None:
-            response = self._get(url, params=params, **request_options)
+            response = self._get(url, params=params, timeout=15.0, headers=headers)
         else:
-            response = self._post(url, content=data, **request_options)
+            # Overpass expects the query as a form field named "data".
+            headers["Content-Type"] = "application/x-www-form-urlencoded"
+            response = self._post(url, content=urlencode({"data": data}), timeout=25.0, headers=headers)
         response.raise_for_status()
         return response.json()
 
     def _geocode(self, location: str) -> Optional[tuple[float, float]]:
         key = location.casefold()
+        known = PROVINCE_COORDS.get(" ".join(key.split()))
+        if known:
+            return known
         now = time.monotonic()
         with _CACHE_LOCK:
             cached = _geocode_cache.get(key)
             if cached and cached[0] > now:
                 return cached[1]
-        response = self._request_json(
-            NOMINATIM_URL,
-            params={
-                "q": f"{location}, Cambodia",
-                "countrycodes": "kh",
-                "format": "jsonv2",
-                "limit": 1,
-            },
-        )
+        try:
+            response = self._nominatim(location)
+        except (httpx.HTTPError, ValueError, TypeError):
+            fallback = _province_coords(location)
+            if fallback:
+                return fallback
+            raise
         coords = None
         if response:
             try:
@@ -283,6 +357,8 @@ class LocationService:
                     coords = (lat, lon)
             except (KeyError, TypeError, ValueError):
                 coords = None
+        if coords is None:
+            coords = _province_coords(location)
         with _CACHE_LOCK:
             for old_key, (expires_at, _) in list(_geocode_cache.items()):
                 if expires_at <= now:
@@ -291,6 +367,31 @@ class LocationService:
             while len(_geocode_cache) > 500:
                 _geocode_cache.pop(next(iter(_geocode_cache)))
         return coords
+
+    def _nominatim(self, location: str):
+        return self._request_json(
+            NOMINATIM_URL,
+            params={
+                "q": f"{location}, Cambodia",
+                "countrycodes": "kh",
+                "format": "jsonv2",
+                "limit": 1,
+            },
+        )
+
+    def _overpass(self, query: str):
+        """Try each Overpass mirror until one answers with JSON."""
+        last_exc: Optional[Exception] = None
+        for url in OVERPASS_URLS:
+            try:
+                data = self._request_json(url, data=query)
+                if isinstance(data, dict) and "elements" in data:
+                    return data
+                last_exc = ValueError(f"unexpected Overpass response from {url}")
+            except (httpx.HTTPError, ValueError) as exc:
+                last_exc = exc
+                _log.warning("Overpass mirror failed: %s (%s)", url, _describe_http_error(exc))
+        raise last_exc or ValueError("no Overpass mirror answered")
 
     def _fetch_stations(self, lat: float, lon: float, radius: int) -> list[dict[str, Any]]:
         # Tile public station data, rather than retaining an exact user's coordinates.
@@ -309,7 +410,7 @@ class LocationService:
             f'nwr(around:{query_radius},{tile_lat},{tile_lon})["amenity"="charging_station"];'
             ");out center tags;"
         )
-        data = self._request_json(OVERPASS_URL, data=query)
+        data = self._overpass(query)
         elements = data.get("elements", []) if isinstance(data, dict) else []
         stations = []
         seen = set()

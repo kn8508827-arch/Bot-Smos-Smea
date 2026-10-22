@@ -65,7 +65,7 @@ Bot នេះប្រើ Telegram long polling។ វាមិនចាំប�
 4. រក្សា service ឱ្យដំណើរការតែមួយ replica ខណៈប្រើ SQLite។ កុំបង្កើត public domain សម្រាប់ bot នេះ។
 5. Deploy ហើយពិនិត្យ deploy logs: គួរឃើញ bot ចាប់ផ្តើម polling ដោយគ្មាន error។ បន្ទាប់មកសាក `/start` ក្នុង Telegram។
 
-`BOT_TOKEN` ជាតម្លៃចាំបាច់។ `ADMIN_IDS` និង `OWNER_ID` គឺ optional សម្រាប់មុខងារ admin/owner។ Daily Care ចាប់ផ្តើមបិទ ហើយត្រូវការទាំង Volume និង admin ដែលបានកំណត់ មុនពេលបើកតាម `/dailycare`។ សមាជិកម្នាក់ៗត្រូវជ្រើសរើសទទួលដោយខ្លួនឯងតាម `/notifications`។
+`BOT_TOKEN` ជាតម្លៃចាំបាច់។ `ADMIN_IDS` អាចទុកចោល បើមិនប្រើមុខងារ admin។ `OWNER_ID` អាចទុកចោលបាន ប៉ុន្តែត្រូវកំណត់ជា Telegram user ID ជាលេខក្នុង Railway Variables ដើម្បីឱ្យ Bot ស្គាល់ម្ចាស់ និងហៅថា Papa។ Daily Care ចាប់ផ្តើមបិទ ហើយត្រូវការទាំង Volume និង admin ដែលបានកំណត់ មុនពេលបើកតាម `/dailycare`។ សមាជិកម្នាក់ៗត្រូវជ្រើសរើសទទួលដោយខ្លួនឯងតាម `/notifications`។
 
 សូមមើល [Railway Volumes](https://docs.railway.com/volumes) សម្រាប់ mount និង persistent storage។
 

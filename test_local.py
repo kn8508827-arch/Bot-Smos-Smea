@@ -288,6 +288,8 @@ class TestCoolerPersona(unittest.TestCase):
 
         self.assertIn("You are Cooler Bot", instruction)
         self.assertIn("Start responses in Khmer by default", instruction)
+        self.assertIn("continue in Khmer regardless of the language the user writes in", instruction)
+        self.assertIn("only when the user explicitly asks", instruction)
 
     def test_system_instruction_integrates_persona_and_verified_owner_rules(self):
         with tempfile.TemporaryDirectory(dir=os.path.dirname(__file__)) as temp_dir:
@@ -300,14 +302,14 @@ class TestCoolerPersona(unittest.TestCase):
             ):
                 owner_instruction = ai_assistant.get_system_instruction(user_id=987654)
                 member_instruction = ai_assistant.get_system_instruction(
-                    user_name="Sophea", user_id=123
+                    user_name="VidCooler", user_id=123
                 )
 
         self.assertIn("PERSONA_FILE_MARKER", owner_instruction)
         self.assertIn("Start responses in Khmer by default", owner_instruction)
         self.assertIn("This user has been verified by the system as Papa", owner_instruction)
         self.assertNotIn("987654", owner_instruction)
-        self.assertIn("display name is Sophea", member_instruction)
+        self.assertIn("display name is VidCooler", member_instruction)
         self.assertIn("Never call this user Papa", member_instruction)
         self.assertNotIn("This user has been verified by the system as Papa", member_instruction)
 

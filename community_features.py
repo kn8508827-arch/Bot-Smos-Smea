@@ -14,26 +14,10 @@ from zoneinfo import ZoneInfo
 
 logger = logging.getLogger(__name__)
 TZ = ZoneInfo("Asia/Phnom_Penh")
-QUIZ = [
-    ("តើរាជធានីនៃប្រទេសកម្ពុជាគឺអ្វី?", ["សៀមរាប", "ភ្នំពេញ", "បាត់ដំបង", "កំពត"], 1),
-    ("តើទង់ជាតិកម្ពុជាមានពណ៌អ្វីខ្លះ?", ["ខៀវ ក្រហម", "បៃតង ស", "លឿង ខ្មៅ", "ក្រហម ស"], 0),
-    ("អង្គរវត្តស្ថិតនៅខេត្តណា?", ["កំពង់ចាម", "កណ្ដាល", "សៀមរាប", "កែប"], 2),
-    ("មួយសប្ដាហ៍មានប៉ុន្មានថ្ងៃ?", ["៥", "៦", "៧", "៨"], 2),
-    ("ទឹកកករលាយក្លាយជាអ្វី?", ["ខ្យល់", "ទឹក", "ខ្សាច់", "អំបិល"], 1),
-    ("អង្គរវត្តសាងសង់ក្នុងរជ្ជកាលព្រះមហាក្សត្រអង្គណា?", ["ជ័យវរ្ម័នទី៧", "សូរ្យវរ្ម័នទី២", "ឥន្ទ្រវរ្ម័នទី១", "យសោវរ្ម័នទី១"], 1),
-    ("កម្ពុជាមានរាជធានី និងខេត្តសរុបប៉ុន្មាន?", ["២៣", "២៤", "២៥", "២៦"], 2),
-    ("រូបិយប័ណ្ណជាតិកម្ពុជាឈ្មោះអ្វី?", ["បាត", "រៀល", "ដុង", "គីប"], 1),
-    ("ទិវាឯករាជ្យជាតិកម្ពុជាគឺថ្ងៃណា?", ["៧ មករា", "១៧ មេសា", "៩ វិច្ឆិកា", "២៩ តុលា"], 2),
-    ("ភ្នំខ្ពស់ជាងគេនៅកម្ពុជាគឺភ្នំអ្វី?", ["ភ្នំបូកគោ", "ភ្នំគូលែន", "ភ្នំឱរ៉ាល់", "ភ្នំពេញ"], 2),
-    ("អក្សរខ្មែរមានព្យញ្ជនៈប៉ុន្មានតួ?", ["៣០", "៣៣", "៣៥", "៤០"], 1),
-    ("ទន្លេធំដែលហូរកាត់ភ្នំពេញឈ្មោះអ្វី?", ["ទន្លេមេគង្គ", "ទន្លេសេកុង", "ទន្លេស្រែពក", "ទន្លេសង្កែ"], 0),
-    ("ផ្កាជាតិកម្ពុជាគឺផ្កាអ្វី?", ["ផ្កាឈូក", "ផ្ការំដួល", "ផ្កាម្លិះ", "ផ្កាកុលាប"], 1),
-    ("សត្វជាតិកម្ពុជាគឺសត្វអ្វី?", ["ដំរី", "ខ្លា", "គោព្រៃ", "ក្រៀល"], 2),
-    ("ភពណានៅជិតព្រះអាទិត្យជាងគេ?", ["ផែនដី", "ពុធ", "សុក្រ", "អង្គារ"], 1),
-    ("១២ × ១២ ស្មើប៉ុន្មាន?", ["១២៤", "១៣២", "១៤៤", "១៥៤"], 2),
-    ("មួយឆ្នាំធម្មតាមានប៉ុន្មានថ្ងៃ?", ["៣៦០", "៣៦៤", "៣៦៥", "៣៦៦"], 2),
-]
-QUIZ_PER_DAY = 3
+import quiz_bank
+
+QUIZ = [(q, opts, correct) for _cat, q, opts, correct, _why in quiz_bank.QUESTIONS]
+QUIZ_PER_DAY = 5
 POINTS_CHECKIN = 5
 POINTS_QUIZ = 10
 POINTS_REFERRAL = 25
@@ -72,6 +56,19 @@ def _init_schema(config):
             question_id INTEGER NOT NULL,
             correct INTEGER NOT NULL DEFAULT 0,
             PRIMARY KEY (user_id, local_date, question_id)
+        )""")
+        conn.execute("""CREATE TABLE IF NOT EXISTS community_codes (
+            code TEXT PRIMARY KEY,
+            points INTEGER NOT NULL,
+            max_uses INTEGER NOT NULL DEFAULT 0,
+            active INTEGER NOT NULL DEFAULT 1,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )""")
+        conn.execute("""CREATE TABLE IF NOT EXISTS community_code_claims (
+            code TEXT NOT NULL,
+            user_id INTEGER NOT NULL,
+            claimed_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (code, user_id)
         )""")
         conn.execute("""CREATE TABLE IF NOT EXISTS community_referrals (
             referred_user_id INTEGER PRIMARY KEY,
@@ -242,21 +239,38 @@ def register(bot, database, config):
         today = datetime.now(TZ).date().isoformat()
         with _connect(config) as conn:
             _ensure_user(conn, user_id)
-            answered = {r["question_id"] for r in conn.execute(
-                "SELECT question_id FROM community_quiz_answers WHERE user_id=? AND local_date=?",
-                (user_id, today),
-            ).fetchall()}
-        available = [i for i in range(len(QUIZ)) if i not in answered]
-        if not available or len(answered) >= QUIZ_PER_DAY:
-            bot.reply_to(message, "🎮 អ្នកបានឆ្លើយ Quiz ប្រចាំថ្ងៃគ្រប់សំណួរហើយ។ សូមត្រឡប់មកថ្ងៃស្អែក!")
+            rows = conn.execute(
+                "SELECT question_id, local_date FROM community_quiz_answers WHERE user_id=?",
+                (user_id,),
+            ).fetchall()
+        answered_today = {r["question_id"] for r in rows if r["local_date"] == today}
+        answered_ever = {r["question_id"] for r in rows}
+        if len(answered_today) >= QUIZ_PER_DAY:
+            bot.reply_to(message, f"🎮 អ្នកបានលេង Quiz គ្រប់ {QUIZ_PER_DAY} សំណួរសម្រាប់ថ្ងៃនេះហើយ។ ត្រឡប់មកថ្ងៃស្អែក មានសំណួរថ្មីទៀត!")
+            return
+        # Never repeat a question until the player has seen the whole bank.
+        available = [i for i in range(len(QUIZ)) if i not in answered_ever]
+        if not available:
+            available = [i for i in range(len(QUIZ)) if i not in answered_today]
+        if not available:
+            bot.reply_to(message, "🎮 អ្នកឆ្លើយគ្រប់សំណួរហើយ! ត្រឡប់មកថ្ងៃស្អែក។")
             return
         qid = random.choice(available)
+        category = quiz_bank.QUESTIONS[qid][0]
         question, options, correct = QUIZ[qid]
         from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
         markup = InlineKeyboardMarkup(row_width=2)
-        for i, option in enumerate(options):
-            markup.add(InlineKeyboardButton(option, callback_data=f"community:quiz:{qid}:{i}"))
-        bot.reply_to(message, f"🧠 <b>Quiz ប្រចាំថ្ងៃ</b>\n\n{question}\n\nចម្លើយត្រឹមត្រូវទទួលបាន +{POINTS_QUIZ} ពិន្ទុ!", reply_markup=markup, parse_mode="HTML")
+        order = list(range(len(options)))
+        random.shuffle(order)
+        for i in order:
+            markup.add(InlineKeyboardButton(options[i], callback_data=f"community:quiz:{qid}:{i}"))
+        number = len(answered_today) + 1
+        bot.reply_to(
+            message,
+            f"🧠 <b>Quiz {number}/{QUIZ_PER_DAY}</b> · {html.escape(category)}\n\n{html.escape(question)}\n\n"
+            f"ចម្លើយត្រឹមត្រូវ +{POINTS_QUIZ} ពិន្ទុ!",
+            reply_markup=markup, parse_mode="HTML",
+        )
 
     @registered_callback_handler(func=lambda call: (call.data or "").startswith("community:"))
     def community_callback(call):
@@ -272,6 +286,7 @@ def register(bot, database, config):
                 "checkin": checkin,
                 "quiz": quiz,
                 "top": leaderboard,
+                "card": card,
                 "profile": profile,
                 "invite": invite,
                 "vip": vip,
@@ -325,8 +340,11 @@ def register(bot, database, config):
             conn.commit()
             points, _ = _points(conn, user_id)
         bot.answer_callback_query(call.id, "ត្រឹមត្រូវ! 🎉" if is_correct else "មិនទាន់ត្រូវទេ 😊")
-        result = f"✅ ចម្លើយត្រឹមត្រូវ៖ {options[correct]}" if is_correct else f"❌ ចម្លើយត្រឹមត្រូវគឺ៖ {options[correct]}"
-        bot.send_message(call.message.chat.id, f"{result}\n⭐ ពិន្ទុសរុប៖ {points}\n\nប្រើ /quiz ដើម្បីបន្ត។")
+        result = f"✅ ត្រឹមត្រូវ! {options[correct]}" if is_correct else f"❌ ចម្លើយត្រឹមត្រូវគឺ៖ {options[correct]}"
+        why = quiz_bank.QUESTIONS[qid][4]
+        left = max(0, QUIZ_PER_DAY - answered_today - 1)
+        more = f"នៅសល់ {left} សំណួរថ្ងៃនេះ · ចុច /quiz" if left else "ថ្ងៃនេះគ្រប់ហើយ ត្រឡប់មកថ្ងៃស្អែក 🌙"
+        bot.send_message(call.message.chat.id, f"{result}\n💡 {why}\n⭐ ពិន្ទុសរុប៖ {points}\n\n{more}")
 
     @registered_message_handler(commands=["invite"])
     def invite(message):
@@ -412,6 +430,109 @@ def register(bot, database, config):
             vip_count = conn.execute("SELECT COUNT(*) AS n FROM community_points WHERE vip=1").fetchone()["n"]
         bot.reply_to(message, f"🛠️ <b>Community Admin</b>\n👥 សមាជិកមាន Profile៖ {members}\n⭐ ពិន្ទុសរុប៖ {points_total}\n👑 VIP៖ {vip_count}\n\nកំណត់ VIP៖ <code>/communityadmin vip USER_ID</code>", parse_mode="HTML")
 
+    def is_manager(user_id):
+        return user_id is not None and (
+            user_id in getattr(config, "ADMIN_IDS", []) or user_id == getattr(config, "OWNER_ID", 0)
+        )
+
+    # ---------- 🎟️ Secret codes (hidden in MVs / lives) ----------
+    @registered_message_handler(commands=["setcode"])
+    def set_code(message):
+        user_id = getattr(getattr(message, "from_user", None), "id", None)
+        if not is_manager(user_id):
+            bot.reply_to(message, "⛔ ពាក្យបញ្ជានេះសម្រាប់ Admin ប៉ុណ្ណោះ។")
+            return
+        args = (message.text or "").split()
+        if len(args) == 3 and args[1].lower() == "off":
+            with _connect(config) as conn:
+                conn.execute("UPDATE community_codes SET active=0 WHERE code=?", (args[2].upper(),))
+            bot.reply_to(message, f"🔒 បិទកូដ {html.escape(args[2].upper())} ហើយ។", parse_mode="HTML")
+            return
+        try:
+            code, points = args[1].upper(), int(args[2])
+            max_uses = int(args[3]) if len(args) > 3 else 0
+            if not (3 <= len(code) <= 24 and code.isalnum() and 1 <= points <= 1000 and max_uses >= 0):
+                raise ValueError
+        except (IndexError, ValueError):
+            bot.reply_to(message, "របៀបប្រើ៖ <code>/setcode COOLER2026 50</code> (ពិន្ទុ 1-1000)\n"
+                                  "កំណត់អ្នកទាមទារ៖ <code>/setcode COOLER2026 50 100</code> (100 នាក់ដំបូង)\n"
+                                  "បិទ៖ <code>/setcode off COOLER2026</code>", parse_mode="HTML")
+            return
+        with _connect(config) as conn:
+            conn.execute("""INSERT INTO community_codes(code, points, max_uses, active) VALUES (?, ?, ?, 1)
+                ON CONFLICT(code) DO UPDATE SET points=excluded.points, max_uses=excluded.max_uses, active=1""",
+                         (code, points, max_uses))
+        limit = f" · {max_uses} នាក់ដំបូង" if max_uses else ""
+        bot.reply_to(message, f"🎟️ កូដ <b>{code}</b> = +{points} ពិន្ទុ{limit}\nលាក់វាក្នុង MV ឬ Live ហើយឲ្យ fan វាយ <code>/code {code}</code> 🔍", parse_mode="HTML")
+
+    @registered_message_handler(commands=["code"])
+    def claim_code(message):
+        user_id = message.from_user.id
+        args = (message.text or "").split()
+        if len(args) < 2:
+            bot.reply_to(message, "🎟️ រកកូដសម្ងាត់ក្នុង MV ឬ Live របស់ Vid Cooler ហើយវាយ៖ <code>/code កូដ</code>", parse_mode="HTML")
+            return
+        code = args[1].strip().upper()
+        with _connect(config) as conn:
+            row = conn.execute("SELECT points, max_uses, active FROM community_codes WHERE code=?", (code,)).fetchone()
+            if not row or not row["active"]:
+                bot.reply_to(message, "❌ កូដនេះមិនត្រឹមត្រូវ ឬផុតកំណត់ហើយ។ មើល MV ម្ដងទៀត 👀")
+                return
+            used = conn.execute("SELECT COUNT(*) AS n FROM community_code_claims WHERE code=?", (code,)).fetchone()["n"]
+            if row["max_uses"] and used >= row["max_uses"]:
+                bot.reply_to(message, "😢 យឺតបន្តិច! កូដនេះមានអ្នកទាមទារគ្រប់ចំនួនហើយ។")
+                return
+            _ensure_user(conn, user_id)
+            try:
+                conn.execute("INSERT INTO community_code_claims(code, user_id) VALUES (?, ?)", (code, user_id))
+            except sqlite3.IntegrityError:
+                bot.reply_to(message, "✅ អ្នកបានប្រើកូដនេះរួចហើយ។")
+                return
+            conn.execute("UPDATE community_points SET points=points+? WHERE user_id=?", (row["points"], user_id))
+            points, _ = _points(conn, user_id)
+        bot.reply_to(message, f"🎉 កូដត្រឹមត្រូវ! +{row['points']} ពិន្ទុ\n⭐ ពិន្ទុសរុប៖ {points}\nអ្នកជា fan ទី {used + 1} ដែលរកឃើញ 🔥")
+
+    # ---------- 🃏 Fan Card ----------
+    @registered_message_handler(commands=["card"])
+    def card(message):
+        import fan_card
+        user = message.from_user
+        with _connect(config) as conn:
+            _ensure_user(conn, user.id)
+            points, vip = _points(conn, user.id)
+            row = conn.execute("SELECT created_at FROM community_points WHERE user_id=?", (user.id,)).fetchone()
+            fan_number = conn.execute(
+                "SELECT COUNT(*) AS n FROM community_points WHERE created_at < ? OR (created_at = ? AND user_id <= ?)",
+                (row["created_at"], row["created_at"], user.id),
+            ).fetchone()["n"]
+        level = _level(points, vip)
+        rank_title = level.split(" ", 1)[-1]
+        avatar = None
+        try:
+            photos = bot.get_user_profile_photos(user.id, limit=1)
+            if photos and photos.total_count:
+                file_info = bot.get_file(photos.photos[0][-1].file_id)
+                avatar = bot.download_file(file_info.file_path)
+        except Exception:
+            avatar = None
+        footer = "Cooler Bot"
+        try:
+            me = bot.get_me()
+            if getattr(me, "username", None):
+                footer = "t.me/" + me.username
+        except Exception:
+            pass
+        try:
+            image = fan_card.render(fan_card.latin_name(user.first_name, user.username), rank_title, points,
+                                    fan_number, avatar=avatar, footer=footer)
+        except Exception as exc:
+            logger.warning("fan card failed (%s)", type(exc).__name__)
+            bot.reply_to(message, "សុំទោស មិនអាចបង្កើតកាតបានទេឥឡូវនេះ។")
+            return
+        caption = (f"🃏 Fan Card របស់ {user.first_name or 'អ្នក'}\n{level} · ⭐ {points} ពិន្ទុ · Fan #{fan_number:04d}\n\n"
+                   "📲 Share ទៅ Facebook / TikTok ហើយអញ្ជើញមិត្តតាម /invite ដើម្បីឡើង rank!")
+        bot.send_photo(message.chat.id, image, caption=caption, reply_to_message_id=getattr(message, "message_id", None))
+
     @registered_message_handler(commands=["community"])
     def community_menu(message):
         from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
@@ -423,5 +544,6 @@ def register(bot, database, config):
             InlineKeyboardButton("⭐ Profile", callback_data="community:menu:profile:0"),
             InlineKeyboardButton("🤝 Invite", callback_data="community:menu:invite:0"),
             InlineKeyboardButton("👑 VIP", callback_data="community:menu:vip:0"),
+            InlineKeyboardButton("🃏 Fan Card", callback_data="community:menu:card:0"),
         )
         bot.reply_to(message, "🌟 <b>សហគមន៍ VidCooler</b>\nជ្រើសរើសមុខងារដែលអ្នកចង់ប្រើ៖", reply_markup=markup, parse_mode="HTML")

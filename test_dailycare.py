@@ -39,6 +39,12 @@ class FakeTelegramBot:
             return handler
         return decorate
 
+    def my_chat_member_handler(self, *args, **kwargs):
+        def decorate(handler):
+            self.handlers.append(("my_chat_member", args, kwargs, handler))
+            return handler
+        return decorate
+
 
 class TestDailyCareDatabase(unittest.TestCase):
     def setUp(self):

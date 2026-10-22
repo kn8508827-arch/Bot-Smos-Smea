@@ -396,7 +396,7 @@ def _studio_today() -> str:
 def _studio_remaining(user_id) -> int:
     if _studio_is_privileged(user_id):
         return 10**6
-    limit = max(0, int(getattr(config, "STUDIO_DAILY_LIMIT", 1)))
+    limit = max(0, int(getattr(config, "STUDIO_DAILY_LIMIT", 3)))
     return max(0, limit - _studio_usage.get((user_id, _studio_today()), 0))
 
 
@@ -430,7 +430,7 @@ def _start_studio(message):
         bot.reply_to(message, _STUDIO_NOT_CONFIGURED_TEXT)
         return
     if _studio_remaining(user_id) <= 0:
-        if int(getattr(config, "STUDIO_DAILY_LIMIT", 1)) <= 0:
+        if int(getattr(config, "STUDIO_DAILY_LIMIT", 3)) <= 0:
             bot.reply_to(message, "🎨 Photo Studio បើកសម្រាប់តែ Admin ប៉ុណ្ណោះពេលនេះ។")
             return
         bot.reply_to(message, "អ្នកបានប្រើ Photo Studio អស់សម្រាប់ថ្ងៃនេះហើយ។ សូមត្រឡប់មកវិញថ្ងៃស្អែក 🙏")

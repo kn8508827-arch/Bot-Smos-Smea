@@ -72,7 +72,7 @@ def _fan_ask_gemini(prompt):
 
 
 # Fan features: /games /music /rap /movie (registered before the catch-all AI handler)
-fan_features.register(bot, config, _fan_ask_gemini)
+_fan = fan_features.register(bot, config, _fan_ask_gemini)
 
 
 def register_interaction(from_user, chat) -> bool:
@@ -213,6 +213,9 @@ def setup_bot_commands():
             BotCommand("music", "🎵 បទរបស់ Vid Cooler"),
             BotCommand("rap", "🎤 AI សរសេរ Rap ជាមួយ Cooler"),
             BotCommand("movie", "🎬 ណែនាំរឿង + កន្លែងមើលផ្លូវការ"),
+            BotCommand("myname", "🗣️ AI បង្កើតឈ្មោះ Rapper ឲ្យអ្នក"),
+            BotCommand("card", "🃏 Fan Card របស់អ្នក"),
+            BotCommand("code", "🎟️ វាយកូដសម្ងាត់ពី MV"),
         ]
         _clear_command_overrides()
         bot.set_my_commands(commands)
@@ -701,6 +704,14 @@ def _main_menu_keyboard():
         InlineKeyboardButton("🎁 Check-in", callback_data="community:menu:checkin:0"),
     )
     markup.row(
+        InlineKeyboardButton("🎮 ហ្គេម", callback_data="nav:games"),
+        InlineKeyboardButton("🎤 AI Rap", callback_data="nav:rap"),
+    )
+    markup.row(
+        InlineKeyboardButton("🃏 Fan Card", callback_data="community:menu:card:0"),
+        InlineKeyboardButton("🧠 Quiz", callback_data="community:menu:quiz:0"),
+    )
+    markup.row(
         InlineKeyboardButton("👥 ក្រុមយើង", callback_data="nav:team"),
         InlineKeyboardButton("📅 ព្រឹត្តិការណ៍", callback_data="nav:events"),
     )
@@ -773,6 +784,14 @@ def _handle_nav_callback(call, data):
         _show_in_place(call, "⛽ <b>សាំង & ⚡ EV នៅកម្ពុជា</b>\nជ្រើសសេវាកម្ម ឬវាយឈ្មោះខេត្ត៖", _location_menu_keyboard())
     elif key == "community":
         _show_in_place(call, "🌟 <b>សហគមន៍ VidCooler</b>\nប្រមូលពិន្ទុ ឡើងកម្រិត ហើយប្រកួតលើ Leaderboard!", _community_nav_keyboard())
+    elif key == "games":
+        games_kb = _fan.games_markup(getattr(message.chat, "type", None) == "private")
+        games_kb.row(_home_button())
+        _show_in_place(call, "🎮 <b>ហ្គេមរបស់ Vid Cooler</b>\nចុចដើម្បីលេងភ្លាម 👇", games_kb)
+    elif key == "rap":
+        proxy = SimpleNamespace(from_user=call.from_user, chat=message.chat,
+                                message_id=message.message_id, text="/rap")
+        _fan.ask(proxy, "rap")
     elif key in ("studio", "notifications"):
         proxy = SimpleNamespace(from_user=call.from_user, chat=message.chat,
                                 message_id=message.message_id, text=f"/{key}")
@@ -877,7 +896,10 @@ def send_help(message):
         "• /games - ហ្គេមរបស់ Vid Cooler\n"
         "• /music - បទរបស់ Vid Cooler\n"
         "• /rap - AI សរសេរ Rap ជាមួយ Cooler\n"
-        "• /movie - ណែនាំរឿង + កន្លែងមើលផ្លូវការ\n\n"
+        "• /movie - ណែនាំរឿង + កន្លែងមើលផ្លូវការ\n"
+        "• /myname - AI បង្កើតឈ្មោះ Rapper\n"
+        "• /card - Fan Card សម្រាប់ Share\n"
+        "• /code - វាយកូដសម្ងាត់ពី MV/Live\n\n"
         "💡 *អ្នកអាចវាយសំណួរ ឬផ្ញើសារជាសំឡេង (Voice Note) ឬរូបភាពមកជជែកជាមួយ AI បានគ្រប់ពេល!*"
     )
     try:

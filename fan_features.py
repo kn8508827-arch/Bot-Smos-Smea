@@ -36,6 +36,13 @@ RAP_PROMPT = (
     "Return only the verse, no title, no explanation, no markdown."
 )
 
+NAME_PROMPT = (
+    "You are Cooler Bot. Invent 3 fun, original rapper stage names for a Cambodian fan whose vibe is: "
+    "\"{vibe}\". Mix Khmer and English like Cambodian hip-hop culture, keep them positive and suitable "
+    "for all ages, and never reuse the name of a real, existing artist. For each name give one short Khmer "
+    "line explaining it. Plain text, no markdown, numbered 1-3."
+)
+
 MOVIE_PROMPT = (
     "You are Cooler Bot. Recommend exactly 3 movies or dramas (Chinese dramas are popular with our fans) "
     "matching this request: \"{taste}\". For each give: the title (original + Khmer if known), year, one "
@@ -125,7 +132,9 @@ def register(bot, config, ask_gemini):
 
     def ask(message, kind):
         waiting[message.from_user.id] = (kind, time.monotonic() + 300)
-        if kind == "rap":
+        if kind == "name":
+            text = "🗣️ <b>Rapper Name Generator</b>\nប្រាប់ខ្ញុំពីខ្លួនអ្នកបន្តិច (ឧ. <i>ចូលចិត្តបាល់ទាត់ ម៉ូតូ ញ៉ាំមី</i>) ខ្ញុំបង្កើតឈ្មោះ rapper ៣ ឲ្យ 😎"
+        elif kind == "rap":
             text = "🎤 <b>AI Rap ជាមួយ Cooler</b>\nផ្ញើពាក្យ ១-៣ ម៉ាត់មក (ឧ. <i>មិត្តភាព ភ្នំពេញ សុបិន</i>) ខ្ញុំនឹងសរសេរ verse ថ្មីឲ្យ 🔥"
         else:
             text = "🎬 <b>ណែនាំរឿង</b>\nប្រាប់ខ្ញុំថាចង់មើលរឿងបែបណា (ឧ. <i>រឿងចិន ស្នេហា + ប្រយុទ្ធ</i>) ខ្ញុំណែនាំ ៣ រឿង និងកន្លែងមើលផ្លូវការ 📺"
@@ -141,13 +150,14 @@ def register(bot, config, ask_gemini):
             bot.reply_to(message, "AI មិនទាន់បើកដំណើរការនៅឡើយទេ។")
             return
         if not limits.take(user_id, privileged(user_id)):
-            bot.reply_to(message, f"អ្នកប្រើ /rap និង /movie អស់ {AI_DAILY_LIMIT} ដងសម្រាប់ថ្ងៃនេះហើយ។ ត្រឡប់មកថ្ងៃស្អែក 🙏")
+            bot.reply_to(message, f"អ្នកប្រើ /rap /movie /myname អស់ {AI_DAILY_LIMIT} ដងសម្រាប់ថ្ងៃនេះហើយ។ ត្រឡប់មកថ្ងៃស្អែក 🙏")
             return
         try:
             bot.send_chat_action(message.chat.id, "typing")
         except Exception:
             pass
-        prompt = (RAP_PROMPT.format(words=text) if kind == "rap" else MOVIE_PROMPT.format(taste=text))
+        prompt = {"rap": RAP_PROMPT.format(words=text), "movie": MOVIE_PROMPT.format(taste=text),
+                  "name": NAME_PROMPT.format(vibe=text)}[kind]
         try:
             answer = (ask_gemini(prompt) or "").strip()
         except Exception as exc:
@@ -156,9 +166,11 @@ def register(bot, config, ask_gemini):
         if not answer:
             bot.reply_to(message, "សុំទោស AI មិនអាចឆ្លើយបានទេឥឡូវនេះ។ សូមសាកម្ដងទៀត។")
             return
-        header = "🎤 <b>Cooler Rap</b>\n\n" if kind == "rap" else "🎬 <b>រឿងណែនាំ</b>\n\n"
-        footer = ("\n\n— ✍️ សរសេរថ្មីដោយ Cooler AI · /rap ម្ដងទៀត" if kind == "rap"
-                  else "\n\n📺 សូមមើលតាមកម្មវិធីផ្លូវការ ដើម្បីគាំទ្រអ្នកផលិត 🙏")
+        header = {"rap": "🎤 <b>Cooler Rap</b>\n\n", "movie": "🎬 <b>រឿងណែនាំ</b>\n\n",
+                  "name": "🗣️ <b>ឈ្មោះ Rapper របស់អ្នក</b>\n\n"}[kind]
+        footer = {"rap": "\n\n— ✍️ សរសេរថ្មីដោយ Cooler AI · /rap ម្ដងទៀត",
+                  "movie": "\n\n📺 សូមមើលតាមកម្មវិធីផ្លូវការ ដើម្បីគាំទ្រអ្នកផលិត 🙏",
+                  "name": "\n\n🎤 យកឈ្មោះមួយទៅសាក /rap ហើយ Share ទៅមិត្តផង!"}[kind]
         bot.reply_to(message, header + html.escape(answer[:3500]) + footer, parse_mode="HTML")
 
     @bot.message_handler(commands=["rap"])
@@ -168,6 +180,14 @@ def register(bot, config, ask_gemini):
             run(message, "rap", parts[1])
         else:
             ask(message, "rap")
+
+    @bot.message_handler(commands=["myname", "rapname"])
+    def myname(message):
+        parts = (message.text or "").split(maxsplit=1)
+        if len(parts) > 1:
+            run(message, "name", parts[1])
+        else:
+            ask(message, "name")
 
     @bot.message_handler(commands=["movie", "movies"])
     def movie(message):
@@ -189,4 +209,4 @@ def register(bot, config, ask_gemini):
         kind, _ = waiting.pop(message.from_user.id)
         run(message, kind, message.text)
 
-    return SimpleNamespace(games_markup=games_markup, limits=limits, waiting=waiting)
+    return SimpleNamespace(games_markup=games_markup, limits=limits, waiting=waiting, ask=ask)

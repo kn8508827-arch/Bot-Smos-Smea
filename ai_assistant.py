@@ -341,8 +341,14 @@ async def generate_gemini_response(
     client: Optional[httpx.AsyncClient] = None,
     *,
     user_id: Optional[int] = None,
-    db_path: Optional[str] = None
+    db_path: Optional[str] = None,
+    system_instruction: Optional[str] = None,
+    max_output_tokens: Optional[int] = None,
+    temperature: Optional[float] = None,
+    raw: bool = False
 ) -> str:
+    """system_instruction/max_output_tokens/temperature override the chat defaults;
+    raw=True joins every text part and skips the Markdown clean-up (for long structured output)."""
     primary_model = model_name or getattr(config, "AI_MODEL", None) or DEFAULT_GEMINI_MODEL
     current_model = primary_model
 
@@ -364,13 +370,13 @@ async def generate_gemini_response(
 
     contents.append({"role": "user", "parts": [{"text": prompt}]})
 
-    system_inst = get_system_instruction(user_name, user_id=user_id)
+    system_inst = system_instruction or get_system_instruction(user_name, user_id=user_id)
     payload = {
         "system_instruction": {"parts": [{"text": system_inst}]},
         "contents": contents,
         "generationConfig": {
-            "temperature": 0.7,
-            "maxOutputTokens": 1024,
+            "temperature": 0.7 if temperature is None else temperature,
+            "maxOutputTokens": max_output_tokens or 1024,
             "topP": 0.95
         }
     }
@@ -409,7 +415,9 @@ async def generate_gemini_response(
                 candidates = data.get("candidates") or []
                 if candidates:
                     parts = (candidates[0].get("content") or {}).get("parts") or []
-                    if parts:
+                    if parts and raw:
+                        reply_text = "".join(p.get("text") or "" for p in parts if not p.get("thought")).strip()
+                    elif parts:
                         raw_text = (parts[0].get("text") or "").strip()
                         reply_text = clean_markdown_for_telegram(raw_text)
             except Exception:

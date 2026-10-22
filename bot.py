@@ -30,6 +30,7 @@ import location_service
 import weather_service
 import photo_studio
 import community_features
+import fan_features
 
 logging.basicConfig(
     level=logging.INFO, 
@@ -58,6 +59,17 @@ bot = telebot.TeleBot(TOKEN, threaded=True)
 
 # Register community commands before the catch-all AI handler so commands are not sent to AI.
 community_features.register(bot, database, config)
+
+
+def _fan_ask_gemini(prompt):
+    return async_runner.run_sync(ai_assistant.generate_gemini_response(
+        api_key=getattr(config, "GEMINI_API_KEY", ""), prompt=prompt, history=[],
+        user_name=None, user_id=None, db_path=database.DB_PATH,
+    ), timeout=90)
+
+
+# Fan features: /games /music /rap /movie (registered before the catch-all AI handler)
+fan_features.register(bot, config, _fan_ask_gemini)
 
 
 def register_interaction(from_user, chat) -> bool:
@@ -193,6 +205,10 @@ def setup_bot_commands():
             BotCommand("leaderboard", "🏆 ចំណាត់ថ្នាក់សមាជិក"),
             BotCommand("invite", "🤝 អញ្ជើញមិត្តភក្តិ"),
             BotCommand("vip", "👑 ស្ថានភាព VIP"),
+            BotCommand("games", "🎮 ហ្គេមរបស់ Vid Cooler"),
+            BotCommand("music", "🎵 បទរបស់ Vid Cooler"),
+            BotCommand("rap", "🎤 AI សរសេរ Rap ជាមួយ Cooler"),
+            BotCommand("movie", "🎬 ណែនាំរឿង + កន្លែងមើលផ្លូវការ"),
         ]
         _clear_command_overrides()
         bot.set_my_commands(commands)
@@ -717,7 +733,11 @@ def send_help(message):
         "• /quiz - Quiz ប្រចាំថ្ងៃ\n"
         "• /leaderboard - ចំណាត់ថ្នាក់\n"
         "• /invite - អញ្ជើញមិត្តភក្តិ\n"
-        "• /vip - ស្ថានភាព VIP\n\n"
+        "• /vip - ស្ថានភាព VIP\n"
+        "• /games - ហ្គេមរបស់ Vid Cooler\n"
+        "• /music - បទរបស់ Vid Cooler\n"
+        "• /rap - AI សរសេរ Rap ជាមួយ Cooler\n"
+        "• /movie - ណែនាំរឿង + កន្លែងមើលផ្លូវការ\n\n"
         "💡 *អ្នកអាចវាយសំណួរ ឬផ្ញើសារជាសំឡេង (Voice Note) ឬរូបភាពមកជជែកជាមួយ AI បានគ្រប់ពេល!*"
     )
     try:

@@ -267,18 +267,22 @@ def register(bot, config, ask_ai):
         user_prompt = f"User idea (may be Khmer): {idea}"
         if cont and last.get(uid, {}).get("answer"):
             user_prompt += CONTINUE_NOTE.format(prev=last[uid]["answer"][:6000])
+        error = ""
         try:
             answer = (ask_ai(SYSTEMS[mode], user_prompt) or "").strip()
         except Exception as exc:
-            logger.warning("prompt studio %s failed (%s)", mode, type(exc).__name__)
-            answer = ""
+            logger.warning("prompt studio %s failed (%s: %s)", mode, type(exc).__name__, exc)
+            answer, error = "", f"{type(exc).__name__}: {exc}"
         if status is not None:
             try:
                 bot.delete_message(chat_id, status.message_id)
             except Exception:
                 pass
         if not answer:
-            bot.send_message(chat_id, "សុំទោស AI មិនអាចសរសេរបានទេឥឡូវនេះ។ សូមសាកម្ដងទៀត 🙏")
+            text = "សុំទោស AI មិនអាចសរសេរបានទេឥឡូវនេះ។ សូមសាកម្ដងទៀត 🙏"
+            if privileged(uid) and error:
+                text += f"\n\n🔧 (Admin) {error[:300]}"
+            bot.send_message(chat_id, text)
             return
         last[uid] = {"mode": mode, "idea": idea, "answer": answer}
         chunks = render_chunks(answer) or [html.escape(answer[:MSG_LIMIT])]

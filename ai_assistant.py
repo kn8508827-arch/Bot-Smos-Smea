@@ -25,7 +25,8 @@ _gemini_throttle_lock = asyncio.Lock()
 _gemini_last_request_at = 0.0
 
 DEFAULT_GEMINI_MODEL = getattr(config, "AI_MODEL", None) or "gemini-2.0-flash"
-FALLBACK_GEMINI_MODEL = "gemini-1.5-flash"
+# gemini-1.5/2.0 models are shut down; fall back to a current model.
+FALLBACK_GEMINI_MODEL = os.getenv("AI_FALLBACK_MODEL", "").strip() or "gemini-3.6-flash"
 DEFAULT_GEMINI_VISION_MODEL = getattr(config, "AI_VISION_MODEL", None) or "gemini-3.8-flash"
 FALLBACK_GEMINI_VISION_MODEL = "gemini-3.6-flash"
 MAX_INLINE_IMAGE_BYTES = 10 * 1024 * 1024
@@ -345,7 +346,8 @@ async def generate_gemini_response(
     system_instruction: Optional[str] = None,
     max_output_tokens: Optional[int] = None,
     temperature: Optional[float] = None,
-    raw: bool = False
+    raw: bool = False,
+    request_timeout: Optional[float] = None
 ) -> str:
     """system_instruction/max_output_tokens/temperature override the chat defaults;
     raw=True joins every text part and skips the Markdown clean-up (for long structured output)."""
@@ -393,7 +395,11 @@ async def generate_gemini_response(
         await _wait_for_gemini_request_slot()
         url = f"https://generativelanguage.googleapis.com/v1beta/models/{current_model}:generateContent"
         try:
-            response = await http_client.post(url, json=payload, headers=headers)
+            if request_timeout:
+                response = await http_client.post(url, json=payload, headers=headers,
+                                                  timeout=httpx.Timeout(request_timeout, connect=10.0))
+            else:
+                response = await http_client.post(url, json=payload, headers=headers)
         except httpx.TransportError as te:
             last_exc = te
             if attempt >= GEMINI_MAX_ATTEMPTS - 1:
@@ -446,7 +452,7 @@ async def generate_gemini_response(
             try:
                 response.raise_for_status()
             except Exception:
-                logger.debug(f"Gemini unexpected response status: {response.status_code}")
+                logger.warning("Gemini %s HTTP %s: %s", current_model, response.status_code, response.text[:300])
                 raise
 
     if last_exc:

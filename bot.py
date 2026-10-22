@@ -138,6 +138,36 @@ def _dailycare_admin_keyboard():
     return markup
 
 
+_COMMAND_OVERRIDE_LANGUAGES = ("en", "km")
+
+
+def _clear_command_overrides():
+    """Remove command lists set for narrower scopes or languages (by older bot
+    versions or BotFather). Telegram shows those INSTEAD of the default list,
+    which is why "/" showed only 5 old commands. Afterwards every chat falls
+    back to the one default list set below."""
+    from telebot import types as tg_types
+
+    scopes = [
+        None,
+        tg_types.BotCommandScopeAllPrivateChats(),
+        tg_types.BotCommandScopeAllGroupChats(),
+        tg_types.BotCommandScopeAllChatAdministrators(),
+    ]
+    owner_id = getattr(config, "OWNER_ID", 0)
+    for chat_id in {owner_id, *getattr(config, "ADMIN_IDS", [])}:
+        if chat_id:
+            scopes.append(tg_types.BotCommandScopeChat(chat_id))
+    for scope in scopes:
+        for language_code in (None, *_COMMAND_OVERRIDE_LANGUAGES):
+            if scope is None and language_code is None:
+                continue  # the default list itself is replaced by set_my_commands
+            try:
+                bot.delete_my_commands(scope=scope, language_code=language_code)
+            except Exception as exc:
+                logger.debug("delete_my_commands skipped (%s)", type(exc).__name__)
+
+
 def setup_bot_commands():
     """ចុះឈ្មោះ Menu Button ជាប់ប្រអប់ Chat លើ Telegram UI"""
     try:
@@ -164,6 +194,7 @@ def setup_bot_commands():
             BotCommand("invite", "🤝 អញ្ជើញមិត្តភក្តិ"),
             BotCommand("vip", "👑 ស្ថានភាព VIP"),
         ]
+        _clear_command_overrides()
         bot.set_my_commands(commands)
         logger.info("Bot commands menu registered successfully.")
     except Exception as e:

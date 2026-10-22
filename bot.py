@@ -38,6 +38,7 @@ import trip_places
 import prompt_studio
 import social_links
 import market_info
+import family_tips
 
 logging.basicConfig(
     level=logging.INFO, 
@@ -126,6 +127,8 @@ _prompt_studio = prompt_studio.register(bot, config, _prompt_ask)
 _fan = fan_features.register(bot, config, _fan_ask_gemini)
 # More health tools: /bp /water /sleep /askhealth
 health_more.register(bot, config, _fan_ask_gemini)
+# Parenting (kids 1-6) and dog/cat training tips: /parent /pet /askfamily
+family_tips.register(bot, config, _fan_ask_gemini)
 
 
 def register_interaction(from_user, chat) -> bool:
@@ -269,6 +272,8 @@ def setup_bot_commands():
             BotCommand("myname", "🗣️ AI បង្កើតឈ្មោះ Rapper ឲ្យអ្នក"),
             BotCommand("card", "🃏 Fan Card របស់អ្នក"),
             BotCommand("code", "🎟️ វាយកូដសម្ងាត់ពី MV"),
+            BotCommand("parent", "👨‍👩‍👧 មើលកូន ១-៦ ឆ្នាំឲ្យស្ដាប់បង្គាប់"),
+            BotCommand("pet", "🐶🐱 បង្ហាត់ឆ្កែ ឆ្មា"),
             BotCommand("rate", "💵 អត្រាប្ដូរប្រាក់ ដុល្លារ ↔ រៀល"),
             BotCommand("gold", "🪙 តម្លៃមាសថ្ងៃនេះ"),
             BotCommand("news", "📰 ព័ត៌មានថ្មីៗ"),
@@ -844,6 +849,8 @@ def _main_menu_keyboard():
         InlineKeyboardButton("🎨 កែរូប AI", callback_data="nav:studio"),
     )
     markup.row(InlineKeyboardButton("📈 ដុល្លារ · មាស · ព័ត៌មានថ្មីៗ", callback_data="mkt:menu"))
+    markup.row(InlineKeyboardButton("👨‍👩‍👧 មើលកូន", callback_data="fam:kids"),
+               InlineKeyboardButton("🐶🐱 បង្ហាត់សត្វ", callback_data="fam:pet"))
     markup.row(InlineKeyboardButton("📲 តាមដាន & ទាក់ទង Vid Cooler", callback_data="follow:menu"))
     markup.row(InlineKeyboardButton("✍️ Prompt Studio (វីដេអូ · ចម្រៀង · រូប · រឿង)", callback_data="pstudio:menu"))
     markup.row(
@@ -1070,6 +1077,8 @@ def send_help(message):
         "• /card - Fan Card សម្រាប់ Share\n"
         "• /code - វាយកូដសម្ងាត់ពី MV/Live\n"
         "• /trip - កន្លែងដើរលេងល្អៗនៅកម្ពុជា\n"
+        "• /parent - មើលកូន ១-៦ ឆ្នាំ\n"
+        "• /pet - បង្ហាត់ឆ្កែ ឆ្មា\n"
         "• /rate - ដុល្លារ ↔ រៀល (ឧ. /rate 100)\n"
         "• /gold - តម្លៃមាស ជី / ដំឡឹង\n"
         "• /news - ព័ត៌មានថ្មីៗ\n"

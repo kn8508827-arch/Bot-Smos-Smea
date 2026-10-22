@@ -1,254 +1,205 @@
 """
 AI Photo Studio សម្រាប់ Team ស្មោះស្នេហ៍ Telegram Bot
-កែច្នៃរូបភាពគុណភាពខ្ពស់ (SDXL Inpainting & Transformation)
+កែរូបមនុស្សពិតដោយ Gemini (Nano Banana 2.1) — រក្សាមុខដើម ប្ដូរសម្លៀកបំពាក់ និងផ្ទៃខាងក្រោយ
 """
 import io
-import os
 import base64
 import logging
-from typing import Dict, Tuple, Optional, Any, List
-from PIL import Image, ImageDraw, ImageFilter
+from typing import Dict, Optional, Tuple
+
 import httpx
+from PIL import Image
 
 import config
 
 logger = logging.getLogger(__name__)
 
 DEFAULT_STYLE = "realistic"
+DEFAULT_MODEL = "gemini-nano-banana-2.1"
+API_URL = "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
+MAX_INPUT_SIDE = 1536          # ពង្រួមរូបមុនផ្ញើ ដើម្បីលឿន និងសន្សំ token
+REQUEST_TIMEOUT_SECONDS = 120.0
 
-# ទំហំស្តង់ដារ SDXL សម្រាប់រូបភាពនីមួយៗ
-SDXL_DIMENSIONS = {
-    "4:5": (896, 1152),      # Portrait ល្អបំផុតសម្រាប់ Facebook
-    "1:1": (1024, 1024),     # Square
-    "16:9": (1344, 768)      # Landscape សម្រាប់រូបថតជាក្រុម
+# សមាមាត្រដែល Gemini imageConfig គាំទ្រ
+SUPPORTED_ASPECT_RATIOS = {
+    "1:1": 1.0, "4:5": 0.8, "3:4": 0.75, "2:3": 2 / 3, "9:16": 9 / 16,
+    "5:4": 1.25, "4:3": 4 / 3, "3:2": 1.5, "16:9": 16 / 9,
 }
 
-# បញ្ជីម៉ូដស្ទីលប្រណិតៗទាំង ៩ (Artistic & Luxury Styles)
+# ម៉ូដទាំង ៩ — "prompt" ពិពណ៌នាតែអ្វីដែលត្រូវប្ដូរ (សម្លៀកបំពាក់ ផ្ទៃខាងក្រោយ ពន្លឺ)
 STYLES: Dict[str, Dict[str, str]] = {
     "realistic": {
         "name": "Realistic Photo",
         "name_kh": "📸 រូបថតធម្មជាតិច្បាស់កម្រិត HD",
-        "prompt": "masterpiece, 8k uhd, realistic photograph, studio lighting, highly detailed face, professional photography, natural skin texture",
-        "negative": "anime, cartoon, painting, illustration, deformed, blur, bad anatomy, bad eyes, disfigured"
+        "prompt": "a clean professional studio portrait: neat smart-casual outfit, soft studio lighting, simple neutral backdrop, sharp HD photographic quality",
     },
     "luxury": {
         "name": "Handsome Luxury Portrait",
         "name_kh": "👔 រូបភាពអភិជនប្រណិត (Luxury)",
-        "prompt": "masterpiece, ultra-luxurious lifestyle, elegant tailored formal attire, subtle gold accents, high-end mansion background, executive prestige, cinematic warm lighting, magazine cover quality, 8k",
-        "negative": "casual wear, cheap look, distorted, low quality, oversaturated, blurry, cartoon"
+        "prompt": "an ultra-luxurious portrait: elegant tailored formal suit with subtle gold accents, high-end mansion interior background, warm cinematic lighting, magazine-cover quality",
     },
     "kdrama": {
         "name": "Korean K-Drama Star",
         "name_kh": "🌟 តារាសម្តែងកូរ៉េ (K-Drama)",
-        "prompt": "Korean drama aesthetic, glowing porcelain skin, soft romantic lighting, stylish modern Seoul fashion, gentle gaze, bokeh city background, high visual aesthetic, 8k resolution",
-        "negative": "dark harsh shadows, rough skin, cartoon, anime, low resolution, bad hands"
+        "prompt": "a Korean drama star look: stylish modern Seoul fashion, soft romantic lighting, dreamy bokeh city-lights background",
     },
     "royal_khmer": {
         "name": "Cambodian Traditional Royal Style",
         "name_kh": "👑 ក្សត្របុរាណខ្មែរ (Royal Khmer)",
-        "prompt": "majestic ancient Khmer royalty, intricate golden embroidery sampot, royal ornaments, Angkorian palace hall background, dignified royal posture, rich silk texture, divine golden lighting, cultural masterpiece, 8k",
-        "negative": "modern clothing, jeans, plastic accessories, distorted architecture, blurry, low quality"
+        "prompt": "ancient Khmer royalty: intricate golden embroidered silk sampot and traditional royal ornaments, Angkorian palace hall background, dignified royal posture, golden light",
     },
     "khmer_warrior": {
         "name": "Ancient Khmer Warrior",
         "name_kh": "⚔️ មេទ័ពបុរាណខ្មែរ (Khmer Warrior)",
-        "prompt": "ancient Cambodian Angkor warrior commander, leather and bronze armor, traditional battle ornaments, heroic and brave expression, cinematic misty battlefield background, epic lighting, sharp details",
-        "negative": "guns, modern armor, weak posture, cartoon, illustration, bad anatomy"
+        "prompt": "an ancient Angkor-era Khmer warrior commander: leather and bronze armor with traditional battle ornaments, misty epic battlefield background, cinematic heroic lighting",
     },
     "fashion": {
         "name": "Modern Fashion",
         "name_kh": "🕶️ ម៉ូដទាន់សម័យ (Modern Fashion)",
-        "prompt": "high fashion editorial, Paris fashion week style, trendy designer outfit, confident pose, sleek street runway backdrop, magazine photoshoot, crisp focus, 8k",
-        "negative": "outdated clothes, cartoon, blurry, noisy, bad lighting"
+        "prompt": "a high-fashion editorial look: trendy designer outfit, sleek runway or street-style backdrop, crisp magazine photoshoot lighting",
     },
     "cyberpunk": {
         "name": "Cyberpunk Neon",
         "name_kh": "🌆 អនាគត Cyberpunk Neon",
-        "prompt": "futuristic cyberpunk aesthetic, neon reflective lighting, glowing cyan and magenta accents, high-tech dystopian city background, sleek cybernetic gear, 8k wallpaper",
-        "negative": "vintage, historical, dull colors, natural outdoor, low quality"
+        "prompt": "a futuristic cyberpunk look: sleek high-tech jacket, neon cyan and magenta reflections on the scene, rainy futuristic city at night background",
     },
     "movie_poster": {
         "name": "Cinematic Movie Poster",
         "name_kh": "🎬 ផ្ទាំងរូបភាពភាពយន្ត (Movie Poster)",
-        "prompt": "Hollywood cinematic blockbuster poster, dramatic rim lighting, action hero mood, film grain, atmospheric background, depth of field, 8k",
-        "negative": "flat lighting, amateur photo, cartoon, childish, watermark, blurry"
+        "prompt": "a Hollywood action-movie poster look: dramatic rim lighting, cinematic color grading, atmospheric explosive background, film grain — but no text or title on the image",
     },
     "anime": {
         "name": "Anime & Artistic",
         "name_kh": "🎨 គំនូរ Anime ជប៉ុន (Anime Style)",
-        "prompt": "anime digital painting style, Makoto Shinkai aesthetic, vibrant colors, expressive eyes, beautifully painted hair, gorgeous sky background, high quality anime key visual",
-        "negative": "photo, photorealistic, 3d render, creepy, disfigured, bad lineart"
+        "prompt": "a high-quality Japanese anime illustration of this same person, vibrant colors, beautiful painted sky background",
     },
     "custom": {
         "name": "Custom Style",
         "name_kh": "✍️ កំណត់ម៉ូដតាមការចង់បាន (Custom)",
-        "prompt": "masterpiece, ultra-detailed, professional quality",
-        "negative": "low quality, distorted, bad anatomy, blurry"
-    }
+        "prompt": "a polished, high-quality portrait",
+    },
 }
 
 
-def get_best_sdxl_dimensions(width: int, height: int, aspect_ratio: str = "auto") -> Tuple[int, int]:
-    """ជ្រើសរើសទំហំ SDXL សមស្របទៅតាមសមាមាត្ររូបភាព"""
-    if aspect_ratio in SDXL_DIMENSIONS:
-        return SDXL_DIMENSIONS[aspect_ratio]
-    
-    ratio = width / height
-    if ratio > 1.25:
-        return SDXL_DIMENSIONS["16:9"]  # Landscape
-    elif ratio < 0.85:
-        return SDXL_DIMENSIONS["4:5"]   # Portrait
-    else:
-        return SDXL_DIMENSIONS["1:1"]   # Square
+class StudioError(Exception):
+    """កំហុសពី Photo Studio។ code: not_configured | billing | rate_limited | blocked | no_image | api"""
+
+    def __init__(self, code: str, detail: str = ""):
+        super().__init__(f"{code}: {detail}" if detail else code)
+        self.code = code
+        self.detail = detail
 
 
-def prepare_image_for_sdxl(image_path: str, aspect_ratio: str = "4:5") -> bytes:
-    """កែសម្រួលរូបភាពឱ្យត្រូវតាមខ្នាតដែល Stability SDXL ត្រូវការ"""
-    with Image.open(image_path) as img:
+def closest_aspect_ratio(width: int, height: int) -> str:
+    ratio = width / height if height else 1.0
+    return min(SUPPORTED_ASPECT_RATIOS, key=lambda key: abs(SUPPORTED_ASPECT_RATIOS[key] - ratio))
+
+
+def prepare_image(image_bytes: bytes) -> Tuple[bytes, str]:
+    """បម្លែងទៅ JPEG ពង្រួមទំហំ ហើយត្រឡប់ (bytes, aspect_ratio)។"""
+    with Image.open(io.BytesIO(image_bytes)) as img:
         img = img.convert("RGB")
-        target_size = SDXL_DIMENSIONS.get(aspect_ratio, SDXL_DIMENSIONS["4:5"])
-        
-        # កាត់ និងពង្រីក (Crop to Fit) ដោយមិនឱ្យខូចទ្រង់ទ្រាយ
-        img_ratio = img.width / img.height
-        target_ratio = target_size[0] / target_size[1]
-        
-        if img_ratio > target_ratio:
-            new_height = target_size[1]
-            new_width = int(new_height * img_ratio)
-        else:
-            new_width = target_size[0]
-            new_height = int(new_width / img_ratio)
-            
-        img_resized = img.resize((new_width, new_height), Image.Resampling.LANCZOS)
-        
-        # Center Crop
-        left = (new_width - target_size[0]) // 2
-        top = (new_height - target_size[1]) // 2
-        right = left + target_size[0]
-        bottom = top + target_size[1]
-        
-        final_img = img_resized.crop((left, top, right, bottom))
-        
+        aspect = closest_aspect_ratio(img.width, img.height)
+        img.thumbnail((MAX_INPUT_SIDE, MAX_INPUT_SIDE), Image.Resampling.LANCZOS)
         buf = io.BytesIO()
-        final_img.save(buf, format="JPEG", quality=95)
-        return buf.getvalue()
+        img.save(buf, format="JPEG", quality=92)
+        return buf.getvalue(), aspect
 
 
-def generate_face_mask(image: Image.Image, allow_hair_change: bool = False) -> Image.Image:
-    """
-    បង្កើត Mask ដើម្បីការពារផ្ទៃមុខ (Face Shield) ក្នុងដំណើរការ Inpainting
-    ពណ៌ខ្មៅ (0) = ការពារមិនឱ្យ AI កែប្រែ (មុខដើម)
-    ពណ៌ស (255) = អនុញ្ញាតឱ្យ AI កែប្រែ (សម្លៀកបំពាក់ និង Background)
-    """
-    mask = Image.new("L", image.size, color=255)
-    draw = ImageDraw.Draw(mask)
-    
-    width, height = image.size
-    # កំណត់តំបន់កណ្តាលដែលផ្ទៃមុខស្ថិតនៅ
-    center_x = width // 2
-    center_y = int(height * 0.42)
-    face_radius_x = int(width * 0.22)
-    face_radius_y = int(height * 0.25)
-    
-    # គូររង្វង់ពងក្រពើការពារផ្ទៃមុខ
-    draw.ellipse(
-        [
-            center_x - face_radius_x,
-            center_y - face_radius_y,
-            center_x + face_radius_x,
-            center_y + face_radius_y
-        ],
-        fill=0
+def build_prompt(style_key: str, custom_prompt: Optional[str] = None) -> str:
+    style = STYLES.get(style_key, STYLES[DEFAULT_STYLE])
+    change = style["prompt"]
+    if style_key == "custom" and custom_prompt:
+        change = f"{custom_prompt.strip()}, {change}"
+    if style_key == "anime":
+        keep = (
+            "Redraw the person in this photo as an anime character while keeping them clearly "
+            "recognizable as the same person: same face shape, hairstyle, skin tone and expression."
+        )
+    else:
+        keep = (
+            "Edit this photo of a real person. Keep the person's face, facial features, skin tone, age, "
+            "body shape, pose and expression exactly the same — it must still be clearly the same real person. "
+            "Do not beautify, slim, or change the face."
+        )
+    return (
+        f"{keep} Change only the outfit, background and lighting to: {change}. "
+        "Make the lighting on the face match the new scene so it looks like one natural photograph. "
+        "No text, no watermark, no logos. If there are several people, keep every face unchanged."
     )
-    
-    # បន្ថែម Feathering / Blur ដើម្បីឱ្យគែមបញ្ចូលគ្នាទន់ភ្លន់
-    mask = mask.filter(ImageFilter.GaussianBlur(radius=15))
-    return mask
 
 
-def composite_face_shield(orig_img: Image.Image, gen_img: Image.Image, mask: Image.Image) -> Image.Image:
-    """ផ្សំបញ្ចូលភីកសែលផ្ទៃមុខដើមចូលក្នុងរូបភាពដែល AI បង្កើតថ្មី"""
-    if gen_img.size != orig_img.size:
-        gen_img = gen_img.resize(orig_img.size, Image.Resampling.LANCZOS)
-    if mask.size != orig_img.size:
-        mask = mask.resize(orig_img.size, Image.Resampling.LANCZOS)
-    
-    # បញ្ចូលគ្នាតាម Mask (កន្លែងខ្មៅយករូបដើម កន្លែងសយករូបដែល AI កែ)
-    blended = Image.composite(gen_img, orig_img, mask)
-    return blended
+def _extract_image(result: dict) -> bytes:
+    candidates = result.get("candidates") or []
+    if not candidates:
+        reason = (result.get("promptFeedback") or {}).get("blockReason", "")
+        raise StudioError("blocked" if reason else "no_image", reason)
+    for part in (candidates[0].get("content") or {}).get("parts") or []:
+        data = part.get("inlineData") or part.get("inline_data")
+        if data and data.get("data"):
+            return base64.b64decode(data["data"])
+    finish = candidates[0].get("finishReason", "")
+    if finish and finish not in ("STOP", "MAX_TOKENS"):
+        raise StudioError("blocked", finish)
+    raise StudioError("no_image", finish)
 
 
 async def transform_photo(
-    image_path: str,
-    style_key: str = "realistic",
-    aspect_ratio: str = "auto",
-    custom_prompt: Optional[str] = None
+    image_bytes: bytes,
+    style_key: str = DEFAULT_STYLE,
+    custom_prompt: Optional[str] = None,
+    client: Optional[httpx.AsyncClient] = None,
 ) -> bytes:
-    """ហៅទៅកាន់ Stability AI SDXL ដើម្បីកែច្នៃរូបភាព"""
-    api_key = getattr(config, "STABILITY_API_KEY", "")
+    """កែរូបដោយ Gemini ហើយត្រឡប់ JPEG bytes។ បោះ StudioError ពេលបរាជ័យ។"""
+    api_key = getattr(config, "GEMINI_API_KEY", "")
     if not api_key:
-        raise ValueError("STABILITY_API_KEY_NOT_CONFIGURED")
+        raise StudioError("not_configured", "GEMINI_API_KEY")
+    model = getattr(config, "STUDIO_IMAGE_MODEL", "") or DEFAULT_MODEL
 
-    style = STYLES.get(style_key, STYLES["realistic"])
-    positive_prompt = style["prompt"]
-    negative_prompt = style["negative"]
-
-    if style_key == "custom" and custom_prompt:
-        positive_prompt = f"{custom_prompt}, {positive_prompt}"
-
-    # រៀបចំទំហំ
-    with Image.open(image_path) as src_im:
-        target_w, target_h = get_best_sdxl_dimensions(src_im.width, src_im.height, aspect_ratio)
-
-    img_bytes = prepare_image_for_sdxl(image_path, aspect_ratio="4:5" if target_h > target_w else "1:1")
-    
-    # បង្កើត Mask សម្រាប់ការពារមុខ
-    with Image.open(io.BytesIO(img_bytes)) as ready_img:
-        mask_img = generate_face_mask(ready_img)
-        mask_buf = io.BytesIO()
-        mask_img.save(mask_buf, format="PNG")
-        mask_bytes = mask_buf.getvalue()
-
-    url = "https://api.stability.ai/v1/generation/stable-diffusion-xl-1024-v1-0/image-to-image/masking"
-
-    headers = {
-        "Accept": "application/json",
-        "Authorization": f"Bearer {api_key}"
+    jpeg_bytes, aspect = prepare_image(image_bytes)
+    payload = {
+        "contents": [{
+            "role": "user",
+            "parts": [
+                {"text": build_prompt(style_key, custom_prompt)},
+                {"inline_data": {"mime_type": "image/jpeg", "data": base64.b64encode(jpeg_bytes).decode("ascii")}},
+            ],
+        }],
+        "generationConfig": {
+            "responseModalities": ["TEXT", "IMAGE"],
+            "imageConfig": {"aspectRatio": aspect, "imageSize": "1K"},
+        },
     }
+    headers = {"x-goog-api-key": api_key, "Content-Type": "application/json"}
+    url = API_URL.format(model=model)
 
-    data = {
-        "mask_source": "MASK_IMAGE_WHITE",
-        "text_prompts[0][text]": positive_prompt,
-        "text_prompts[0][weight]": "1.0",
-        "text_prompts[1][text]": negative_prompt,
-        "text_prompts[1][weight]": "-1.0",
-        "cfg_scale": "7.5",
-        "samples": "1",
-        "steps": "30",
-        "style_preset": "photographic" if style_key != "anime" else "anime"
-    }
+    owns_client = client is None
+    http = client or httpx.AsyncClient(timeout=REQUEST_TIMEOUT_SECONDS)
+    try:
+        response = await http.post(url, headers=headers, json=payload)
+        if response.status_code == 400 and "imageSize" in response.text:
+            # model ខ្លះមិនស្គាល់ imageSize — សាកម្ដងទៀតដោយគ្មានវា
+            payload["generationConfig"]["imageConfig"].pop("imageSize", None)
+            response = await http.post(url, headers=headers, json=payload)
+    except httpx.HTTPError as exc:
+        raise StudioError("api", type(exc).__name__) from exc
+    finally:
+        if owns_client:
+            await http.aclose()
 
-    files = {
-        "init_image": ("init.jpg", img_bytes, "image/jpeg"),
-        "mask_image": ("mask.png", mask_bytes, "image/png")
-    }
+    if response.status_code != 200:
+        body = response.text[:500]
+        logger.error("Gemini image error %s: %s", response.status_code, body)
+        lowered = body.lower()
+        if response.status_code == 429:
+            code = "billing" if ("free_tier" in lowered or "limit: 0" in lowered) else "rate_limited"
+            raise StudioError(code, body)
+        if response.status_code in (401, 403) or "billing" in lowered:
+            raise StudioError("billing", body)
+        raise StudioError("api", f"HTTP {response.status_code}")
 
-    async with httpx.AsyncClient(timeout=60.0) as client:
-        response = await client.post(url, headers=headers, data=data, files=files)
-        
-        if response.status_code != 200:
-            logger.error(f"Stability AI Error: {response.status_code} - {response.text}")
-            response.raise_for_status()
-
-        result = response.json()
-        artifact = result.get("artifacts", [])[0]
-        gen_img_bytes = base64.b64decode(artifact["base64"])
-
-    # ផ្សំមុខដើមបញ្ចូលឡើងវិញដើម្បីកុំឱ្យបាត់អត្តសញ្ញាណ
-    with Image.open(io.BytesIO(img_bytes)) as base_img, \
-         Image.open(io.BytesIO(gen_img_bytes)) as generated_img:
-        final_result = composite_face_shield(base_img, generated_img, mask_img)
-        
-        out_buf = io.BytesIO()
-        final_result.save(out_buf, format="JPEG", quality=95)
-        return out_buf.getvalue()
+    image = _extract_image(response.json())
+    with Image.open(io.BytesIO(image)) as out:
+        buf = io.BytesIO()
+        out.convert("RGB").save(buf, format="JPEG", quality=93)
+        return buf.getvalue()

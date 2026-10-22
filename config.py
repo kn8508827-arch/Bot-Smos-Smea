@@ -9,6 +9,10 @@ BOT_TOKEN = os.getenv("BOT_TOKEN", "")
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
 STABILITY_API_KEY = os.getenv("STABILITY_API_KEY", "")
+# AI Photo Studio (/studio) — Gemini image editing; needs billing enabled on the Gemini key
+STUDIO_ENABLED = os.getenv("STUDIO_ENABLED", "False").lower() in ("true", "1", "yes")
+STUDIO_IMAGE_MODEL = os.getenv("STUDIO_IMAGE_MODEL", "gemini-nano-banana-2.1")
+STUDIO_DAILY_LIMIT = int(os.getenv("STUDIO_DAILY_LIMIT", "3"))  # edits per member per day; 0 = owner/admins only (they are unlimited)
 
 # AI Configurations
 AI_PROVIDER = os.getenv("AI_PROVIDER", "gemini")

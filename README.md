@@ -74,6 +74,7 @@ Persona លំនាំដើមស្ថិតនៅ `persona/cooler_bot_2050.t
 - 🛡️ **Cooler Guard**: `/guard` (Admin Group) លុប Link បោក/Forward/ពាក្យអាក្រក់, Flood → បិទមាត់, Captcha សមាជិកថ្មី, `/warn /mute /ban /unban /setwelcome /badword /allowlink`
 - 📅 **ប្រតិទិនខ្មែរ**: `/calendar` ថ្ងៃចន្ទគតិ (port ពី momentkh), ថ្ងៃសីល, ថ្ងៃឈប់សម្រាក (អនុក្រឹត្យ ២០២៦ + បុណ្យតាមចន្ទគតិ), `/goodday`; ☀️ `/morning` ព័ត៌មានម៉ោង ៧ (ឥតគិតថ្លៃ)
 - 🎨 `/imagine` គូររូប · 📝 `/summary` សង្ខេប Group · 🧠 `/memory` `/forget` · 🎁 មិត្ត ៣ នាក់បង់ = ៧ ថ្ងៃឥតគិតថ្លៃ
+- 🧰 **ជំនួយប្រចាំថ្ងៃ**: 🚨 `/scam` ឆែកសារ/Link/រូបបោកប្រាស់ (ឥតគិតថ្លៃ) · 🎤 `/totext` Voice → អក្សរខ្មែរ · 🌐 `/translate` រូប/អក្សរ → ខ្មែរ · 📚 `/homework` ពន្យល់លំហាត់ពីរូប · ⏰ `/remind` និយាយធម្មតា (ម្ដង/រាល់ថ្ងៃ/សប្ដាហ៍/ខែ) `/reminders` · 💵 `/cash` `/sale` `/undo` `/report` (Private = សៀវភៅផ្ទាល់ខ្លួន, Group = សៀវភៅហាង)
 - 🎧 **Cooler Music**: `/song ប្រធានបទ` → ជ្រើសស្ទីល (Rap, Pop, ស្នេហា, Party, Chill, ខ្មែរបុរាណ Mix) → Gemini សរសេរទំនុកខ្មែរថ្មី → Lyria ច្រៀង/Rap ជាមួយភ្លេងពេញ (MP3 + ទំនុក); `/beat` Beat ៣០ វិនាទី; ប៊ូតុង 🎧 ក្រោម /rap
 - 🎙️ **សំឡេង**: Voice Note បង្ហាញ «អ្វីដែល AI ឮ» + ប៊ូតុង 🔊; `/say` អានអត្ថបទជាសំឡេងខ្មែរ; `/voice` ស្ដាប់សំឡេង Cooler Bot (សំឡេងតែមួយ៖ ក្មេងប្រុស ១៨-២២ ឆ្នាំ; ប្តូរបានដោយ `TTS_VOICE`)។ បើ Server មាន `ffmpeg` (Railway: `RAILPACK_DEPLOY_APT_PACKAGES=ffmpeg`) Bot ផ្ញើជា Voice bubble, បើគ្មាន ផ្ញើជា Audio file
 - 📚 **AI ឆ្លើយតាមឯកសារ**: `/learn` (អត្ថបទ, PDF, .txt, រូបថត), `/ask`, `/kb`, `/kbclear`, `/autoanswer on|off` ក្នុង Group (Admin ប៉ុណ្ណោះ)

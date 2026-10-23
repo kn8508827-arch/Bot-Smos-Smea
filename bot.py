@@ -46,6 +46,7 @@ import khqr_pay
 import calendar_brief
 import group_guard
 import ai_extras
+import daily_tools
 import knowledge_base
 import ops_monitor
 import backup_tools
@@ -96,6 +97,8 @@ def _group_paid(chat_id):
 group_guard.register(bot, config, group_allowed=_group_paid)
 # 🎨 /imagine · 📝 /summary · 🧠 /memory (+ group message buffer for /summary)
 _extras = ai_extras.register(bot, config)
+# 🚨 /scam · 🎤 /totext · 🌐 /translate · 📚 /homework · ⏰ /remind · 💵 /cash /report
+_daily = daily_tools.register(bot, config)
 # Owner: /backup and a daily database copy to OWNER_ID (members and payments).
 _start_daily_backup = backup_tools.register(bot, config)
 
@@ -361,6 +364,13 @@ def setup_bot_commands():
             BotCommand("song", "🎧 Bot ច្រៀង & Rap មានភ្លេង Beat"),
             BotCommand("beat", "🥁 បង្កើត Beat ៣០ វិនាទី"),
             BotCommand("imagine", "🎨 គូររូបពីអក្សរ"),
+            BotCommand("scam", "🚨 ឆែកសារ/Link បោកប្រាស់"),
+            BotCommand("totext", "🎤 Voice → អក្សរខ្មែរ"),
+            BotCommand("translate", "🌐 បកប្រែរូប/អក្សរ"),
+            BotCommand("homework", "📚 ពន្យល់លំហាត់"),
+            BotCommand("remind", "⏰ រំលឹកខ្ញុំ"),
+            BotCommand("cash", "💵 កត់ចំណាយ/ចំណូល"),
+            BotCommand("report", "📊 របាយការណ៍លុយខែនេះ"),
             BotCommand("calendar", "📅 ប្រតិទិនខ្មែរ ថ្ងៃសីល ថ្ងៃឈប់"),
             BotCommand("morning", "☀️ ព័ត៌មានពេលព្រឹក ម៉ោង ៧"),
             BotCommand("guard", "🛡️ ការពារ Group (Admin)"),
@@ -995,6 +1005,8 @@ def _category_view(key, user_id=None):
         m.row(B("💵 ដុល្លារ · 🪙 មាស · 📰 ព័ត៌មាន", callback_data="mkt:menu"))
         m.row(B("🌤️ អាកាសធាតុ", callback_data="nav:weather"), B("⛽ សាំង & ⚡ EV", callback_data="nav:location"))
         m.row(B("📅 ប្រតិទិនខ្មែរ", callback_data="cal:today"), B("☀️ ព័ត៌មានព្រឹក", callback_data="cal:brief"))
+        m.row(B("🚨 ឆែក Scam", callback_data="x:scam"), B("⏰ រំលឹក", callback_data="x:remind"))
+        m.row(B("💵 កត់លុយ", callback_data="x:cash"), B("🎤 Voice→អក្សរ · 🌐 បកប្រែ · 📚", callback_data="x:tools"))
         m.row(B("🧭 Trip ដើរលេង", callback_data="trip:menu"),
               B("🚀 Team App", web_app=WebAppInfo(url=WEB_APP_URL)))
     elif key == "member":
@@ -1719,6 +1731,7 @@ if __name__ == '__main__':
     _subscription.start_loop()
     _khqr.start_loop()
     _calendar.start_loop()
+    _daily.start_loop()
     _start_daily_backup()
 
     logger.info("Bot is starting polling 24/7...")

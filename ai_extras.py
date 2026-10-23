@@ -403,6 +403,14 @@ def register(bot, config, ask=None, make_image=None):
         "guard": ("🛡️ <b>ការពារ Group</b>\n1️⃣ Add Bot ចូល Group ហើយដាក់ជា <b>Admin</b>\n2️⃣ វាយ /guard ក្នុង Group → បើក\n"
                   "លុប Link បោក Spam Flood · ផ្ទៀងផ្ទាត់សមាជិកថ្មី · /warn /mute /ban\n\n"
                   "📝 <b>សង្ខេប</b>៖ វាយ /summary ក្នុង Group ដើម្បីសង្ខេបសារចុងក្រោយ"),
+        "scam": ("🚨 <b>ឆែក Scam</b>\nForward/Reply សារ Link ឬរូបដែលសង្ស័យ ហើយវាយ <code>/scam</code> — AI ប្រាប់ថាគ្រោះថ្នាក់ប៉ុណ្ណា "
+                 "និងត្រូវធ្វើអ្វី · ឥតគិតថ្លៃ 🛡️"),
+        "remind": ("⏰ <b>រំលឹក</b>\n<code>/remind ស្អែកម៉ោង ២ ណាត់ភ្ញៀវ</code>\n<code>/remind ថ្ងៃទី ៥ រៀងរាល់ខែ បង់ថ្លៃភ្លើង</code>\n"
+                   "📋 /reminders មើល/លុប"),
+        "cash": ("💵 <b>កត់លុយ</b>\n<code>/cash ចាយ 5000 រៀល កាហ្វេ</code> · <code>/cash លក់បាន $20</code>\n"
+                 "📊 /report សរុបខែនេះ · ↩️ /undo"),
+        "tools": ("🎤 <b>Voice→អក្សរ</b>៖ Reply <code>/totext</code> លើ Voice\n🌐 <b>បកប្រែ</b>៖ Reply <code>/translate</code> លើរូប/សារ\n"
+                  "📚 <b>លំហាត់</b>៖ ថតរូប ដាក់ Caption <code>/homework</code>"),
         "mem": "🧠 Bot ចាំឈ្មោះ និងចំណូលចិត្តដែលអ្នកប្រាប់ ដើម្បីជជែកកាន់តែស្និទ្ធ · /memory មើល · /forget លុប",
     }
 

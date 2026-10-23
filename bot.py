@@ -1732,6 +1732,12 @@ if __name__ == '__main__':
     _khqr.start_loop()
     _calendar.start_loop()
     _daily.start_loop()
+    try:  # warn the owner once per start if the database would be wiped by the next deploy
+        _db_ok, _db_text = ops_monitor.db_storage_status(config)
+        if not _db_ok and getattr(config, "OWNER_ID", 0):
+            bot.send_message(config.OWNER_ID, "⚠️ <b>Database មិននៅលើ Volume</b>\n" + _db_text, parse_mode="HTML")
+    except Exception as exc:
+        logger.warning("storage check failed (%s)", type(exc).__name__)
     _start_daily_backup()
 
     logger.info("Bot is starting polling 24/7...")

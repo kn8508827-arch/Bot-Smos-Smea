@@ -571,6 +571,39 @@ def register(bot, config):
         action = parts[1] if len(parts) > 1 else ""
         uid = call.from_user.id
         chat_id = call.message.chat.id
+        if action in ("leave", "leaveall"):
+            if uid != getattr(config, "OWNER_ID", 0) and uid not in getattr(config, "ADMIN_IDS", []):
+                bot.answer_callback_query(call.id, "⛔ សម្រាប់ Owner ប៉ុណ្ណោះ", show_alert=True)
+                return
+            targets = []
+            if action == "leave" and len(parts) > 2:
+                try:
+                    targets = [int(parts[2])]
+                except ValueError:
+                    targets = []
+            elif action == "leaveall":
+                now = time.time()
+                targets = [g["chat_id"] for g in _active_groups(config)
+                           if not is_active(config, "g", g["chat_id"], now)
+                           and (group_deadline(config, g["chat_id"]) or now + 1) <= now]
+            done = 0
+            for cid in targets:
+                if is_active(config, "g", cid):
+                    continue
+                try:
+                    bot.send_message(cid, "👋 Group នេះមិនទាន់បង់ទេ Cooler Bot សូមលាសិន។\n"
+                                          f"ចង់ប្រើម្ដងទៀត បង់ {html.escape(settings().group_price)} ហើយ Add Bot ចូលវិញ 🙏❤️")
+                except Exception:
+                    pass
+                try:
+                    bot.leave_chat(cid)
+                    done += 1
+                except Exception as exc:
+                    logger.warning("manual leave failed (%s)", type(exc).__name__)
+                _mark_group_left(config, cid)
+                clear_group_deadline(config, cid)
+            bot.answer_callback_query(call.id, f"🚪 បានចេញពី {done} Group", show_alert=True)
+            return
         if action in ("ok", "no"):
             if uid != getattr(config, "OWNER_ID", 0) and uid not in getattr(config, "ADMIN_IDS", []):
                 bot.answer_callback_query(call.id, "⛔ សម្រាប់ Owner ប៉ុណ្ណោះ", show_alert=True)
@@ -638,6 +671,43 @@ def register(bot, config):
                 lines.append(f"{'👥' if e['kind'] == 'g' else '👤'} <code>{e['target_id']}</code> · {fmt_date(e['paid_until'])}")
         lines.append("\n/subs · /grant · /revoke")
         bot.reply_to(message, "\n".join(lines), parse_mode="HTML")
+
+    @bot.message_handler(commands=["subgroups", "groupsubs", "unpaid"], func=owner_only)
+    def subgroups_cmd(message):
+        """Every known group: paid until / notice deadline / what happens next."""
+        now = time.time()
+        groups = _active_groups(config)
+        lines = [f"👥 <b>Group ដែល Bot នៅក្នុង ({len(groups)})</b>", ""]
+        m = InlineKeyboardMarkup()
+        overdue = 0
+        for g in groups[:40]:
+            cid, title = g["chat_id"], html.escape((g.get("title") or str(g["chat_id"]))[:30])
+            until = paid_until(config, "g", cid)
+            deadline = group_deadline(config, cid)
+            if until > now:
+                lines.append(f"✅ {title} — បង់ដល់ {fmt_date(until)}")
+                continue
+            if deadline is None:
+                state = "⏳ នឹងផ្ញើដំណឹង ២៤ម៉ោង ក្នុង ៥ នាទី"
+            elif deadline > now:
+                state = f"⏳ នឹងចេញ {fmt_date(deadline)} (នៅ {int((deadline - now) // 3600)} ម៉ោង)"
+            else:
+                state = "🔴 ហួសពេល — នឹងចេញក្នុង ៥ នាទី"
+                overdue += 1
+            lines.append(f"• {title} <code>{cid}</code>\n   {state}")
+            m.row(InlineKeyboardButton(f"🚪 ចេញឥឡូវ — {(g.get('title') or str(cid))[:25]}", callback_data=f"sub:leave:{cid}"))
+        if overdue:
+            m.row(InlineKeyboardButton(f"🚪 ចេញពី Group ហួសពេលទាំង {overdue}", callback_data="sub:leaveall"))
+        try:
+            import ops_monitor
+            ok, storage = ops_monitor.db_storage_status(config)
+            if not ok:
+                lines += ["", "⚠️ " + storage]
+        except Exception:
+            pass
+        lines.append(f"\n{'✅ ប្រព័ន្ធបង់លុយបើក' if settings().enabled else '⛔ SUBSCRIPTION_ENABLED=false — Bot មិនចេញពី Group ទេ'}")
+        lines.append("ℹ️ Group ដែល Bot មិនទាន់ឃើញសារសោះ មិនស្ថិតក្នុងបញ្ជីទេ")
+        bot.reply_to(message, "\n".join(lines), reply_markup=m if m.keyboard else None, parse_mode="HTML")
 
     @bot.message_handler(commands=["grant", "revoke"], func=owner_only)
     def grant_cmd(message):

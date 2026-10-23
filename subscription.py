@@ -213,6 +213,16 @@ def clear_group_deadline(config, chat_id):
         conn.execute("DELETE FROM sub_group_notices WHERE chat_id=?", (chat_id,))
 
 
+def free_group_ids():
+    ids = set()
+    for part in os.getenv("SUB_FREE_GROUPS", "").replace(" ", "").split(","):
+        try:
+            ids.add(int(part))
+        except ValueError:
+            pass
+    return ids
+
+
 def _active_groups(config):
     try:
         with _connect(config) as conn:
@@ -265,7 +275,7 @@ def register(bot, config):
 
     def group_allowed(chat_id, now=None):
         now = now or time.time()
-        if is_active(config, "g", chat_id, now):
+        if is_active(config, "g", chat_id, now) or exempt(chat_id):
             return True
         deadline = group_deadline(config, chat_id)
         return deadline is not None and deadline > now  # still inside the 24 h notice
@@ -584,8 +594,8 @@ def register(bot, config):
             elif action == "leaveall":
                 now = time.time()
                 targets = [g["chat_id"] for g in _active_groups(config)
-                           if not is_active(config, "g", g["chat_id"], now)
-                           and (group_deadline(config, g["chat_id"]) or now + 1) <= now]
+                           if not is_active(config, "g", g["chat_id"], now) and not exempt(g["chat_id"])
+                           and (len(parts) > 2 and parts[2] == "now" or (group_deadline(config, g["chat_id"]) or now + 1) <= now)]
             done = 0
             for cid in targets:
                 if is_active(config, "g", cid):
@@ -687,6 +697,9 @@ def register(bot, config):
             if until > now:
                 lines.append(f"✅ {title} — បង់ដល់ {fmt_date(until)}")
                 continue
+            if exempt(cid):
+                lines.append(f"👑 {title} — Group របស់អ្នក (មិនចេញ)")
+                continue
             if deadline is None:
                 state = "⏳ នឹងផ្ញើដំណឹង ២៤ម៉ោង ក្នុង ៥ នាទី"
             elif deadline > now:
@@ -698,6 +711,9 @@ def register(bot, config):
             m.row(InlineKeyboardButton(f"🚪 ចេញឥឡូវ — {(g.get('title') or str(cid))[:25]}", callback_data=f"sub:leave:{cid}"))
         if overdue:
             m.row(InlineKeyboardButton(f"🚪 ចេញពី Group ហួសពេលទាំង {overdue}", callback_data="sub:leaveall"))
+        unpaid = [g for g in groups if paid_until(config, "g", g["chat_id"]) <= now and not exempt(g["chat_id"])]
+        if unpaid:
+            m.row(InlineKeyboardButton(f"⛔ ចេញពី Group មិនបង់ទាំងអស់ ({len(unpaid)}) ឥឡូវ", callback_data="sub:leaveall:now"))
         try:
             import ops_monitor
             ok, storage = ops_monitor.db_storage_status(config)
@@ -730,6 +746,25 @@ def register(bot, config):
 
     # ---------- background: group notices, auto-leave, reminders ----------
 
+    exempt_cache = {}
+
+    def exempt(chat_id):
+        """Groups the owner created (or listed in SUB_FREE_GROUPS) never get the paywall or auto-leave."""
+        if chat_id in free_group_ids():
+            return True
+        hit = exempt_cache.get(chat_id)
+        if hit is not None and hit[1] > time.monotonic():
+            return hit[0]
+        owner = getattr(config, "OWNER_ID", 0)
+        ok = False
+        if owner:
+            try:
+                ok = bot.get_chat_member(chat_id, owner).status == "creator"
+            except Exception:
+                ok = False
+        exempt_cache[chat_id] = (ok, time.monotonic() + 3600)
+        return ok
+
     def owner_alert(text):
         owner = getattr(config, "OWNER_ID", 0)
         if not owner or os.getenv("SUB_OWNER_GROUP_ALERTS", "true").strip().lower() in ("0", "false", "no", "off"):
@@ -750,6 +785,8 @@ def register(bot, config):
         grace = s.grace_hours * 3600
         for g in _active_groups(config):
             cid = g["chat_id"]
+            if exempt(cid):
+                continue
             until = paid_until(config, "g", cid)
             if until > now:
                 stage = "1d" if until - now <= DAY else "3d" if until - now <= 3 * DAY else None

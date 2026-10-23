@@ -60,6 +60,7 @@ Persona លំនាំដើមស្ថិតនៅ `persona/cooler_bot_2050.t
 | `BAKONG_MERCHANT_NAME` | `Cooler Bot` | ឈ្មោះបង្ហាញក្នុងកម្មវិធីធនាគារ។ |
 | `BAKONG_API_BASE_URL` | `https://api-bakong.nbc.gov.kh` | ប្ដូរទៅ Relay បើ Bakong ទទួលតែ IP កម្ពុជា។ |
 | `BAKONG_DAILY_LIMIT` | `95` | ចំនួនសំណើ Bakong API ក្នុងមួយថ្ងៃ (Bakong អនុញ្ញាត ១០០)។ Bill ពិនិត្យតាមកាលវិភាគ ហើយរួមគ្នាក្នុងសំណើតែមួយ។ |
+| `SUB_FREE_GROUPS` | គ្មាន | ID Group (បំបែកដោយ ,) ដែលមិនត្រូវបង់ និង Bot មិនចេញ។ Group ដែល Owner ជាអ្នកបង្កើត មិនត្រូវបង់ដោយស្វ័យប្រវត្តិ។ |
 | `BRIEF_HOUR` | `7` | ម៉ោងផ្ញើព័ត៌មានពេលព្រឹក (/morning)។ |
 | `IMAGINE_MODEL` | `gemini-nano-banana-2.1` | Model គូររូប (/imagine)។ |
 | `IMAGINE_DAILY_LIMIT` | `5` | ចំនួនរូប/ថ្ងៃ/នាក់។ |

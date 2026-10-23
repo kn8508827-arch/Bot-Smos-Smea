@@ -27,7 +27,7 @@ Persona លំនាំដើមស្ថិតនៅ `persona/cooler_bot_2050.t
 | `GEMINI_API_KEY` | គ្មាន | បើក Gemini សម្រាប់អត្ថបទ សំឡេង និងការវិភាគរូបភាព; បើគ្មាន key bot បង្ហាញសារថា AI មិនទាន់កំណត់។ |
 | `STABILITY_API_KEY` | គ្មាន | API key សម្រាប់មុខងារកែរូបភាព Stability AI។ |
 | `COOLER_PERSONA_PATH` | `persona/cooler_bot_2050.txt` | ទីតាំង persona file; អាចជា absolute ឬ relative path។ |
-| `AI_MODEL` | `gemini-2.0-flash` | Gemini model សម្រាប់ Chat និង Voice ដែលមានស្រាប់; fallback គឺ `gemini-1.5-flash`។ |
+| `AI_MODEL` | `gemini-2.0-flash` | Gemini model សម្រាប់ Chat; fallback គឺ `gemini-3.6-flash`។ |
 | `AI_VISION_MODEL` | `gemini-3.8-flash` | Gemini Vision model ដាច់ដោយឡែកសម្រាប់ការវិភាគរូបភាព; fallback គឺ `gemini-3.6-flash`។ |
 | `AI_RATE_LIMIT_SECONDS` | `3` | ចន្លោះអប្បបរមារវាងសំណើពីអ្នកប្រើដដែល។ |
 | `AI_GLOBAL_RATE_LIMIT_SECONDS` | `0.5` | ចន្លោះអប្បបរមារវាងសំណើ Gemini ទូទាំង bot។ |
@@ -43,8 +43,24 @@ Persona លំនាំដើមស្ថិតនៅ `persona/cooler_bot_2050.t
 | `DAILYCARE_RETRY_MAX_WAIT_SECONDS` | `30` | មិនរង់ចាំ retry បើ Telegram ស្នើឱ្យរង់ចាំលើសចំនួនវិនាទីនេះ។ |
 | `DAILYCARE_BATCH_SIZE` | `50` | ចំនួនអ្នកទទួលអតិបរមាក្នុងការទាញមួយ batch; កម្មវិធីបន្តទាញតាម user ID រហូតដល់អស់អ្នកទទួល។ |
 | `DAILYCARE_LOCK_TTL_SECONDS` | `90` | រយៈពេល lease របស់ scheduler ក្នុង SQLite; bot បន្ត lease ដោយ heartbeat។ |
+| `AI_VOICE_MODEL` | គ្មាន | Model ស្ដាប់ Voice Note មុនគេ; បន្ទាប់មក `AI_VISION_MODEL`, `gemini-3.8-flash`, `gemini-3.6-flash`, `AI_MODEL`។ |
+| `TTS_MODEL` | គ្មាន | Model អានជាសំឡេង (/say); default `gemini-3.8-flash-lite-tts` រួច `gemini-3.8-flash-tts`។ |
+| `TTS_DAILY_LIMIT` | `20` | ចំនួន /say ឬ 🔊 ក្នុងមួយថ្ងៃ ក្នុងម្នាក់ (`0` = គ្មានកម្រិត; Owner គ្មានកម្រិត)។ |
+| `KB_AI_MODEL` | គ្មាន | Model សម្រាប់ AI ឆ្លើយតាមឯកសារ (/learn /ask)។ |
+| `KB_MAX_CHARS` | `150000` | ទំហំឯកសារសរុបអតិបរមាក្នុងមួយ Chat/Group។ |
+| `BOT_THREADS` | `8` | ចំនួន Worker ដំណើរការសារព្រមគ្នា (ពីមុន 2)។ |
+| `SKIP_PENDING_UPDATES` | `false` | `true` = បោះចោលសារដែលផ្ញើមកពេល Bot កំពុង Restart។ |
+| `OPS_ALERT_MINUTES` | `15` | ផ្ញើ Error ប្រភេទដដែលទៅ Owner យ៉ាងច្រើនម្ដងក្នុងរយៈពេលនេះ។ |
+| `SUB_REPORT_HOUR` | `8` | ម៉ោង (កម្ពុជា) ផ្ញើរបាយការណ៍ប្រចាំថ្ងៃទៅ Owner; `-1` = បិទ។ |
 
 ឈ្មោះ `AI_PROVIDER`, `OPENAI_API_KEY`, `ADMIN_IDS`, និង `DRY_RUN_MODE` ក៏ត្រូវបានអានក្នុង `config.py` ប៉ុន្តែមិនត្រូវបានប្រើដោយ code path បច្ចុប្បន្នទេ។ ការកំណត់ `AI_PROVIDER` មិនប្តូរ Gemini ទៅ provider ផ្សេងឡើយ។
+
+## Pro upgrade (សមាជិក សំឡេង ឯកសារ ស្ថិរភាព)
+
+- 🔔 **រក្សាភ្ញៀវ**: រំលឹកមុនផុតកំណត់ ៣ ថ្ងៃ និង ១ ថ្ងៃ ហើយពេលផុតកំណត់ (មានប៊ូតុងបង់បន្ត); `/stats` ចំណូលថ្ងៃនេះ/ខែនេះ/ខែមុន សមាជិកសកម្ម អ្នកជិតផុត និងអ្នកមិនទាន់បន្ត; របាយការណ៍ប្រចាំថ្ងៃម៉ោង 8 ព្រឹក; រំលឹកបង្កាន់ដៃរង់ចាំលើស ៣ ម៉ោង
+- 🎙️ **សំឡេង**: Voice Note បង្ហាញ «អ្វីដែល AI ឮ» + ប៊ូតុង 🔊; `/say` អានអត្ថបទជាសំឡេងខ្មែរ; `/voice` ជ្រើសសំឡេងស្រី/ប្រុស។ បើ Server មាន `ffmpeg` (Railway: `RAILPACK_DEPLOY_APT_PACKAGES=ffmpeg`) Bot ផ្ញើជា Voice bubble, បើគ្មាន ផ្ញើជា Audio file
+- 📚 **AI ឆ្លើយតាមឯកសារ**: `/learn` (អត្ថបទ, PDF, .txt, រូបថត), `/ask`, `/kb`, `/kbclear`, `/autoanswer on|off` ក្នុង Group (Admin ប៉ុណ្ណោះ)
+- 🛡️ **ស្ថិរភាព**: Worker 8, Error ក្នុង Handler មិនធ្វើឲ្យ Polling ឈប់ ហើយផ្ញើដំណឹងទៅ Owner; `/status` (uptime, error ២៤ ម៉ោង, 🩺 សាក AI)
 
 ## Daily Care notifications
 

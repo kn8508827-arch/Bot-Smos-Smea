@@ -730,6 +730,18 @@ def register(bot, config):
 
     # ---------- background: group notices, auto-leave, reminders ----------
 
+    def owner_alert(text):
+        owner = getattr(config, "OWNER_ID", 0)
+        if not owner or os.getenv("SUB_OWNER_GROUP_ALERTS", "true").strip().lower() in ("0", "false", "no", "off"):
+            return
+        try:
+            bot.send_message(owner, text, parse_mode="HTML")
+        except Exception:
+            pass
+
+    def gname(g):
+        return html.escape((g.get("title") or str(g.get("chat_id")))[:40])
+
     def tick(now=None):
         s = settings()
         if not s.enabled:
@@ -758,13 +770,18 @@ def register(bot, config):
                 try:
                     bot.send_message(cid, group_notice_text(deadline, expired=bool(until)),
                                      reply_markup=group_pay_markup(cid), parse_mode="HTML")
-                    with open(s.qr_path, "rb") as qr:
-                        bot.send_photo(cid, qr, caption=f"💳 KHQR — {html.escape(s.account)}", parse_mode="HTML")
+                    try:
+                        with open(s.qr_path, "rb") as qr:
+                            bot.send_photo(cid, qr, caption=f"💳 KHQR — {html.escape(s.account)}", parse_mode="HTML")
+                    except OSError:
+                        pass
+                    owner_alert(f"📢 ផ្ញើដំណឹង ២៤ ម៉ោង → <b>{gname(g)}</b>\n🚪 Bot នឹងចេញ {fmt_date(deadline)} បើមិនបង់")
                 except Exception as exc:
                     text = str(exc).lower()
                     if "kicked" in text or "not found" in text or "not a member" in text or "forbidden" in text:
                         _mark_group_left(config, cid)
                         clear_group_deadline(config, cid)
+                        owner_alert(f"ℹ️ Bot មិននៅក្នុង <b>{gname(g)}</b> ទៀតហើយ (គេដកចេញ) — លុបពីបញ្ជី")
             elif deadline <= now:
                 try:
                     bot.send_message(cid, "👋 Group នេះមិនទាន់បង់ទេ Cooler Bot សូមលាសិន។\n"
@@ -773,8 +790,11 @@ def register(bot, config):
                     pass
                 try:
                     bot.leave_chat(cid)
+                    owner_alert(f"🚪 Bot បានចេញពី <b>{gname(g)}</b> ដោយស្វ័យប្រវត្តិ (មិនបង់ក្នុង ២៤ ម៉ោង) ✅")
                 except Exception as exc:
                     logger.warning("auto-leave failed for a group (%s)", type(exc).__name__)
+                    owner_alert(f"❌ ចេញពី <b>{gname(g)}</b> មិនបាន ({html.escape(type(exc).__name__)}) — "
+                                "ពិនិត្យដោយ /subgroups")
                 _mark_group_left(config, cid)
                 clear_group_deadline(config, cid)
         # personal reminders: 3 days, 1 day, and once right after it ends

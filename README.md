@@ -58,7 +58,7 @@ Persona លំនាំដើមស្ថិតនៅ `persona/cooler_bot_2050.t
 ## Pro upgrade (សមាជិក សំឡេង ឯកសារ ស្ថិរភាព)
 
 - 🔔 **រក្សាភ្ញៀវ**: រំលឹកមុនផុតកំណត់ ៣ ថ្ងៃ និង ១ ថ្ងៃ ហើយពេលផុតកំណត់ (មានប៊ូតុងបង់បន្ត); `/stats` ចំណូលថ្ងៃនេះ/ខែនេះ/ខែមុន សមាជិកសកម្ម អ្នកជិតផុត និងអ្នកមិនទាន់បន្ត; របាយការណ៍ប្រចាំថ្ងៃម៉ោង 8 ព្រឹក; រំលឹកបង្កាន់ដៃរង់ចាំលើស ៣ ម៉ោង
-- 🎙️ **សំឡេង**: Voice Note បង្ហាញ «អ្វីដែល AI ឮ» + ប៊ូតុង 🔊; `/say` អានអត្ថបទជាសំឡេងខ្មែរ; `/voice` ជ្រើសសំឡេងស្រី/ប្រុស។ បើ Server មាន `ffmpeg` (Railway: `RAILPACK_DEPLOY_APT_PACKAGES=ffmpeg`) Bot ផ្ញើជា Voice bubble, បើគ្មាន ផ្ញើជា Audio file
+- 🎙️ **សំឡេង**: Voice Note បង្ហាញ «អ្វីដែល AI ឮ» + ប៊ូតុង 🔊; `/say` អានអត្ថបទជាសំឡេងខ្មែរ; `/voice` ស្ដាប់សំឡេង Cooler Bot (សំឡេងតែមួយ៖ ក្មេងប្រុស ១៨-២២ ឆ្នាំ; ប្តូរបានដោយ `TTS_VOICE`)។ បើ Server មាន `ffmpeg` (Railway: `RAILPACK_DEPLOY_APT_PACKAGES=ffmpeg`) Bot ផ្ញើជា Voice bubble, បើគ្មាន ផ្ញើជា Audio file
 - 📚 **AI ឆ្លើយតាមឯកសារ**: `/learn` (អត្ថបទ, PDF, .txt, រូបថត), `/ask`, `/kb`, `/kbclear`, `/autoanswer on|off` ក្នុង Group (Admin ប៉ុណ្ណោះ)
 - 🛡️ **ស្ថិរភាព**: Worker 8, Error ក្នុង Handler មិនធ្វើឲ្យ Polling ឈប់ ហើយផ្ញើដំណឹងទៅ Owner; `/status` (uptime, error ២៤ ម៉ោង, 🩺 សាក AI)
 

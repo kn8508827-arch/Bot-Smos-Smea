@@ -41,6 +41,7 @@ import market_info
 import family_tips
 import subscription
 import voice_studio
+import music_studio
 import knowledge_base
 import ops_monitor
 import backup_tools
@@ -161,6 +162,9 @@ fortune.register(bot, config, _fan_ask_gemini, _fortune_vision)
 game_center.register(bot, config)
 # Cooler Voice: /say /voice and the 🔊 button under voice answers
 _voice = voice_studio.register(bot, config)
+# Cooler Music: /song /beat — Lyria sings & raps original Khmer lyrics over a beat
+_music = music_studio.register(bot, config)
+_fan.hooks["rap_markup"] = _music.rap_markup
 # Cooler Knowledge: /learn /ask /kb /autoanswer — AI answers from a chat's own documents
 knowledge_base.register(bot, config)
 # Owner health check: /status (uptime, errors, 🩺 test AI)
@@ -278,7 +282,7 @@ def _clear_command_overrides():
 
 
 MENU_COMMANDS = (
-    "start", "menu", "pay", "myplan", "prompt", "studio", "say", "kb", "rap", "play", "games", "fortune", "quiz", "card", "checkin",
+    "start", "menu", "pay", "myplan", "prompt", "studio", "song", "say", "kb", "rap", "play", "games", "fortune", "quiz", "card", "checkin",
     "health", "sos", "parent", "pet", "rate", "gold", "news", "weather", "fuel", "trip", "follow", "contact", "help",
 )
 
@@ -332,6 +336,8 @@ def setup_bot_commands():
             BotCommand("follow", "📲 តាមដាន Vid Cooler TikTok YouTube Facebook"),
             BotCommand("contact", "💬 ទាក់ទង Vid Cooler"),
             BotCommand("prompt", "✍️ Prompt Studio កម្រិតខ្ពស់"),
+            BotCommand("song", "🎧 Bot ច្រៀង & Rap មានភ្លេង Beat"),
+            BotCommand("beat", "🥁 បង្កើត Beat ៣០ វិនាទី"),
             BotCommand("say", "🎙️ Bot អានអត្ថបទជាសំឡេងខ្មែរ"),
             BotCommand("kb", "📚 AI ឆ្លើយតាមឯកសាររបស់អ្នក"),
             BotCommand("ask", "❓ សួរពីឯកសារដែលបានបញ្ចូល"),
@@ -942,6 +948,7 @@ def _category_view(key, user_id=None):
         m.row(B("🎬 វីដេអូ AI", callback_data="pstudio:m:video"), B("🎵 ចម្រៀង Suno", callback_data="pstudio:m:song"))
         m.row(B("🖼️ រូបភាព", callback_data="pstudio:m:image"), B("🎞️ រឿង & Scene", callback_data="pstudio:m:story"))
         m.row(B("🎨 កែរូប AI", callback_data="nav:studio"), B("🎤 AI Rap", callback_data="nav:rap"))
+        m.row(B("🎧 Bot ច្រៀង & Rap មាន Beat", callback_data="song:menu"))
         m.row(B("🎙️ Bot និយាយខ្មែរ (Voice-over)", callback_data="tts:menu"))
         m.row(B("📚 AI ឆ្លើយតាមឯកសារ (ហាង & Group)", callback_data="kb:menu"))
     elif key == "fun":

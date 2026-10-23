@@ -51,6 +51,9 @@ Persona លំនាំដើមស្ថិតនៅ `persona/cooler_bot_2050.t
 | `BOT_THREADS` | `8` | ចំនួន Worker ដំណើរការសារព្រមគ្នា (ពីមុន 2)។ |
 | `SKIP_PENDING_UPDATES` | `false` | `true` = បោះចោលសារដែលផ្ញើមកពេល Bot កំពុង Restart។ |
 | `OPS_ALERT_MINUTES` | `15` | ផ្ញើ Error ប្រភេទដដែលទៅ Owner យ៉ាងច្រើនម្ដងក្នុងរយៈពេលនេះ។ |
+| `MUSIC_MODEL` | `lyria-3.5` | Model ធ្វើបទពេញ (/song); fallback `lyria-3-clip-preview`។ ត្រូវការ Gemini API paid tier (~$0.08/បទ)។ |
+| `BEAT_MODEL` | `lyria-3-clip-preview` | Model ធ្វើ Beat ៣០ វិនាទី (/beat) (~$0.04)។ |
+| `SONG_DAILY_LIMIT` | `2` | ចំនួនបទ + Beat ក្នុងមួយថ្ងៃ ក្នុងម្នាក់ (Owner គ្មានកម្រិត; ធ្វើមិនបានមិនកាត់)។ |
 | `SUB_REPORT_HOUR` | `8` | ម៉ោង (កម្ពុជា) ផ្ញើរបាយការណ៍ប្រចាំថ្ងៃទៅ Owner; `-1` = បិទ។ |
 
 ឈ្មោះ `AI_PROVIDER`, `OPENAI_API_KEY`, `ADMIN_IDS`, និង `DRY_RUN_MODE` ក៏ត្រូវបានអានក្នុង `config.py` ប៉ុន្តែមិនត្រូវបានប្រើដោយ code path បច្ចុប្បន្នទេ។ ការកំណត់ `AI_PROVIDER` មិនប្តូរ Gemini ទៅ provider ផ្សេងឡើយ។
@@ -58,6 +61,7 @@ Persona លំនាំដើមស្ថិតនៅ `persona/cooler_bot_2050.t
 ## Pro upgrade (សមាជិក សំឡេង ឯកសារ ស្ថិរភាព)
 
 - 🔔 **រក្សាភ្ញៀវ**: រំលឹកមុនផុតកំណត់ ៣ ថ្ងៃ និង ១ ថ្ងៃ ហើយពេលផុតកំណត់ (មានប៊ូតុងបង់បន្ត); `/stats` ចំណូលថ្ងៃនេះ/ខែនេះ/ខែមុន សមាជិកសកម្ម អ្នកជិតផុត និងអ្នកមិនទាន់បន្ត; របាយការណ៍ប្រចាំថ្ងៃម៉ោង 8 ព្រឹក; រំលឹកបង្កាន់ដៃរង់ចាំលើស ៣ ម៉ោង
+- 🎧 **Cooler Music**: `/song ប្រធានបទ` → ជ្រើសស្ទីល (Rap, Pop, ស្នេហា, Party, Chill, ខ្មែរបុរាណ Mix) → Gemini សរសេរទំនុកខ្មែរថ្មី → Lyria ច្រៀង/Rap ជាមួយភ្លេងពេញ (MP3 + ទំនុក); `/beat` Beat ៣០ វិនាទី; ប៊ូតុង 🎧 ក្រោម /rap
 - 🎙️ **សំឡេង**: Voice Note បង្ហាញ «អ្វីដែល AI ឮ» + ប៊ូតុង 🔊; `/say` អានអត្ថបទជាសំឡេងខ្មែរ; `/voice` ស្ដាប់សំឡេង Cooler Bot (សំឡេងតែមួយ៖ ក្មេងប្រុស ១៨-២២ ឆ្នាំ; ប្តូរបានដោយ `TTS_VOICE`)។ បើ Server មាន `ffmpeg` (Railway: `RAILPACK_DEPLOY_APT_PACKAGES=ffmpeg`) Bot ផ្ញើជា Voice bubble, បើគ្មាន ផ្ញើជា Audio file
 - 📚 **AI ឆ្លើយតាមឯកសារ**: `/learn` (អត្ថបទ, PDF, .txt, រូបថត), `/ask`, `/kb`, `/kbclear`, `/autoanswer on|off` ក្នុង Group (Admin ប៉ុណ្ណោះ)
 - 🛡️ **ស្ថិរភាព**: Worker 8, Error ក្នុង Handler មិនធ្វើឲ្យ Polling ឈប់ ហើយផ្ញើដំណឹងទៅ Owner; `/status` (uptime, error ២៤ ម៉ោង, 🩺 សាក AI)

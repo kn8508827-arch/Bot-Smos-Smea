@@ -101,6 +101,7 @@ def register(bot, config, ask_gemini):
 
     limits = _DailyLimit(AI_DAILY_LIMIT)
     waiting = {}  # user_id -> ("rap"|"movie", expires_at)
+    hooks = {}    # "rap_markup": fn(rap_text) -> InlineKeyboardMarkup (set by music_studio)
 
     def privileged(user_id):
         return user_id is not None and (
@@ -195,7 +196,13 @@ def register(bot, config, ask_gemini):
         footer = {"rap": "\n\n— ✍️ សរសេរថ្មីដោយ Cooler AI · /rap ម្ដងទៀត",
                   "movie": "\n\n📺 សូមមើលតាមកម្មវិធីផ្លូវការ ដើម្បីគាំទ្រអ្នកផលិត 🙏",
                   "name": "\n\n🎤 យកឈ្មោះមួយទៅសាក /rap ហើយ Share ទៅមិត្តផង!"}[kind]
-        bot.reply_to(message, header + html.escape(answer[:3500]) + footer, parse_mode="HTML")
+        markup = None
+        if kind == "rap" and hooks.get("rap_markup"):
+            try:
+                markup = hooks["rap_markup"](answer[:2000])
+            except Exception:
+                markup = None
+        bot.reply_to(message, header + html.escape(answer[:3500]) + footer, parse_mode="HTML", reply_markup=markup)
 
     @bot.message_handler(commands=["rap"])
     def rap(message):
@@ -233,4 +240,4 @@ def register(bot, config, ask_gemini):
         kind, _ = waiting.pop(message.from_user.id)
         run(message, kind, message.text)
 
-    return SimpleNamespace(games_markup=games_markup, limits=limits, waiting=waiting, ask=ask)
+    return SimpleNamespace(games_markup=games_markup, limits=limits, waiting=waiting, ask=ask, hooks=hooks)

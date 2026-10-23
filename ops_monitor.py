@@ -88,6 +88,19 @@ class AlertingExceptionHandler:
         return True
 
 
+def db_storage_status(config):
+    """(ok, text): is the SQLite file on a persistent Railway volume?"""
+    db = os.path.abspath(getattr(config, "BOT_DB_PATH", "bot_database.db"))
+    mount = os.getenv("RAILWAY_VOLUME_MOUNT_PATH", "").strip()
+    on_railway = bool(os.getenv("RAILWAY_ENVIRONMENT") or os.getenv("RAILWAY_PROJECT_ID"))
+    if mount and db.startswith(os.path.abspath(mount).rstrip("/") + "/"):
+        return True, f"✅ នៅលើ Volume ({mount})"
+    if on_railway:
+        return False, ("❌ <b>មិននៅលើ Volume</b> — រាល់ពេល Deploy ទិន្នន័យ (សមាជិកបង់លុយ, Group, ថ្ងៃផុតកំណត់) "
+                       f"នឹងបាត់! ភ្ជាប់ Volume ហើយកំណត់ BOT_DB_PATH ទៅក្នុងវា (ឥឡូវ: {db})")
+    return True, f"💻 {db}"
+
+
 def register(bot, config, ai_ping=None, workers=None):
     """ai_ping() -> short text or raises. workers = number of handler threads."""
     from telebot.types import InlineKeyboardButton, InlineKeyboardMarkup
@@ -110,6 +123,7 @@ def register(bot, config, ai_ping=None, workers=None):
                  f"🏷️ Version៖ <code>{html.escape(version)}</code>",
                  f"🧵 Worker៖ {workers or '?'} · Thread សកម្ម៖ {threading.active_count()}",
                  f"🗄️ Database៖ {size}",
+                 f"💾 {db_storage_status(config)[1]}",
                  f"🔑 Gemini Key៖ {'✅ មាន' if getattr(config, 'GEMINI_API_KEY', '') else '❌ គ្មាន'}",
                  f"{'✅' if not errs else '⚠️'} Error ២៤ ម៉ោង៖ <b>{len(errs)}</b>"]
         for t, src, text in errs[-5:]:

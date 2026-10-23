@@ -336,7 +336,7 @@ def setup_bot_commands():
             BotCommand("kb", "📚 AI ឆ្លើយតាមឯកសាររបស់អ្នក"),
             BotCommand("ask", "❓ សួរពីឯកសារដែលបានបញ្ចូល"),
             BotCommand("learn", "➕ បញ្ចូលឯកសារ/ព័ត៌មានឲ្យ AI"),
-            BotCommand("voice", "🗣️ ជ្រើសសំឡេង Bot (ស្រី/ប្រុស)"),
+            BotCommand("voice", "🗣️ ស្ដាប់សំឡេង Cooler Bot"),
             BotCommand("videoprompt", "🎬 Prompt វីដេអូ AI"),
             BotCommand("songprompt", "🎵 Prompt ចម្រៀង Suno"),
             BotCommand("imageprompt", "🖼️ Prompt រូបភាព"),

@@ -1,7 +1,7 @@
 """Cooler Voice: the bot can speak Khmer.
 
   • /say <text>  (or reply /say to any message) → a Khmer voice message
-  • /voice       → pick 👩 female / 👨 male voice
+  • /voice       → about Cooler Bot's voice (one voice: a young guy, 18-22) + a sample
   • 🔊 button under AI answers to voice notes → hear the answer
 
 Speech comes from Gemini TTS (gemini-3.8-flash-lite-tts first, then gemini-3.8-flash-tts;
@@ -31,9 +31,15 @@ logger = logging.getLogger(__name__)
 
 TZ_KH = timezone(timedelta(hours=7))
 API = "https://generativelanguage.googleapis.com/v1beta"
-VOICES = {"f": ("Kore", "👩 សំឡេងស្រី"), "m": ("Charon", "👨 សំឡេងប្រុស"), "y": ("Puck", "🧑 សំឡេងក្មេងស្រស់")}
+# Cooler Bot has ONE voice: a young (18-22) upbeat Cambodian guy. TTS_VOICE swaps the Gemini voice.
+DEFAULT_VOICE = "Puck"
 MAX_CHARS = 700
-STYLE = "warm, friendly and natural, like a kind Cambodian friend; clear pronunciation, relaxed pace"
+STYLE = ("a young Cambodian man about 20 years old: bright, upbeat, energetic and friendly, a bit cool like a "
+         "young rapper's sidekick, natural modern Khmer, clear pronunciation, lively but not rushed")
+
+
+def voice_name():
+    return os.getenv("TTS_VOICE", "").strip() or DEFAULT_VOICE
 
 
 def tts_models():
@@ -99,10 +105,11 @@ def _as_wav(b64, mime):
     return pcm_to_wav(data, rate)
 
 
-def synthesize(api_key, text, voice="Kore", client=None, timeout=60.0):
+def synthesize(api_key, text, voice=None, client=None, timeout=60.0):
     """Return WAV bytes, trying the Interactions API then the older generateContent form."""
     if not api_key:
         raise RuntimeError("no GEMINI_API_KEY")
+    voice = voice or voice_name()
     headers = {"x-goog-api-key": api_key, "Content-Type": "application/json"}
     own = client is None
     client = client or httpx.Client(timeout=httpx.Timeout(timeout, connect=10.0))
@@ -183,27 +190,8 @@ def init_schema(config):
     conn = _db(config)
     try:
         with conn:
-            conn.execute("CREATE TABLE IF NOT EXISTS voice_prefs (user_id INTEGER PRIMARY KEY, voice TEXT NOT NULL)")
             conn.execute("CREATE TABLE IF NOT EXISTS voice_usage (user_id INTEGER, day TEXT, n INTEGER NOT NULL, "
                          "PRIMARY KEY (user_id, day))")
-    finally:
-        conn.close()
-
-
-def get_voice(config, uid):
-    conn = _db(config)
-    try:
-        row = conn.execute("SELECT voice FROM voice_prefs WHERE user_id=?", (uid,)).fetchone()
-    finally:
-        conn.close()
-    return row["voice"] if row and row["voice"] in VOICES else "f"
-
-
-def set_voice(config, uid, key):
-    conn = _db(config)
-    try:
-        with conn:
-            conn.execute("INSERT OR REPLACE INTO voice_prefs(user_id, voice) VALUES (?, ?)", (uid, key))
     finally:
         conn.close()
 
@@ -281,13 +269,12 @@ def register(bot, config, synth=None):
         if not privileged(uid) and not take_quota(config, uid, limit()):
             bot.send_message(chat_id, f"⏳ ថ្ងៃនេះប្រើសំឡេងអស់ {limit()} ដងហើយ — ស្អែកមកម្ដងទៀតណា 🙏")
             return False
-        voice_key = get_voice(config, uid)
         try:
             bot.send_chat_action(chat_id, "record_voice")
         except Exception:
             pass
         try:
-            wav = synth(text, VOICES[voice_key][0])
+            wav = synth(text, voice_name())
         except Exception as exc:
             logger.warning("TTS failed (%s: %s)", type(exc).__name__, str(exc)[:200])
             if not privileged(uid):
@@ -305,15 +292,14 @@ def register(bot, config, synth=None):
         return True
 
     def voice_menu(uid):
-        current = get_voice(config, uid)
         m = InlineKeyboardMarkup()
-        for key, (_name, label) in VOICES.items():
-            m.row(InlineKeyboardButton(("✅ " if key == current else "") + label, callback_data=f"tts:v:{key}"))
-        text = ("🎙️ <b>Cooler Voice — Bot និយាយខ្មែរ</b>\n\n"
+        m.row(InlineKeyboardButton("🎧 ស្ដាប់សំឡេង Cooler Bot", callback_data="tts:hi"))
+        text = ("🎙️ <b>Cooler Voice — សំឡេង Cooler Bot</b>\n"
+                "🧑 សំឡេងក្មេងប្រុសស្រស់ថ្លា អាយុ ១៨-២២ ឆ្នាំ\n\n"
                 "• <code>/say អត្ថបទ</code> — Bot អានជាសំឡេង\n"
                 "• Reply <code>/say</code> លើសារណាមួយ — អានសារនោះ\n"
                 "• ផ្ញើ Voice Note — AI ស្ដាប់ ឆ្លើយ ហើយចុច 🔊 ដើម្បីស្ដាប់ចម្លើយ\n\n"
-                "💡 ល្អសម្រាប់ធ្វើ Voice-over TikTok / YouTube\n\n👇 ជ្រើសសំឡេង")
+                "💡 ល្អសម្រាប់ធ្វើ Voice-over TikTok / YouTube")
         return text, m
 
     @bot.message_handler(commands=["say", "speak", "tts"])
@@ -339,14 +325,10 @@ def register(bot, config, synth=None):
         parts = (call.data or "").split(":")
         action, arg = (parts + ["", ""])[1:3]
         uid, chat_id = call.from_user.id, call.message.chat.id
-        if action == "v" and arg in VOICES:
-            set_voice(config, uid, arg)
-            bot.answer_callback_query(call.id, f"✅ {VOICES[arg][1]}")
-            body, markup = voice_menu(uid)
-            try:
-                bot.edit_message_text(body, chat_id, call.message.message_id, reply_markup=markup, parse_mode="HTML")
-            except Exception:
-                pass
+        if action == "hi":
+            bot.answer_callback_query(call.id, "🔊 ...")
+            speak(chat_id, uid, "សួស្ដីបងប្អូន! ខ្ញុំ Cooler Bot ជាកូនរបស់ Vid Cooler។ មានអ្វីឲ្យខ្ញុំជួយ ប្រាប់មកបានណា!",
+                  reply_to=call.message.message_id)
             return
         if action == "menu":
             bot.answer_callback_query(call.id)

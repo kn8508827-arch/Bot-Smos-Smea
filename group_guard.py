@@ -177,7 +177,7 @@ def register(bot, config, group_allowed=None):
 
     def notice(chat_id, user, text):
         key = (chat_id, user.id)
-        if time.monotonic() - notice_at.get(key, 0) < 60:
+        if key in notice_at and time.monotonic() - notice_at[key] < 60:
             return
         notice_at[key] = time.monotonic()
         try:

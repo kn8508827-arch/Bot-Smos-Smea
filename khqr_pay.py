@@ -14,6 +14,8 @@ Variables:
   BAKONG_MERCHANT_NAME   name shown in the banking app (default "Cooler Bot")
   BAKONG_API_BASE_URL    default https://api-bakong.nbc.gov.kh (set a relay here if Bakong only
                          accepts Cambodian IP addresses)
+  BAKONG_DAILY_LIMIT     requests per day the bot may use (default 95; Bakong allows 100). Bills are checked
+                         on a schedule and share one bulk request, so ~10 payments a day fit easily.
 Owner: /khqrtest — makes a 100 riel bill to test the whole flow.
 """
 import hashlib
@@ -30,6 +32,9 @@ import httpx
 logger = logging.getLogger(__name__)
 
 BILL_MINUTES = 15
+# Bakong Open API allows only ~100 requests a day, so each bill is checked on a schedule
+# (seconds after it was made) and all due bills share ONE bulk request.
+CHECK_SCHEDULE = (25, 50, 90, 150, 240, 360, 540, 780, 1080)
 
 
 # ---------------- KHQR (EMVCo) ----------------
@@ -135,6 +140,40 @@ def check_md5(md5, client=None):
     return "UNPAID", body
 
 
+def check_md5_list(md5s, client=None):
+    """Set of md5s Bakong reports as paid (one request for up to 50 bills)."""
+    s = settings()
+    base = s["base"] if s["base"].endswith("/v1") else s["base"] + "/v1"
+    own = client is None
+    client = client or httpx.Client(timeout=httpx.Timeout(12.0, connect=6.0))
+    try:
+        r = client.post(f"{base}/check_transaction_by_md5_list", json=list(md5s)[:50],
+                        headers={"Authorization": f"Bearer {s['token']}", "Content-Type": "application/json"})
+    finally:
+        if own:
+            client.close()
+    if r.status_code in (401, 403):
+        raise PermissionError(f"Bakong HTTP {r.status_code} — check BAKONG_API_TOKEN / server IP")
+    if r.status_code == 429:
+        raise RuntimeError("Bakong daily limit reached (HTTP 429)")
+    try:
+        body = r.json()
+    except ValueError:
+        raise RuntimeError(f"Bakong HTTP {r.status_code}: not JSON")
+    paid = set()
+    for item in body.get("data") or []:
+        if isinstance(item, dict) and str(item.get("status", "")).upper() in ("SUCCESS", "PAID") and item.get("md5"):
+            paid.add(item["md5"])
+    return paid
+
+
+def daily_limit():
+    try:
+        return int(os.getenv("BAKONG_DAILY_LIMIT", "95"))
+    except ValueError:
+        return 95
+
+
 # ---------------- storage ----------------
 
 def _db(config):
@@ -152,6 +191,38 @@ def init_schema(config):
                 payer_name TEXT, amount TEXT NOT NULL, currency TEXT NOT NULL, chat_id INTEGER, message_id INTEGER,
                 status TEXT NOT NULL DEFAULT 'pending', created_at INTEGER NOT NULL, expires_at INTEGER NOT NULL,
                 test INTEGER NOT NULL DEFAULT 0)""")
+            cols = {r["name"] for r in conn.execute("PRAGMA table_info(khqr_bills)").fetchall()}
+            if "checks" not in cols:
+                conn.execute("ALTER TABLE khqr_bills ADD COLUMN checks INTEGER NOT NULL DEFAULT 0")
+            conn.execute("CREATE TABLE IF NOT EXISTS bakong_usage (day TEXT PRIMARY KEY, n INTEGER NOT NULL)")
+    finally:
+        conn.close()
+
+
+def _today():
+    return time.strftime("%Y-%m-%d", time.gmtime(time.time() + 7 * 3600))
+
+
+def used_today(config):
+    conn = _db(config)
+    try:
+        row = conn.execute("SELECT n FROM bakong_usage WHERE day=?", (_today(),)).fetchone()
+        return row["n"] if row else 0
+    finally:
+        conn.close()
+
+
+def take_request(config):
+    """Count one Bakong request; False when today's budget is used up."""
+    conn = _db(config)
+    try:
+        with conn:
+            row = conn.execute("SELECT n FROM bakong_usage WHERE day=?", (_today(),)).fetchone()
+            if row and row["n"] >= daily_limit():
+                return False
+            conn.execute("INSERT INTO bakong_usage(day, n) VALUES (?, 1) ON CONFLICT(day) DO UPDATE SET n=n+1", (_today(),))
+            conn.execute("DELETE FROM bakong_usage WHERE day < ?", (time.strftime("%Y-%m-%d", time.gmtime(time.time() - 7 * 86400)),))
+        return True
     finally:
         conn.close()
 
@@ -250,7 +321,25 @@ def register(bot, config):
             pass
         return True
 
+    budget_note = {"day": None}
+    tapped = {}   # md5 -> last manual check (monotonic)
+
+    def out_of_budget():
+        if budget_note["day"] != _today():
+            budget_note["day"] = _today()
+            owner = getattr(config, "OWNER_ID", 0)
+            logger.warning("Bakong daily request budget used up")
+            if owner:
+                try:
+                    bot.send_message(owner, f"⚠️ Bakong API ប្រើអស់ {daily_limit()} ដង/ថ្ងៃហើយ — ថ្ងៃនេះ KHQR ត្រូវ Approve "
+                                            "តាមបង្កាន់ដៃ (ស្អែកដំណើរការវិញ)")
+                except Exception:
+                    pass
+        return False
+
     def check_row(row):
+        if not take_request(config):
+            return out_of_budget()
         status, data = check_md5(row["md5"])
         if status == "PAID":
             return settle(row, data)
@@ -272,17 +361,29 @@ def register(bot, config):
                 conn.execute("UPDATE khqr_bills SET status='expired' WHERE status='pending' AND expires_at <= ?", (now,))
         finally:
             conn.close()
-        paid = 0
-        for row in pending_rows(now):
-            try:
-                paid += 1 if check_row(row) else 0
-            except Exception as exc:
-                text = f"{type(exc).__name__}: {str(exc)[:200]}"
-                if last_error["text"] != text or time.time() - last_error["at"] > 3600:
-                    logger.warning("KHQR check failed (%s)", text)
-                    last_error.update(text=text, at=time.time())
-                break   # don't hammer Bakong when it is failing
-        return paid
+        due = [r for r in pending_rows(now) if (r.get("checks") or 0) < len(CHECK_SCHEDULE)
+               and now >= r["created_at"] + CHECK_SCHEDULE[r.get("checks") or 0]]
+        if not due:
+            return 0
+        due = due[:50]
+        conn = _db(config)
+        try:
+            with conn:
+                conn.executemany("UPDATE khqr_bills SET checks=checks+1 WHERE md5=?", [(r["md5"],) for r in due])
+        finally:
+            conn.close()
+        if not take_request(config):
+            out_of_budget()
+            return 0
+        try:
+            paid_md5 = check_md5_list([r["md5"] for r in due])
+        except Exception as exc:
+            text = f"{type(exc).__name__}: {str(exc)[:200]}"
+            if last_error["text"] != text or time.time() - last_error["at"] > 3600:
+                logger.warning("KHQR check failed (%s)", text)
+                last_error.update(text=text, at=time.time())
+            return 0
+        return sum(1 for r in due if r["md5"] in paid_md5 and settle(r, {"md5": r["md5"]}))
 
     def start_loop(interval=5):
         def run():
@@ -311,6 +412,11 @@ def register(bot, config):
                        else "⌛ QR នេះផុតកំណត់ហើយ — វាយ /pay ម្ដងទៀត")
                 bot.answer_callback_query(call.id, msg, show_alert=True)
                 return
+            if rows[0]["md5"] in tapped and time.monotonic() - tapped[rows[0]["md5"]] < 30:
+                bot.answer_callback_query(call.id, "⏳ ទើបពិនិត្យមិញ — Bot កំពុងពិនិត្យដោយស្វ័យប្រវត្តិ រង់ចាំ ៣០ វិនាទី",
+                                          show_alert=True)
+                return
+            tapped[rows[0]["md5"]] = time.monotonic()
             try:
                 ok = check_row(rows[0])
             except Exception as exc:
@@ -341,8 +447,11 @@ def register(bot, config):
                                   "• <code>BAKONG_ACCOUNT_ID</code> (ឧ. name@aba — មើលក្នុង Bakong App)", parse_mode="HTML")
             return
         try:
+            if not take_request(config):
+                raise RuntimeError(f"ថ្ងៃនេះប្រើអស់ {daily_limit()} ដងហើយ")
             status, _ = check_md5("0" * 32)
-            reach = f"✅ Bakong API ឆ្លើយ (test md5 → {status})"
+            reach = (f"✅ Bakong API ឆ្លើយ (test md5 → {status})\n"
+                     f"📊 ប្រើថ្ងៃនេះ {used_today(config)}/{daily_limit()} ដង")
         except Exception as exc:
             reach = f"❌ ភ្ជាប់ Bakong មិនបាន៖ <code>{html.escape(str(exc)[:200])}</code>"
         bot.reply_to(message, f"🧪 <b>KHQR តេស្ត</b>\nគណនី៖ <code>{html.escape(s['account'])}</code>\n{reach}\n\n"

@@ -341,8 +341,8 @@ def register(bot, config, ask=None, make_image=None):
         if len(items) < 5:
             bot.reply_to(message, "📝 សារនៅតិចពេក សម្រាប់សង្ខេប (Bot ត្រូវជា Admin ទើបឃើញសារទាំងអស់)")
             return
-        last = summary_at.get(chat.id, 0)
-        if time.monotonic() - last < 120 and not privileged(message.from_user.id):
+        last = summary_at.get(chat.id)
+        if last is not None and time.monotonic() - last < 120 and not privileged(message.from_user.id):
             bot.reply_to(message, "⏳ ទើបតែសង្ខេបមិញ — រង់ចាំ ២ នាទី")
             return
         summary_at[chat.id] = time.monotonic()

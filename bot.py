@@ -42,6 +42,10 @@ import family_tips
 import subscription
 import voice_studio
 import music_studio
+import khqr_pay
+import calendar_brief
+import group_guard
+import ai_extras
 import knowledge_base
 import ops_monitor
 import backup_tools
@@ -80,6 +84,18 @@ bot = telebot.TeleBot(TOKEN, threaded=True, num_threads=BOT_THREADS, exception_h
 # Paid membership gate (1$/user, 5$/group per 30 days). MUST be registered first so it runs
 # before every other handler. SUBSCRIPTION_ENABLED=false turns it off.
 _subscription = subscription.register(bot, config)
+# 🛡️ Cooler Guard: anti-spam / captcha / warn-ban for paid groups (registered right after the paywall)
+def _group_paid(chat_id):
+    st = subscription.settings()
+    if not st.enabled or subscription.is_active(config, "g", chat_id):
+        return True
+    deadline = subscription.group_deadline(config, chat_id)
+    return deadline is not None and deadline > time.time()
+
+
+group_guard.register(bot, config, group_allowed=_group_paid)
+# 🎨 /imagine · 📝 /summary · 🧠 /memory (+ group message buffer for /summary)
+_extras = ai_extras.register(bot, config)
 # Owner: /backup and a daily database copy to OWNER_ID (members and payments).
 _start_daily_backup = backup_tools.register(bot, config)
 
@@ -165,6 +181,12 @@ _voice = voice_studio.register(bot, config)
 # Cooler Music: /song /beat — Lyria sings & raps original Khmer lyrics over a beat
 _music = music_studio.register(bot, config)
 _fan.hooks["rap_markup"] = _music.rap_markup
+# ⚡ Automatic KHQR payments via Bakong (only when BAKONG_API_TOKEN + BAKONG_ACCOUNT_ID are set)
+_khqr = khqr_pay.register(bot, config)
+_subscription.hooks["khqr"] = lambda chat_id, uid, kind, target_id, amount, title: (
+    khqr_pay.enabled() and bool(_khqr.new_bill(chat_id, uid, kind, target_id, amount, "USD", title=title)))
+# 📅 Khmer calendar /calendar, /goodday and ☀️ /morning brief
+_calendar = calendar_brief.register(bot, config, ask=_fan_ask_gemini)
 # Cooler Knowledge: /learn /ask /kb /autoanswer — AI answers from a chat's own documents
 knowledge_base.register(bot, config)
 # Owner health check: /status (uptime, errors, 🩺 test AI)
@@ -282,8 +304,8 @@ def _clear_command_overrides():
 
 
 MENU_COMMANDS = (
-    "start", "menu", "pay", "myplan", "prompt", "studio", "song", "say", "kb", "rap", "play", "games", "fortune", "quiz", "card", "checkin",
-    "health", "sos", "parent", "pet", "rate", "gold", "news", "weather", "fuel", "trip", "follow", "contact", "help",
+    "start", "menu", "pay", "myplan", "prompt", "studio", "imagine", "song", "say", "calendar", "morning", "rap", "play", "games", "fortune", "quiz", "card", "checkin",
+    "health", "sos", "parent", "pet", "rate", "gold", "news", "weather", "trip", "follow", "contact", "help",
 )
 
 
@@ -338,6 +360,12 @@ def setup_bot_commands():
             BotCommand("prompt", "✍️ Prompt Studio កម្រិតខ្ពស់"),
             BotCommand("song", "🎧 Bot ច្រៀង & Rap មានភ្លេង Beat"),
             BotCommand("beat", "🥁 បង្កើត Beat ៣០ វិនាទី"),
+            BotCommand("imagine", "🎨 គូររូបពីអក្សរ"),
+            BotCommand("calendar", "📅 ប្រតិទិនខ្មែរ ថ្ងៃសីល ថ្ងៃឈប់"),
+            BotCommand("morning", "☀️ ព័ត៌មានពេលព្រឹក ម៉ោង ៧"),
+            BotCommand("guard", "🛡️ ការពារ Group (Admin)"),
+            BotCommand("summary", "📝 សង្ខេបសារក្នុង Group"),
+            BotCommand("memory", "🧠 អ្វីដែល Bot ចាំពីអ្នក"),
             BotCommand("say", "🎙️ Bot អានអត្ថបទជាសំឡេងខ្មែរ"),
             BotCommand("kb", "📚 AI ឆ្លើយតាមឯកសាររបស់អ្នក"),
             BotCommand("ask", "❓ សួរពីឯកសារដែលបានបញ្ចូល"),
@@ -948,7 +976,7 @@ def _category_view(key, user_id=None):
         m.row(B("🎬 វីដេអូ AI", callback_data="pstudio:m:video"), B("🎵 ចម្រៀង Suno", callback_data="pstudio:m:song"))
         m.row(B("🖼️ រូបភាព", callback_data="pstudio:m:image"), B("🎞️ រឿង & Scene", callback_data="pstudio:m:story"))
         m.row(B("🎨 កែរូប AI", callback_data="nav:studio"), B("🎤 AI Rap", callback_data="nav:rap"))
-        m.row(B("🎧 Bot ច្រៀង & Rap មាន Beat", callback_data="song:menu"))
+        m.row(B("🎧 Bot ច្រៀង & Rap មាន Beat", callback_data="song:menu"), B("🎨 គូររូប AI", callback_data="x:img"))
         m.row(B("🎙️ Bot និយាយខ្មែរ (Voice-over)", callback_data="tts:menu"))
         m.row(B("📚 AI ឆ្លើយតាមឯកសារ (ហាង & Group)", callback_data="kb:menu"))
     elif key == "fun":
@@ -966,6 +994,7 @@ def _category_view(key, user_id=None):
         text = "📈 <b>ព័ត៌មាន & ជីវិតប្រចាំថ្ងៃ</b>\nដុល្លារ មាស ព័ត៌មាន អាកាសធាតុ សាំង និងកន្លែងដើរលេង 🇰🇭"
         m.row(B("💵 ដុល្លារ · 🪙 មាស · 📰 ព័ត៌មាន", callback_data="mkt:menu"))
         m.row(B("🌤️ អាកាសធាតុ", callback_data="nav:weather"), B("⛽ សាំង & ⚡ EV", callback_data="nav:location"))
+        m.row(B("📅 ប្រតិទិនខ្មែរ", callback_data="cal:today"), B("☀️ ព័ត៌មានព្រឹក", callback_data="cal:brief"))
         m.row(B("🧭 Trip ដើរលេង", callback_data="trip:menu"),
               B("🚀 Team App", web_app=WebAppInfo(url=WEB_APP_URL)))
     elif key == "member":
@@ -986,6 +1015,7 @@ def _category_view(key, user_id=None):
         text = "ℹ️ <b>អំពី & ជំនួយ</b>"
         m.row(B("👥 ក្រុមយើង", callback_data="nav:team"), B("📅 ព្រឹត្តិការណ៍", callback_data="nav:events"))
         m.row(B("🔔 ការជូនដំណឹង", callback_data="nav:notifications"), B("ℹ️ អំពី Bot", callback_data="nav:about"))
+        m.row(B("🛡️ ការពារ Group · 📝 សង្ខេប", callback_data="x:guard"), B("🧠 Bot ចាំអ្នក", callback_data="x:mem"))
     else:
         return None
     m.row(B("🏠 ម៉ឺនុយមេ", callback_data="nav:main"))
@@ -1669,6 +1699,8 @@ def echo_all(message):
         stop_typing_event.set()
 
     send_long_reply(message, reply)
+    if getattr(message.chat, "type", None) == "private" and reply != messages.AI_GENERIC_ERROR:
+        _extras.observe(user_id, user_text)   # 🧠 remember harmless facts the user shares
 
 
 # =========================================================
@@ -1685,6 +1717,8 @@ if __name__ == '__main__':
 
     dailycare_scheduler = scheduler.start_scheduler(bot)
     _subscription.start_loop()
+    _khqr.start_loop()
+    _calendar.start_loop()
     _start_daily_backup()
 
     logger.info("Bot is starting polling 24/7...")

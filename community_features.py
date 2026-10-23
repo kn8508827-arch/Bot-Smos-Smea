@@ -358,7 +358,7 @@ def register(bot, database, config):
             bot.reply_to(message, "មិនអាចបង្កើតតំណអញ្ជើញបានទេឥឡូវនេះ។ សូមសាកល្បងម្ដងទៀត។")
             return
         link = f"https://t.me/{username}?start=ref_{user_id}"
-        bot.reply_to(message, f"🤝 <b>អញ្ជើញមិត្តភក្តិ</b>\n\nចែករំលែកតំណនេះ៖\n{link}\n\nអ្នកទាំងពីរទទួលបាន +{POINTS_REFERRAL} ពិន្ទុ នៅពេលមិត្តថ្មីចូលតាមតំណជាលើកដំបូង។", parse_mode="HTML")
+        bot.reply_to(message, f"🤝 <b>អញ្ជើញមិត្តភក្តិ</b>\n\nចែករំលែកតំណនេះ៖\n{link}\n\nអ្នកទាំងពីរទទួលបាន +{POINTS_REFERRAL} ពិន្ទុ នៅពេលមិត្តថ្មីចូលតាមតំណជាលើកដំបូង។\n\n🎁 <b>មិត្ត ៣ នាក់ក្លាយជាសមាជិក = អ្នកបាន ៧ ថ្ងៃឥតគិតថ្លៃ!</b>", parse_mode="HTML")
 
     @registered_message_handler(commands=["start"], func=lambda m: bool(getattr(m, "text", None)) and " ref_" in m.text)
     def referral_start(message):

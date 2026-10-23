@@ -40,8 +40,9 @@ FREE_COMMANDS = {
     "start", "help", "menu", "about", "pay", "subscribe", "member", "myplan", "plan",
     "follow", "social", "tiktok", "contact", "vidcooler",
     "sos", "health", "exercise", "balance", "warning", "water", "sleep",
+    "calendar", "today", "khmerdate", "lunar", "morning", "brief",
 }
-FREE_CALLBACKS = ("nav:main", "nav:about", "nav:cat:", "nav:team", "nav:events", "sub:", "follow:menu", "health:",
+FREE_CALLBACKS = ("cal:", "x:", "khqr:", "nav:main", "nav:about", "nav:cat:", "nav:team", "nav:events", "sub:", "follow:menu", "health:",
                   "hmore:water", "hmore:sleep")
 GROUP_FREE_COMMANDS = {"pay", "subscribe", "member", "myplan", "plan", "leave", "groups", "group"}
 
@@ -237,6 +238,8 @@ def register(bot, config):
 
     init_schema(config)
     waiting = {}          # user_id -> (kind, target_id, expires)
+    hooks = {}            # "khqr": fn(chat_id, uid, kind, target_id, amount, title) -> bool
+    bot._cooler_sub_waiting = waiting
     group_nag = {}        # chat_id -> last paywall reply (monotonic)
     me = {}
 
@@ -311,6 +314,15 @@ def register(bot, config):
     def send_payment(chat_id, uid, kind, target_id, title=None):
         s = settings()
         waiting[uid] = (kind, target_id, time.monotonic() + 3600)
+        hook = hooks.get("khqr")
+        if hook is not None:
+            # ⚡ automatic KHQR (Bakong); the receipt photo still works as a fallback
+            try:
+                price = price_value(s.group_price if kind == "g" else s.user_price)
+                if price > 0 and hook(chat_id, uid, kind, target_id, price, title):
+                    return
+            except Exception as exc:
+                logger.warning("KHQR hook failed (%s)", type(exc).__name__)
         what = (f"👥 Group <b>{html.escape(title or str(target_id))}</b> — {html.escape(s.group_price)} / {s.days} ថ្ងៃ"
                 if kind == "g" else f"👤 សមាជិកម្នាក់ — {html.escape(s.user_price)} / {s.days} ថ្ងៃ")
         caption = (f"💳 <b>បង់ប្រាក់</b>\n{what}\n\n"
@@ -534,6 +546,11 @@ def register(bot, config):
                                      "វាយ /menu ដើម្បីចាប់ផ្ដើម 🚀", parse_mode="HTML")
             except Exception as exc:
                 logger.warning("approve notice failed (%s)", type(exc).__name__)
+            try:
+                import ai_extras  # 🎁 referral reward
+                ai_extras.referral_paid(bot, config, payer)
+            except Exception as exc:
+                logger.info("referral reward skipped (%s)", type(exc).__name__)
         else:
             note = f"❌ Rejected #{pid}"
             try:
@@ -775,5 +792,5 @@ def register(bot, config):
         t.start()
         return t
 
-    return SimpleNamespace(tick=tick, start_loop=start_loop, waiting=waiting, blocked_message=blocked_message,
+    return SimpleNamespace(tick=tick, start_loop=start_loop, waiting=waiting, hooks=hooks, blocked_message=blocked_message,
                            blocked_call=blocked_call, benefits=benefits, paywall_markup=paywall_markup)

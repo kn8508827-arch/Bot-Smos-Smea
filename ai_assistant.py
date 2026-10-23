@@ -186,7 +186,12 @@ def get_system_instruction(user_name: Optional[str] = None, user_id: Optional[in
         "Ask at most one concise clarifying question, and only when essential information is missing. "
         "Avoid repetitive greetings. Keep replies concise and useful."
     )
-    return persona + identity + style
+    try:
+        import ai_extras
+        memory = ai_extras.memory_block(config, user_id)
+    except Exception:
+        memory = ""
+    return persona + identity + style + memory
 
 
 def normalize_text(text: str) -> str:

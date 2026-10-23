@@ -40,6 +40,9 @@ import social_links
 import market_info
 import family_tips
 import subscription
+import voice_studio
+import knowledge_base
+import ops_monitor
 import backup_tools
 import fortune
 import game_center
@@ -67,7 +70,11 @@ if not TOKEN:
     sys.exit(1)
 
 # បើក threaded=True សម្រាប់ដំណើរការរលូនពេល User ផ្ញើសារច្រើនដំណាលគ្នា
-bot = telebot.TeleBot(TOKEN, threaded=True)
+# Workers: AI answers take seconds, so 2 default threads made everyone wait in line.
+BOT_THREADS = max(2, int(os.getenv("BOT_THREADS", "8") or 8))
+_exception_handler = ops_monitor.AlertingExceptionHandler(
+    config, lambda chat_id, text: bot.send_message(chat_id, text, parse_mode="HTML"))
+bot = telebot.TeleBot(TOKEN, threaded=True, num_threads=BOT_THREADS, exception_handler=_exception_handler)
 
 # Paid membership gate (1$/user, 5$/group per 30 days). MUST be registered first so it runs
 # before every other handler. SUBSCRIPTION_ENABLED=false turns it off.
@@ -152,6 +159,13 @@ def _fortune_vision(prompt, image_bytes):
 fortune.register(bot, config, _fan_ask_gemini, _fortune_vision)
 # Instant Telegram dice games with points and a daily Top: /play /duel /top
 game_center.register(bot, config)
+# Cooler Voice: /say /voice and the 🔊 button under voice answers
+_voice = voice_studio.register(bot, config)
+# Cooler Knowledge: /learn /ask /kb /autoanswer — AI answers from a chat's own documents
+knowledge_base.register(bot, config)
+# Owner health check: /status (uptime, errors, 🩺 test AI)
+ops_monitor.register(bot, config, workers=BOT_THREADS, ai_ping=lambda: knowledge_base.gemini(
+    getattr(config, "GEMINI_API_KEY", ""), [{"text": "Reply with one word: OK"}], max_tokens=20))
 
 
 def register_interaction(from_user, chat) -> bool:
@@ -264,7 +278,7 @@ def _clear_command_overrides():
 
 
 MENU_COMMANDS = (
-    "start", "menu", "pay", "myplan", "prompt", "studio", "rap", "play", "games", "fortune", "quiz", "card", "checkin",
+    "start", "menu", "pay", "myplan", "prompt", "studio", "say", "kb", "rap", "play", "games", "fortune", "quiz", "card", "checkin",
     "health", "sos", "parent", "pet", "rate", "gold", "news", "weather", "fuel", "trip", "follow", "contact", "help",
 )
 
@@ -318,6 +332,11 @@ def setup_bot_commands():
             BotCommand("follow", "📲 តាមដាន Vid Cooler TikTok YouTube Facebook"),
             BotCommand("contact", "💬 ទាក់ទង Vid Cooler"),
             BotCommand("prompt", "✍️ Prompt Studio កម្រិតខ្ពស់"),
+            BotCommand("say", "🎙️ Bot អានអត្ថបទជាសំឡេងខ្មែរ"),
+            BotCommand("kb", "📚 AI ឆ្លើយតាមឯកសាររបស់អ្នក"),
+            BotCommand("ask", "❓ សួរពីឯកសារដែលបានបញ្ចូល"),
+            BotCommand("learn", "➕ បញ្ចូលឯកសារ/ព័ត៌មានឲ្យ AI"),
+            BotCommand("voice", "🗣️ ជ្រើសសំឡេង Bot (ស្រី/ប្រុស)"),
             BotCommand("videoprompt", "🎬 Prompt វីដេអូ AI"),
             BotCommand("songprompt", "🎵 Prompt ចម្រៀង Suno"),
             BotCommand("imageprompt", "🖼️ Prompt រូបភាព"),
@@ -824,10 +843,13 @@ def _split_text(text, limit=_TELEGRAM_MAX_CHARS):
     return parts or [""]
 
 
-def send_long_reply(message, text):
+def send_long_reply(message, text, reply_markup=None):
     """Reply with text, splitting into several messages when it is over the limit."""
-    for index, chunk in enumerate(_split_text(text)):
+    chunks = _split_text(text)
+    for index, chunk in enumerate(chunks):
         def _send(**kwargs):
+            if reply_markup is not None and index == len(chunks) - 1:
+                kwargs["reply_markup"] = reply_markup
             if index == 0:
                 return bot.reply_to(message, chunk, **kwargs)
             return bot.send_message(message.chat.id, chunk, **kwargs)
@@ -851,7 +873,8 @@ _MAIN_MENU_TEXT = (
 _CHAT_HELP_TEXT = (
     "🤖 <b>ជជែកជាមួយ AI</b>\n\n"
     "• ✍️ វាយសំណួរអ្វីក៏បាន\n"
-    "• 🎙️ ផ្ញើ Voice Note — AI ស្ដាប់ ហើយឆ្លើយ\n"
+    "• 🎙️ ផ្ញើ Voice Note — AI ស្ដាប់ ហើយឆ្លើយ (ចុច 🔊 ស្ដាប់ចម្លើយជាសំឡេង)\n"
+    "• 🗣️ /say អត្ថបទ — Bot អានជាសំឡេងខ្មែរ\n"
     "• 🖼️ ផ្ញើរូបភាព — AI មើល និងពន្យល់ (សួរសំណួរបញ្ចប់ដោយ ?)\n"
     "• 🎨 ផ្ញើរូប + Prompt នៅ Caption — AI បង្កើតរូបថ្មីភ្លាម\n"
     "• 🧹 /reset — សម្អាតប្រវត្តិសន្ទនា"
@@ -914,11 +937,13 @@ def _category_view(key, user_id=None):
     B = InlineKeyboardButton
     m = InlineKeyboardMarkup()
     if key == "create":
-        text = ("✍️ <b>AI បង្កើត</b>\nសរសេរ Prompt វីដេអូ ចម្រៀង រូបភាព រៀបចំរឿង កែរូប និងសរសេរ Rap 🔥")
+        text = ("✍️ <b>AI បង្កើត</b>\nសរសេរ Prompt វីដេអូ ចម្រៀង រូបភាព រៀបចំរឿង កែរូប សរសេរ Rap និងអានជាសំឡេង 🔥")
         m.row(B("✍️ Prompt Studio", callback_data="pstudio:menu"))
         m.row(B("🎬 វីដេអូ AI", callback_data="pstudio:m:video"), B("🎵 ចម្រៀង Suno", callback_data="pstudio:m:song"))
         m.row(B("🖼️ រូបភាព", callback_data="pstudio:m:image"), B("🎞️ រឿង & Scene", callback_data="pstudio:m:story"))
         m.row(B("🎨 កែរូប AI", callback_data="nav:studio"), B("🎤 AI Rap", callback_data="nav:rap"))
+        m.row(B("🎙️ Bot និយាយខ្មែរ (Voice-over)", callback_data="tts:menu"))
+        m.row(B("📚 AI ឆ្លើយតាមឯកសារ (ហាង & Group)", callback_data="kb:menu"))
     elif key == "fun":
         text = "🎮 <b>កម្សាន្ត & ហ្វេន</b>\nលេងហ្គេម ឆ្លើយ Quiz ប្រមូលពិន្ទុ យក Fan Card 🃏"
         m.row(B("🎮 Game Center — លេងភ្លាម 🎲🎯🏀⚽🎳🎰", callback_data="gc:menu"))
@@ -1412,7 +1437,7 @@ def dailycare_admin_command(message):
 # Voice Note Handler (AI ស្តាប់សំឡេង Voice)
 # =========================================================
 
-@registered_message_handler(content_types=['voice'])
+@registered_message_handler(content_types=['voice', 'audio'])
 def handle_voice(message):
     user_id = message.from_user.id
     user_name = message.from_user.first_name
@@ -1428,23 +1453,31 @@ def handle_voice(message):
 
     try:
         # ទាញយក file សំឡេងពី Telegram (.ogg)
-        file_info = bot.get_file(message.voice.file_id)
+        media = getattr(message, "voice", None) or getattr(message, "audio", None)
+        if getattr(media, "file_size", 0) and media.file_size > 19 * 1024 * 1024:
+            stop_typing_event.set()
+            bot.reply_to(message, "📦 File សំឡេងធំពេក (លើស 19MB) — សូមផ្ញើខ្លីជាងនេះ 🙏")
+            return
+        file_info = bot.get_file(media.file_id)
         downloaded_voice = bot.download_file(file_info.file_path)
+        mime = getattr(media, "mime_type", None) or "audio/ogg"
 
         # បញ្ជូនសំឡេងទៅកាន់ Gemini AI ឱ្យស្តាប់
         reply = async_runner.run_sync(ai_assistant.ask_ai_with_audio(
             user_id=user_id,
             audio_bytes=downloaded_voice,
-            mime_type="audio/ogg",
+            mime_type=mime,
             user_name=user_name
         ))
     except Exception as e:
-        logger.error(f"Error handling voice message: {e}")
+        logger.error("Error handling voice message (%s)", type(e).__name__)
         reply = messages.AI_GENERIC_ERROR
     finally:
         stop_typing_event.set()
 
-    send_long_reply(message, reply)
+    answer = reply.split("\n\n", 1)[1] if reply.startswith("🎧") and "\n\n" in reply else reply
+    ok = reply not in (getattr(messages, "AI_GENERIC_ERROR", None), getattr(messages, "AI_NOT_CONFIGURED", None))
+    send_long_reply(message, reply, reply_markup=_voice.listen_markup(answer) if ok else None)
 
 
 # =========================================================
@@ -1650,7 +1683,9 @@ if __name__ == '__main__':
     logger.info("Bot is starting polling 24/7...")
     try:
         bot.infinity_polling(
-            skip_pending=True, timeout=20, long_polling_timeout=20,
+            # keep messages sent while the bot was restarting (payment receipts!) unless told otherwise
+            skip_pending=os.getenv("SKIP_PENDING_UPDATES", "false").strip().lower() in ("1", "true", "yes"),
+            timeout=20, long_polling_timeout=20,
             # my_chat_member = bot added to / removed from a group (for /groups)
             allowed_updates=["message", "callback_query", "my_chat_member"],
         )

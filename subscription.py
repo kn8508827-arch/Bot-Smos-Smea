@@ -11,11 +11,16 @@
     health tips); everything else shows the payment screen.
   • Owner/admins are never blocked. SUBSCRIPTION_ENABLED=false turns everything off.
 
-Owner commands: /subs, /grant u|g ID [days], /revoke u|g ID
+Keeping members: reminders 3 days and 1 day before the end (with a renew button) and a
+"expired" message with the same button; the owner gets a daily report at SUB_REPORT_HOUR
+(8:00 Cambodia time) and a nudge when a receipt waits more than 3 hours.
+
+Owner commands: /subs, /stats (revenue dashboard), /grant u|g ID [days], /revoke u|g ID
 """
 import html
 import logging
 import os
+import re
 import sqlite3
 import threading
 import time
@@ -79,6 +84,83 @@ def init_schema(config):
             created_at INTEGER NOT NULL, decided_at INTEGER)""")
         conn.execute("""CREATE TABLE IF NOT EXISTS sub_group_notices (
             chat_id INTEGER PRIMARY KEY, deadline INTEGER NOT NULL)""")
+        # one row per reminder sent, so each stage goes out once per paid period
+        conn.execute("""CREATE TABLE IF NOT EXISTS sub_reminders (
+            kind TEXT NOT NULL, target_id INTEGER NOT NULL, period INTEGER NOT NULL, stage TEXT NOT NULL,
+            sent_at INTEGER NOT NULL, PRIMARY KEY (kind, target_id, period, stage))""")
+        conn.execute("CREATE TABLE IF NOT EXISTS sub_meta (key TEXT PRIMARY KEY, value TEXT)")
+
+
+def price_value(text):
+    """'1$' -> 1.0, '5 USD' -> 5.0, 'free' -> 0.0"""
+    m = re.search(r"\d+(?:[.,]\d+)?", text or "")
+    return float(m.group(0).replace(",", ".")) if m else 0.0
+
+
+def _once(config, kind, target_id, period, stage, now):
+    """True the first time (kind, target, period, stage) is seen — then never again."""
+    with _connect(config) as conn:
+        cur = conn.execute("INSERT OR IGNORE INTO sub_reminders(kind, target_id, period, stage, sent_at) "
+                           "VALUES (?, ?, ?, ?, ?)", (kind, target_id, int(period), stage, int(now)))
+        return cur.rowcount == 1
+
+
+def _meta(config, key, value=None):
+    with _connect(config) as conn:
+        if value is None:
+            row = conn.execute("SELECT value FROM sub_meta WHERE key=?", (key,)).fetchone()
+            return row["value"] if row else None
+        conn.execute("INSERT OR REPLACE INTO sub_meta(key, value) VALUES (?, ?)", (key, str(value)))
+        return value
+
+
+def month_start(ts, months_back=0):
+    d = datetime.fromtimestamp(ts, TZ_KH)
+    y, m = d.year, d.month - months_back
+    while m <= 0:
+        y, m = y - 1, m + 12
+    return int(datetime(y, m, 1, tzinfo=TZ_KH).timestamp())
+
+
+def stats(config, now=None):
+    """Numbers for the owner dashboard and the daily report."""
+    s = settings()
+    now = int(now or time.time())
+    price = {"u": price_value(s.user_price), "g": price_value(s.group_price)}
+    this_m, last_m = month_start(now), month_start(now, 1)
+    day0 = int(datetime.fromtimestamp(now, TZ_KH).replace(hour=0, minute=0, second=0, microsecond=0).timestamp())
+    with _connect(config) as conn:
+        subs = conn.execute("SELECT kind, target_id, paid_until FROM subscriptions").fetchall()
+        pays = conn.execute("SELECT kind, payer_id, target_id, decided_at FROM sub_payments "
+                            "WHERE status='approved' AND decided_at IS NOT NULL").fetchall()
+        pending = conn.execute("SELECT COUNT(*) FROM sub_payments WHERE status='pending'").fetchone()[0]
+
+    def revenue(start, end):
+        return sum(price[p["kind"]] for p in pays if start <= p["decided_at"] < end)
+
+    def count(start, end, kind):
+        return sum(1 for p in pays if p["kind"] == kind and start <= p["decided_at"] < end)
+
+    per_target = {}
+    for p in pays:
+        per_target[(p["kind"], p["target_id"])] = per_target.get((p["kind"], p["target_id"]), 0) + 1
+    payers = len(per_target)
+    return SimpleNamespace(
+        active_u=sum(1 for r in subs if r["kind"] == "u" and r["paid_until"] > now),
+        active_g=sum(1 for r in subs if r["kind"] == "g" and r["paid_until"] > now),
+        expiring=[dict(r) for r in subs if now < r["paid_until"] <= now + 7 * DAY],
+        lapsed=[dict(r) for r in subs if now - 14 * DAY < r["paid_until"] <= now],
+        rev_month=revenue(this_m, now + 1), rev_last=revenue(last_m, this_m), rev_all=revenue(0, now + 1),
+        rev_today=revenue(day0, now + 1), rev_yesterday=revenue(day0 - DAY, day0),
+        new_u=count(this_m, now + 1, "u"), new_g=count(this_m, now + 1, "g"),
+        pays_yesterday=sum(1 for p in pays if day0 - DAY <= p["decided_at"] < day0),
+        pending=pending,
+        renew_rate=round(100 * sum(1 for n in per_target.values() if n > 1) / payers) if payers else 0,
+    )
+
+
+def fmt_money(v):
+    return f"{v:,.0f}$" if float(v).is_integer() else f"{v:,.2f}$"
 
 
 def paid_until(config, kind, target_id):
@@ -514,6 +596,32 @@ def register(bot, config):
         lines.append("\n/grant u|g ID [ថ្ងៃ] · /revoke u|g ID")
         bot.reply_to(message, "\n".join(lines), parse_mode="HTML")
 
+    @bot.message_handler(commands=["stats", "money", "dashboard"], func=owner_only)
+    def stats_cmd(message):
+        st = stats(config)
+        change = ""
+        if st.rev_last:
+            pct = round(100 * (st.rev_month - st.rev_last) / st.rev_last)
+            change = f" ({'📈 +' if pct >= 0 else '📉 '}{pct}% ធៀបខែមុន)"
+        lines = ["📊 <b>ផ្ទាំងគ្រប់គ្រង — Cooler Bot</b>", "",
+                 f"💵 ថ្ងៃនេះ៖ <b>{fmt_money(st.rev_today)}</b>",
+                 f"📆 ខែនេះ៖ <b>{fmt_money(st.rev_month)}</b>{change}",
+                 f"🗓️ ខែមុន៖ {fmt_money(st.rev_last)} · 💰 សរុប៖ {fmt_money(st.rev_all)}", "",
+                 f"✅ សកម្ម៖ 👤 <b>{st.active_u}</b> នាក់ · 👥 <b>{st.active_g}</b> Group",
+                 f"🆕 ការបង់ខែនេះ៖ 👤 {st.new_u} · 👥 {st.new_g}",
+                 f"🔁 អ្នកបង់ម្ដងទៀត៖ <b>{st.renew_rate}%</b>",
+                 f"🧾 រង់ចាំ Approve៖ <b>{st.pending}</b>"]
+        if st.expiring:
+            lines += ["", f"⏰ <b>ផុតកំណត់ក្នុង ៧ ថ្ងៃ ({len(st.expiring)})</b> — Bot រំលឹកដោយស្វ័យប្រវត្តិ"]
+            for e in sorted(st.expiring, key=lambda e: e["paid_until"])[:10]:
+                lines.append(f"{'👥' if e['kind'] == 'g' else '👤'} <code>{e['target_id']}</code> → {fmt_date(e['paid_until'])}")
+        if st.lapsed:
+            lines += ["", f"💤 <b>ផុតហើយ មិនទាន់បន្ត ({len(st.lapsed)})</b> — អាចផ្ញើសារសួរសុខទុក្ខ"]
+            for e in sorted(st.lapsed, key=lambda e: -e["paid_until"])[:10]:
+                lines.append(f"{'👥' if e['kind'] == 'g' else '👤'} <code>{e['target_id']}</code> · {fmt_date(e['paid_until'])}")
+        lines.append("\n/subs · /grant · /revoke")
+        bot.reply_to(message, "\n".join(lines), parse_mode="HTML")
+
     @bot.message_handler(commands=["grant", "revoke"], func=owner_only)
     def grant_cmd(message):
         parts = (message.text or "").split()
@@ -545,19 +653,16 @@ def register(bot, config):
             cid = g["chat_id"]
             until = paid_until(config, "g", cid)
             if until > now:
-                if until - now < 2 * DAY:
-                    with _connect(config) as conn:
-                        row = conn.execute("SELECT reminded_for FROM subscriptions WHERE kind='g' AND target_id=?",
-                                           (cid,)).fetchone()
-                    if not row or row["reminded_for"] != until:
-                        try:
-                            bot.send_message(cid, f"⏰ សមាជិកភាព Group នេះនឹងផុតកំណត់ <b>{fmt_date(until)}</b>\n"
-                                             f"បង់ {html.escape(s.group_price)} ដើម្បីបន្ត {s.days} ថ្ងៃទៀត 🙏",
-                                             reply_markup=group_pay_markup(cid), parse_mode="HTML")
-                        except Exception:
-                            pass
-                        with _connect(config) as conn:
-                            conn.execute("UPDATE subscriptions SET reminded_for=? WHERE kind='g' AND target_id=?", (until, cid))
+                stage = "1d" if until - now <= DAY else "3d" if until - now <= 3 * DAY else None
+                if stage and _once(config, "g", cid, until, stage, now):
+                    try:
+                        bot.send_message(cid, f"⏰ សមាជិកភាព Group នេះនឹងផុតកំណត់ <b>{fmt_date(until)}</b>"
+                                         f"{' (ថ្ងៃស្អែក!)' if stage == '1d' else ''}\n"
+                                         f"បង់ {html.escape(s.group_price)} ដើម្បីបន្ត {s.days} ថ្ងៃទៀត "
+                                         "— ថ្ងៃដែលនៅសល់មិនបាត់ទេ (ថែមពីលើ) 🙏",
+                                         reply_markup=group_pay_markup(cid), parse_mode="HTML")
+                    except Exception:
+                        pass
                 continue
             deadline = group_deadline(config, cid)
             if deadline is None:
@@ -585,20 +690,77 @@ def register(bot, config):
                     logger.warning("auto-leave failed for a group (%s)", type(exc).__name__)
                 _mark_group_left(config, cid)
                 clear_group_deadline(config, cid)
-        # personal reminders 2 days before the end
+        # personal reminders: 3 days, 1 day, and once right after it ends
         with _connect(config) as conn:
-            rows = conn.execute("SELECT target_id, paid_until FROM subscriptions WHERE kind='u' AND paid_until > ? "
-                                "AND paid_until < ? AND (reminded_for IS NULL OR reminded_for != paid_until)",
-                                (now, now + 2 * DAY)).fetchall()
+            rows = conn.execute("SELECT target_id, paid_until FROM subscriptions WHERE kind='u' "
+                                "AND paid_until > ? AND paid_until < ?", (now - 3 * DAY, now + 3 * DAY)).fetchall()
         for r in rows:
+            uid, until = r["target_id"], r["paid_until"]
+            if until <= now:
+                stage, text = "exp", (f"⌛ <b>សមាជិកភាពរបស់អ្នកផុតកំណត់ហើយ</b> ({fmt_date(until)})\n\n"
+                                      f"អរគុណដែលបានគាំទ្រ Vid Cooler ❤️ បង់ {html.escape(s.user_price)} "
+                                      f"ដើម្បីប្រើ AI ហ្គេម និងគ្រប់មុខងារបន្ត {s.days} ថ្ងៃទៀត 👇")
+            else:
+                stage = "1d" if until - now <= DAY else "3d"
+                text = (f"⏰ សមាជិកភាពរបស់អ្នកនឹងផុតកំណត់ <b>{fmt_date(until)}</b>"
+                        f"{' (ថ្ងៃស្អែក!)' if stage == '1d' else ''}\n"
+                        f"បង់ {html.escape(s.user_price)} ឥឡូវ — ថ្ងៃដែលនៅសល់ត្រូវបានថែមពីលើ មិនបាត់ទេ 🙏")
+            if not _once(config, "u", uid, until, stage, now):
+                continue
             try:
-                bot.send_message(r["target_id"], f"⏰ សមាជិកភាពរបស់អ្នកនឹងផុតកំណត់ <b>{fmt_date(r['paid_until'])}</b>\n"
-                                 f"បង់ {html.escape(s.user_price)} ដើម្បីប្រើបន្ត 👉 /pay 🙏", parse_mode="HTML")
+                bot.send_message(uid, text, reply_markup=renew_markup(), parse_mode="HTML")
             except Exception:
                 pass
-            with _connect(config) as conn:
-                conn.execute("UPDATE subscriptions SET reminded_for=? WHERE kind='u' AND target_id=?",
-                             (r["paid_until"], r["target_id"]))
+        owner_jobs(now)
+
+    def renew_markup():
+        m = InlineKeyboardMarkup()
+        m.row(InlineKeyboardButton(f"💳 បន្តសមាជិក {settings().user_price}", callback_data="sub:pay:u"))
+        m.row(InlineKeyboardButton("📅 ស្ថានភាពខ្ញុំ", callback_data="sub:plan"))
+        return m
+
+    def owner_jobs(now):
+        owner = getattr(config, "OWNER_ID", 0)
+        if not owner:
+            return
+        # receipts waiting more than 3 h → one nudge each
+        with _connect(config) as conn:
+            late = conn.execute("SELECT id FROM sub_payments WHERE status='pending' AND created_at < ?",
+                                (now - 3 * 3600,)).fetchall()
+        late = [r["id"] for r in late if _once(config, "p", r["id"], 0, "late", now)]
+        if late:
+            try:
+                bot.send_message(owner, f"🧾 មានបង្កាន់ដៃ {len(late)} កំពុងរង់ចាំ Approve យូរជាង ៣ ម៉ោង "
+                                 f"(#{', #'.join(map(str, late))}) — ភ្ញៀវកំពុងរង់ចាំ 🙏\nមើល៖ /stats")
+            except Exception:
+                pass
+        # daily report once a day after SUB_REPORT_HOUR (Cambodia time)
+        hour = int(os.getenv("SUB_REPORT_HOUR", "8") or 8)
+        local = datetime.fromtimestamp(now, TZ_KH)
+        if hour < 0 or local.hour < hour:
+            return
+        today = local.strftime("%Y-%m-%d")
+        if _meta(config, "daily_report") == today:
+            return
+        _meta(config, "daily_report", today)
+        st = stats(config, now)
+        try:
+            bot.send_message(owner, daily_text(st), parse_mode="HTML")
+        except Exception:
+            pass
+
+    def daily_text(st):
+        lines = ["☀️ <b>របាយការណ៍ប្រចាំថ្ងៃ — Cooler Bot</b>",
+                 f"💵 ម្សិលមិញ៖ <b>{fmt_money(st.rev_yesterday)}</b> ({st.pays_yesterday} ការបង់)",
+                 f"📆 ខែនេះ៖ <b>{fmt_money(st.rev_month)}</b>",
+                 f"✅ សមាជិកសកម្ម៖ 👤 {st.active_u} · 👥 {st.active_g}"]
+        if st.pending:
+            lines.append(f"🧾 រង់ចាំ Approve៖ <b>{st.pending}</b>")
+        soon = [e for e in st.expiring if e["paid_until"] <= time.time() + DAY]
+        if soon:
+            lines.append(f"⏰ ផុតកំណត់ក្នុង ២៤ ម៉ោង៖ {len(soon)} (Bot រំលឹកពួកគេរួចហើយ)")
+        lines.append("\n📊 លម្អិត៖ /stats")
+        return "\n".join(lines)
 
     def start_loop(interval=300):
         def run():

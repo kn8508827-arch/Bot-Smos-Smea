@@ -746,6 +746,27 @@ async def ask_ai_with_image(
         return getattr(messages, "AI_GENERIC_ERROR", "មានបញ្ហាបច្ចេកទេស។")
 
 
+def audio_models() -> List[str]:
+    """Models that can hear audio: AI_VOICE_MODEL, AI_VISION_MODEL, current Flash models, then AI_MODEL."""
+    chain = [os.getenv("AI_VOICE_MODEL", "").strip(), DEFAULT_GEMINI_VISION_MODEL, "gemini-3.8-flash",
+             FALLBACK_GEMINI_VISION_MODEL, DEFAULT_GEMINI_MODEL]
+    seen, out = set(), []
+    for m in chain:
+        if m and m not in seen:
+            seen.add(m)
+            out.append(m)
+    return out
+
+
+def split_heard_reply(text: str) -> Tuple[str, str]:
+    """'HEARD: ...\nREPLY: ...' -> (heard, reply); plain text -> ('', text)."""
+    m = re.search(r"HEARD:\s*(.*?)\s*REPLY:\s*(.*)", text or "", re.S | re.I)
+    if not m:
+        return "", (text or "").strip()
+    heard = re.sub(r"\s+", " ", m.group(1)).strip().strip("<>«»\"")
+    return heard[:300], m.group(2).strip()
+
+
 async def ask_ai_with_audio(user_id: int, audio_bytes: bytes, mime_type: str = "audio/ogg", user_name: Optional[str] = None, db_path: Optional[str] = None) -> str:
     """បញ្ជូនសំឡេង Voice Note ទៅឱ្យ Gemini 2.0 Flash ស្តាប់ផ្ទាល់ (Multimodal)"""
     gemini_key = getattr(config, "GEMINI_API_KEY", "")
@@ -793,7 +814,10 @@ async def ask_ai_with_audio(user_id: int, audio_bytes: bytes, mime_type: str = "
                     }
                 },
                 {
-                    "text": "សូមស្តាប់សារសំឡេងនេះ ហើយឆ្លើយតបទៅកាន់សំណួរ ឬការសន្ទនា" 
+                    "text": ("សូមស្តាប់សារសំឡេងនេះ ហើយឆ្លើយតបទៅកាន់សំណួរ ឬការសន្ទនា។ "
+                             "ឆ្លើយតាមទម្រង់នេះពិតប្រាកដ៖\n"
+                             "HEARD: <អ្វីដែលគេនិយាយ សរសេរជាអក្សរ តាមភាសាដែលគេនិយាយ ខ្លីៗ>\n"
+                             "REPLY: <ចម្លើយរបស់អ្នក>")
                 }
             ]
         }],
@@ -802,19 +826,28 @@ async def ask_ai_with_audio(user_id: int, audio_bytes: bytes, mime_type: str = "
 
     headers = {"x-goog-api-key": gemini_key, "Content-Type": "application/json"}
     http_client = await get_shared_http_client()
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/{DEFAULT_GEMINI_MODEL}:generateContent"
 
     try:
-        response = await http_client.post(url, json=payload, headers=headers)
-        if response.status_code == 200:
+        response = None
+        for model in audio_models():  # older models get retired; try the next one
+            url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
+            response = await http_client.post(url, json=payload, headers=headers,
+                                              timeout=httpx.Timeout(90.0, connect=10.0))
+            if response.status_code == 200 or response.status_code in (400, 401, 403):
+                break
+            logger.warning("Voice model %s HTTP %s, trying the next model", model, response.status_code)
+        if response is not None and response.status_code == 200:
             reply = ""
             try:
                 data = response.json()
                 candidates = data.get("candidates") or []
                 if candidates:
                     parts = (candidates[0].get("content") or {}).get("parts") or []
-                    if parts:
-                        reply = clean_markdown_for_telegram((parts[0].get("text") or "").strip())
+                    text = "".join(p.get("text") or "" for p in parts if not p.get("thought")).strip()
+                    heard, answer = split_heard_reply(text)
+                    reply = clean_markdown_for_telegram(answer)
+                    if heard:
+                        reply = f"🎧 «{heard}»\n\n{reply}"
             except Exception:
                 reply = ""
             if not reply:
@@ -832,7 +865,7 @@ async def ask_ai_with_audio(user_id: int, audio_bytes: bytes, mime_type: str = "
                 logger.debug("Could not persist voice message to DB")
             return reply
 
-        logger.warning(f"Audio processing status code: {response.status_code}")
+        logger.warning("Audio processing status code: %s", getattr(response, "status_code", None))
         return messages.AI_GENERIC_ERROR
     except Exception as e:
         logger.error(f"Error processing voice message: {type(e).__name__}")

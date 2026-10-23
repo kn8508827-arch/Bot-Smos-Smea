@@ -19,6 +19,7 @@ logger = logging.getLogger(__name__)
 
 GAMES = (
     # (key, button label, env var, default URL) — the big games, each its own site
+    ("merge", "🏎️ Merge Racer (ថ្មី!)", "GAME_MERGE_RACER_URL", "https://kn8508827-arch.github.io/Blue-Gold-Rush/merge-racer/"),
     ("fly", "🚀 Cooler Fly 3D", "GAME_COOLER_FLY_URL", "https://kn8508827-arch.github.io/Blue-Gold-Rush/cooler-fly/"),
     ("bgr", "⚡ Blue Gold Rush", "GAME_BLUE_GOLD_RUSH_URL", "https://kn8508827-arch.github.io/Blue-Gold-Rush/"),
     ("logo", "🧩 Logo Crush 3D", "GAME_LOGO_CRUSH_URL", "https://logo-crush-3d-production.up.railway.app/"),

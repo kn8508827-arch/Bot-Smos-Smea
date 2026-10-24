@@ -41,10 +41,12 @@ def summary(path):
             except sqlite3.Error:
                 return 0
         now = int(time.time())
-        return (f"👤 users {count('SELECT COUNT(*) FROM users')} · "
-                f"💳 active members {count(f'SELECT COUNT(*) FROM subscriptions WHERE kind=\"u\" AND paid_until>{now}')} · "
-                f"👥 paid groups {count(f'SELECT COUNT(*) FROM subscriptions WHERE kind=\"g\" AND paid_until>{now}')} · "
-                f"🧾 payments {count('SELECT COUNT(*) FROM sub_payments')}")
+        users = count("SELECT COUNT(*) FROM users")
+        members = count("SELECT COUNT(*) FROM subscriptions WHERE kind='u' AND paid_until>%d" % now)
+        groups = count("SELECT COUNT(*) FROM subscriptions WHERE kind='g' AND paid_until>%d" % now)
+        payments = count("SELECT COUNT(*) FROM sub_payments")
+        return (f"👤 users {users} · 💳 active members {members} · "
+                f"👥 paid groups {groups} · 🧾 payments {payments}")
     finally:
         con.close()
 

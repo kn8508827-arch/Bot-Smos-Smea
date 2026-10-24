@@ -380,17 +380,26 @@ class LocationService:
         )
 
     def _overpass(self, query: str):
-        """Try each Overpass mirror until one answers with JSON."""
+        """Ask every Overpass mirror at the same time; the first good answer wins (max ~25 s total)."""
+        from concurrent.futures import ThreadPoolExecutor, as_completed, TimeoutError as FutTimeout
         last_exc: Optional[Exception] = None
-        for url in OVERPASS_URLS:
-            try:
-                data = self._request_json(url, data=query)
-                if isinstance(data, dict) and "elements" in data:
-                    return data
-                last_exc = ValueError(f"unexpected Overpass response from {url}")
-            except (httpx.HTTPError, ValueError) as exc:
-                last_exc = exc
-                _log.warning("Overpass mirror failed: %s (%s)", url, _describe_http_error(exc))
+        pool = ThreadPoolExecutor(max_workers=len(OVERPASS_URLS))
+        futures = {pool.submit(self._request_json, url, data=query): url for url in OVERPASS_URLS}
+        try:
+            for fut in as_completed(futures, timeout=26):
+                url = futures[fut]
+                try:
+                    data = fut.result()
+                    if isinstance(data, dict) and "elements" in data:
+                        return data
+                    last_exc = ValueError(f"unexpected Overpass response from {url}")
+                except (httpx.HTTPError, ValueError) as exc:
+                    last_exc = exc
+                    _log.warning("Overpass mirror failed: %s (%s)", url, _describe_http_error(exc))
+        except FutTimeout:
+            last_exc = last_exc or httpx.ReadTimeout("all Overpass mirrors were too slow")
+        finally:
+            pool.shutdown(wait=False, cancel_futures=True)
         raise last_exc or ValueError("no Overpass mirror answered")
 
     def _fetch_stations(self, lat: float, lon: float, radius: int) -> list[dict[str, Any]]:

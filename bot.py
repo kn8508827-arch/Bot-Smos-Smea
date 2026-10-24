@@ -198,6 +198,7 @@ knowledge_base.register(bot, config)
 # Owner health check: /status (uptime, errors, 🩺 test AI)
 ops_monitor.register(bot, config, workers=BOT_THREADS, ai_ping=lambda: knowledge_base.gemini(
     getattr(config, "GEMINI_API_KEY", ""), [{"text": "Reply with one word: OK"}], max_tokens=1024))
+ops_monitor.register_selftest(bot, config)
 
 
 def register_interaction(from_user, chat) -> bool:
@@ -311,6 +312,7 @@ def _clear_command_overrides():
 
 OWNER_COMMANDS = (
     ("status", "🩺 ស្ថានភាព Bot (Owner)"),
+    ("selftest", "🧪 សាកគ្រប់សេវា ✅/❌ (Owner)"),
     ("stats", "📊 ចំណូល និងសមាជិក (Owner)"),
     ("subgroups", "👥 Group បង់/មិនបង់ · ចេញ (Owner)"),
     ("subs", "💳 បញ្ជីសមាជិកសកម្ម (Owner)"),
@@ -569,7 +571,29 @@ def _format_location_page(results, token, page):
     )
 
 
+def _maps_fallback_markup(kind, lat=None, lon=None, query=""):
+    """Google Maps search buttons — always work, even when OpenStreetMap is down."""
+    from urllib.parse import quote
+    what = "EV charging station" if kind == "ev" else "gas station"
+    if lat is not None and lon is not None:
+        url = f"https://www.google.com/maps/search/{quote(what)}/@{lat:.5f},{lon:.5f},14z"
+    else:
+        url = f"https://www.google.com/maps/search/{quote(what + ' ' + (query or 'Cambodia'))}"
+    markup = InlineKeyboardMarkup()
+    markup.row(InlineKeyboardButton("🗺️ បើកក្នុង Google Maps", url=url))
+    return markup
+
+
 def _send_location_results(message, query="", kind=None, lat=None, lon=None):
+    try:
+        bot.send_chat_action(message.chat.id, "find_location")
+    except Exception:
+        pass
+    waiting = None
+    try:
+        waiting = bot.reply_to(message, "🔎 កំពុងស្វែងរក" + (" ស្ថានីយសាក EV ⚡" if kind == "ev" else " ស្ថានីយប្រេង ⛽") + " ...")
+    except Exception:
+        pass
     try:
         result = location_service.location_service.search(
             query,
@@ -585,9 +609,16 @@ def _send_location_results(message, query="", kind=None, lat=None, lon=None):
         )
         bot.reply_to(
             message,
-            "មិនអាចភ្ជាប់ទៅទិន្នន័យផែនទីបានទេឥឡូវនេះ។ សូមសាកល្បងម្ដងទៀតពេលក្រោយ។",
+            "⚠️ ផែនទី OpenStreetMap រវល់ពេលនេះ — ចុចប៊ូតុងខាងក្រោម ដើម្បីមើលក្នុង Google Maps ភ្លាម 👇",
+            reply_markup=_maps_fallback_markup(kind, lat, lon, query),
         )
         return
+    finally:
+        if waiting is not None:
+            try:
+                bot.delete_message(message.chat.id, waiting.message_id)
+            except Exception:
+                pass
 
     if result["status"] == "missing_location":
         _location_prompt(message, kind)
@@ -598,8 +629,8 @@ def _send_location_results(message, query="", kind=None, lat=None, lon=None):
     if not result["stations"]:
         bot.reply_to(
             message,
-            "មិនមានលទ្ធផលដែលបានដាក់ក្នុង OpenStreetMap ក្នុងតំបន់ស្វែងរកនេះទេ។ "
-            "សូមសាកល្បងឈ្មោះទីតាំង ឬចែករំលែកទីតាំងផ្សេង។",
+            "មិនមានលទ្ធផលក្នុង OpenStreetMap ក្នុងតំបន់នេះទេ — សាកមើលក្នុង Google Maps 👇",
+            reply_markup=_maps_fallback_markup(kind, lat, lon, query),
         )
         return
 

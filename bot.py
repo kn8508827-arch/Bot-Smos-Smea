@@ -399,10 +399,21 @@ def setup_bot_commands():
             BotCommand("water", "💧 ផឹកទឹកឲ្យគ្រប់ពេលក្ដៅ"),
             BotCommand("sleep", "😴 គន្លឹះគេងលក់ស្រួល"),
             BotCommand("askhealth", "🤖 សួរ AI អំពីសុខភាព"),
+            BotCommand("reminders", "📋 មើល/លុបការរំលឹក"),
+            BotCommand("sale", "➕ កត់ចំណូល (លក់បាន)"),
+            BotCommand("undo", "↩️ លុបកំណត់ត្រាលុយចុងក្រោយ"),
+            BotCommand("goodday", "✨ ណែនាំថ្ងៃល្អ"),
+            BotCommand("autoanswer", "🤖 Group ឆ្លើយស្វ័យប្រវត្តិ (Admin)"),
+            BotCommand("forget", "🗑️ លុបអ្វីដែល Bot ចាំ"),
+            BotCommand("kbclear", "🗑️ លុបឯកសារ AI ទាំងអស់"),
         ]
-        # Keep the "/" menu short: only the main commands are listed (all others still work, see /help).
+        # Main commands first (in MENU_COMMANDS order), then every other public command,
+        # so typing "/m" shows /myplan, /memory ... too. Telegram allows up to 100.
         by_name = {c.command: c for c in commands}
-        commands = [by_name[n] for n in MENU_COMMANDS if n in by_name]
+        hidden = {"dailycare", "register", "code"}            # admin / internal ones stay out of the menu
+        ordered = [n for n in MENU_COMMANDS if n in by_name]
+        ordered += [n for n in by_name if n not in ordered and n not in hidden]
+        commands = [by_name[n] for n in ordered][:100]
         _clear_command_overrides()
         bot.set_my_commands(commands)
         logger.info("Bot commands menu registered successfully.")

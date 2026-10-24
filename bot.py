@@ -48,6 +48,7 @@ import group_guard
 import ai_extras
 import daily_tools
 import hub
+import friend_map
 import knowledge_base
 import ops_monitor
 import backup_tools
@@ -102,6 +103,8 @@ _extras = ai_extras.register(bot, config)
 _daily = daily_tools.register(bot, config)
 # 🚀 Cooler Hub mini app: /hub, menu button, and /start go_<feature> from the hub tiles
 _hub = hub.register(bot, config)
+# 📍 Friend Map: opt-in, time-limited location sharing between members of the same group
+_friend_map = friend_map.register(bot, config)
 # Owner: /backup and a daily database copy to OWNER_ID (members and payments).
 _start_daily_backup = backup_tools.register(bot, config)
 
@@ -342,7 +345,7 @@ GROUP_ADMIN_COMMANDS = (
 
 
 MENU_COMMANDS = (
-    "start", "hub", "menu", "pay", "prompt", "studio", "imagine", "song", "say", "calendar", "morning", "rap", "play", "games", "fortune", "quiz", "card", "checkin",
+    "start", "hub", "menu", "pay", "nearby", "prompt", "studio", "imagine", "song", "say", "calendar", "morning", "rap", "play", "games", "fortune", "quiz", "card", "checkin",
     "health", "sos", "parent", "pet", "rate", "gold", "news", "weather", "trip", "follow", "contact", "help",
 )
 
@@ -399,6 +402,8 @@ def setup_bot_commands():
             BotCommand("song", "🎧 Bot ច្រៀង & Rap មានភ្លេង Beat"),
             BotCommand("beat", "🥁 បង្កើត Beat ៣០ វិនាទី"),
             BotCommand("hub", "🚀 Cooler Hub — គ្រប់មុខងារ"),
+            BotCommand("nearby", "📍 មិត្តនៅឯណា (ចែករំលែកទីតាំងក្នុង Group)"),
+            BotCommand("stopshare", "⛔ ឈប់ចែករំលែកទីតាំង"),
             BotCommand("imagine", "🎨 គូររូបពីអក្សរ"),
             BotCommand("scam", "🚨 ឆែកសារ/Link បោកប្រាស់"),
             BotCommand("totext", "🎤 Voice → អក្សរខ្មែរ"),
@@ -1852,7 +1857,7 @@ if __name__ == '__main__':
             skip_pending=os.getenv("SKIP_PENDING_UPDATES", "false").strip().lower() in ("1", "true", "yes"),
             timeout=20, long_polling_timeout=20,
             # my_chat_member = bot added to / removed from a group (for /groups)
-            allowed_updates=["message", "callback_query", "my_chat_member"],
+            allowed_updates=["message", "edited_message", "callback_query", "my_chat_member"],
         )
     except (KeyboardInterrupt, SystemExit):
         logger.info("Bot process interrupted. Shutting down gracefully...")

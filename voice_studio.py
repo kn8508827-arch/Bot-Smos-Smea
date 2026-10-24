@@ -156,6 +156,12 @@ def wav_to_ogg(wav):
     """OGG/Opus for a real Telegram voice bubble; None when ffmpeg is missing or fails."""
     ffmpeg = shutil.which("ffmpeg")
     if not ffmpeg:
+        try:  # static ffmpeg from the imageio-ffmpeg pip package (no system packages needed)
+            import imageio_ffmpeg
+            ffmpeg = imageio_ffmpeg.get_ffmpeg_exe()
+        except Exception:
+            ffmpeg = None
+    if not ffmpeg:
         return None
     with tempfile.TemporaryDirectory() as d:
         src, dst = os.path.join(d, "in.wav"), os.path.join(d, "out.ogg")

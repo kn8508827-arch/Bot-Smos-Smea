@@ -197,7 +197,7 @@ _calendar = calendar_brief.register(bot, config, ask=_fan_ask_gemini)
 knowledge_base.register(bot, config)
 # Owner health check: /status (uptime, errors, 🩺 test AI)
 ops_monitor.register(bot, config, workers=BOT_THREADS, ai_ping=lambda: knowledge_base.gemini(
-    getattr(config, "GEMINI_API_KEY", ""), [{"text": "Reply with one word: OK"}], max_tokens=20))
+    getattr(config, "GEMINI_API_KEY", ""), [{"text": "Reply with one word: OK"}], max_tokens=1024))
 
 
 def register_interaction(from_user, chat) -> bool:

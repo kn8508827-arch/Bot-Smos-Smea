@@ -217,6 +217,15 @@ def _checks(bot, config):
             '[out:json][timeout:15];node(around:300,11.5564,104.9282)["amenity"="fuel"];out 1;')
         return f"OpenStreetMap ✅ ({len(data.get('elements', []))})"
 
+    def gmaps():
+        import maps_places
+        if not maps_places.enabled(key):
+            return "off (MAPS_GROUNDING=false)"
+        found = maps_places.search(key, "ev", lat=11.5564, lon=104.9282)
+        if not found:
+            raise RuntimeError("no places")
+        return f"Google Maps ✅ ({len(found)} EV)"
+
     def cards():
         import card_render
         card_render.membership_card("Test", "01/01/2027", 10)
@@ -239,7 +248,7 @@ def _checks(bot, config):
 
     return [("📡 Telegram", telegram), ("🤖 AI (Gemini)", ai_text), ("🎙️ Voice (TTS)", ai_voice),
             ("🌤️ Weather", weather), ("💵 Dollar", rates), ("🪙 Gold", gold), ("📰 News", news),
-            ("⛽ Maps (/fuel /ev)", maps), ("🎨 Picture cards", cards), ("💾 Database", storage),
+            ("⛽ Maps (/fuel /ev)", maps), ("📍 Google Maps (/ev)", gmaps), ("🎨 Picture cards", cards), ("💾 Database", storage),
             ("💳 KHQR / Bakong", bakong)]
 
 

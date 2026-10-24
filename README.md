@@ -63,7 +63,7 @@ Persona លំនាំដើមស្ថិតនៅ `persona/cooler_bot_2050.t
 | `SUB_FREE_GROUPS` | គ្មាន | ID Group (បំបែកដោយ ,) ដែលមិនត្រូវបង់ និង Bot មិនចេញ។ Group ដែល Owner ជាអ្នកបង្កើត មិនត្រូវបង់ដោយស្វ័យប្រវត្តិ។ |
 | `HUB_URL` | `…/Blue-Gold-Rush/hub/` | ទំព័រ Cooler Hub (Mini App)។ |
 | `HUB_MENU_BUTTON` | `true` | ដាក់ប៊ូតុង 🚀 Hub ក្បែរប្រអប់វាយសារ (Private)។ |
-| `CARDS_ENABLED` | `true` | ផ្ញើរូបកាតស្អាត (VIP, /report, ព័ត៌មានព្រឹក)។ អក្សរខ្មែរលើរូបត្រូវការ `libfribidi0` (Railway: `RAILPACK_DEPLOY_APT_PACKAGES="ffmpeg libfribidi0"`) បើគ្មាន រូបប្រើអក្សរអង់គ្លេស។ |
+| `CARDS_ENABLED` | `true` | ផ្ញើរូបកាតស្អាត (VIP, /report, ព័ត៌មានព្រឹក)។ អក្សរខ្មែរលើរូបត្រូវការ `libfribidi0` បើគ្មាន រូបប្រើអក្សរអង់គ្លេស។ |
 | `BRIEF_HOUR` | `7` | ម៉ោងផ្ញើព័ត៌មានពេលព្រឹក (/morning)។ |
 | `IMAGINE_MODEL` | `gemini-nano-banana-2.1` | Model គូររូប (/imagine)។ |
 | `IMAGINE_DAILY_LIMIT` | `5` | ចំនួនរូប/ថ្ងៃ/នាក់។ |
@@ -80,7 +80,7 @@ Persona លំនាំដើមស្ថិតនៅ `persona/cooler_bot_2050.t
 - 🎨 `/imagine` គូររូប · 📝 `/summary` សង្ខេប Group · 🧠 `/memory` `/forget` · 🎁 មិត្ត ៣ នាក់បង់ = ៧ ថ្ងៃឥតគិតថ្លៃ
 - 🧰 **ជំនួយប្រចាំថ្ងៃ**: 🚨 `/scam` ឆែកសារ/Link/រូបបោកប្រាស់ (ឥតគិតថ្លៃ) · 🎤 `/totext` Voice → អក្សរខ្មែរ · 🌐 `/translate` រូប/អក្សរ → ខ្មែរ · 📚 `/homework` ពន្យល់លំហាត់ពីរូប · ⏰ `/remind` និយាយធម្មតា (ម្ដង/រាល់ថ្ងៃ/សប្ដាហ៍/ខែ) `/reminders` · 💵 `/cash` `/sale` `/undo` `/report` (Private = សៀវភៅផ្ទាល់ខ្លួន, Group = សៀវភៅហាង)
 - 🎧 **Cooler Music**: `/song ប្រធានបទ` → ជ្រើសស្ទីល (Rap, Pop, ស្នេហា, Party, Chill, ខ្មែរបុរាណ Mix) → Gemini សរសេរទំនុកខ្មែរថ្មី → Lyria ច្រៀង/Rap ជាមួយភ្លេងពេញ (MP3 + ទំនុក); `/beat` Beat ៣០ វិនាទី; ប៊ូតុង 🎧 ក្រោម /rap
-- 🎙️ **សំឡេង**: Voice Note បង្ហាញ «អ្វីដែល AI ឮ» + ប៊ូតុង 🔊; `/say` អានអត្ថបទជាសំឡេងខ្មែរ; `/voice` ស្ដាប់សំឡេង Cooler Bot (សំឡេងតែមួយ៖ ក្មេងប្រុស ១៨-២២ ឆ្នាំ; ប្តូរបានដោយ `TTS_VOICE`)។ បើ Server មាន `ffmpeg` (Railway: `RAILPACK_DEPLOY_APT_PACKAGES=ffmpeg`) Bot ផ្ញើជា Voice bubble, បើគ្មាន ផ្ញើជា Audio file
+- 🎙️ **សំឡេង**: Voice Note បង្ហាញ «អ្វីដែល AI ឮ» + ប៊ូតុង 🔊; `/say` អានអត្ថបទជាសំឡេងខ្មែរ; `/voice` ស្ដាប់សំឡេង Cooler Bot (សំឡេងតែមួយ៖ ក្មេងប្រុស ១៨-២២ ឆ្នាំ; ប្តូរបានដោយ `TTS_VOICE`)។ Voice bubble ប្រើ ffmpeg ពី pip package `imageio-ffmpeg` (មិនត្រូវការ System package)
 - 📚 **AI ឆ្លើយតាមឯកសារ**: `/learn` (អត្ថបទ, PDF, .txt, រូបថត), `/ask`, `/kb`, `/kbclear`, `/autoanswer on|off` ក្នុង Group (Admin ប៉ុណ្ណោះ)
 - 🛡️ **ស្ថិរភាព**: Worker 8, Error ក្នុង Handler មិនធ្វើឲ្យ Polling ឈប់ ហើយផ្ញើដំណឹងទៅ Owner; `/status` (uptime, error ២៤ ម៉ោង, 🩺 សាក AI)
 

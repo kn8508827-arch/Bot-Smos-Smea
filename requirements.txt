@@ -5,3 +5,4 @@ python-dotenv>=1.0.0
 APScheduler>=3.10.4,<4.0
 tzdata>=2024.1
 qrcode>=7.4
+imageio-ffmpeg>=0.5

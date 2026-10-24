@@ -408,10 +408,16 @@ def register(bot, config):
 
     def blocked_message(message):
         s = settings()
-        if not s.enabled:
-            return False
         uid = getattr(getattr(message, "from_user", None), "id", None)
         chat = getattr(message, "chat", None)
+        if getattr(chat, "type", None) == "private":
+            try:   # 🧠 so the AI understands a follow-up like «ធ្វើម៉េច?» after a command
+                import ai_assistant
+                ai_assistant.remember_command(uid, getattr(message, "text", None))
+            except Exception:
+                pass
+        if not s.enabled:
+            return False
         if privileged(uid) or chat is None:
             return False
         cmd = command_of(message)

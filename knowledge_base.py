@@ -80,7 +80,20 @@ def gemini(api_key, parts, system=None, max_tokens=4096, temperature=0.2, client
                 text = "".join(p.get("text") or "" for p in ps if not p.get("thought")).strip()
                 if text:
                     return text
-                errors.append(f"{model}: empty")
+                finish = (cands[0].get("finishReason") if cands else "") or ""
+                if finish == "MAX_TOKENS" and payload["generationConfig"]["maxOutputTokens"] < 8192:
+                    # Gemini 3 "thinks" first and the thinking counts toward the limit: retry with more room
+                    payload["generationConfig"]["maxOutputTokens"] = 8192
+                    try:
+                        r = client.post(f"{API}/models/{model}:generateContent", json=payload, headers=headers)
+                        cands = r.json().get("candidates") or [] if r.status_code == 200 else []
+                        ps = ((cands[0].get("content") or {}).get("parts") or []) if cands else []
+                        text = "".join(p.get("text") or "" for p in ps if not p.get("thought")).strip()
+                        if text:
+                            return text
+                    except Exception:
+                        pass
+                errors.append(f"{model}: empty ({finish or 'no text'})")
                 continue
             errors.append(f"{model}: HTTP {r.status_code}")
             if r.status_code in (401, 403):

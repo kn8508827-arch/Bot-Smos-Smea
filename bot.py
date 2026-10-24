@@ -47,6 +47,7 @@ import calendar_brief
 import group_guard
 import ai_extras
 import daily_tools
+import hub
 import knowledge_base
 import ops_monitor
 import backup_tools
@@ -99,6 +100,8 @@ group_guard.register(bot, config, group_allowed=_group_paid)
 _extras = ai_extras.register(bot, config)
 # 🚨 /scam · 🎤 /totext · 🌐 /translate · 📚 /homework · ⏰ /remind · 💵 /cash /report
 _daily = daily_tools.register(bot, config)
+# 🚀 Cooler Hub mini app: /hub, menu button, and /start go_<feature> from the hub tiles
+_hub = hub.register(bot, config)
 # Owner: /backup and a daily database copy to OWNER_ID (members and payments).
 _start_daily_backup = backup_tools.register(bot, config)
 
@@ -307,7 +310,7 @@ def _clear_command_overrides():
 
 
 MENU_COMMANDS = (
-    "start", "menu", "pay", "myplan", "prompt", "studio", "imagine", "song", "say", "calendar", "morning", "rap", "play", "games", "fortune", "quiz", "card", "checkin",
+    "start", "hub", "menu", "pay", "prompt", "studio", "imagine", "song", "say", "calendar", "morning", "rap", "play", "games", "fortune", "quiz", "card", "checkin",
     "health", "sos", "parent", "pet", "rate", "gold", "news", "weather", "trip", "follow", "contact", "help",
 )
 
@@ -363,6 +366,7 @@ def setup_bot_commands():
             BotCommand("prompt", "✍️ Prompt Studio កម្រិតខ្ពស់"),
             BotCommand("song", "🎧 Bot ច្រៀង & Rap មានភ្លេង Beat"),
             BotCommand("beat", "🥁 បង្កើត Beat ៣០ វិនាទី"),
+            BotCommand("hub", "🚀 Cooler Hub — គ្រប់មុខងារ"),
             BotCommand("imagine", "🎨 គូររូបពីអក្សរ"),
             BotCommand("scam", "🚨 ឆែកសារ/Link បោកប្រាស់"),
             BotCommand("totext", "🎤 Voice → អក្សរខ្មែរ"),
@@ -953,6 +957,7 @@ def _back_markup():
 def _main_menu_keyboard():
     """Main menu grouped by category (each category opens a sub-menu in place)."""
     markup = InlineKeyboardMarkup()
+    markup.row(InlineKeyboardButton("🚀 Cooler Hub — គ្រប់មុខងារ ✨", callback_data="hub:open"))
     markup.row(
         InlineKeyboardButton("🤖 ជជែកជាមួយ AI", callback_data="nav:chat"),
         InlineKeyboardButton("🎨 កែរូប AI", callback_data="nav:studio"),
@@ -1732,6 +1737,7 @@ if __name__ == '__main__':
     _khqr.start_loop()
     _calendar.start_loop()
     _daily.start_loop()
+    _hub.setup_menu_button()
     try:  # warn the owner once per start if the database would be wiped by the next deploy
         _db_ok, _db_text = ops_monitor.db_storage_status(config)
         if not _db_ok and getattr(config, "OWNER_ID", 0):

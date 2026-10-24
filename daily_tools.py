@@ -519,9 +519,36 @@ def register(bot, config, ai=None, rate=None):
         lines.append(f"\n<i>1$ ≈ {khr:,.0f} ៛ · {len(rows)} កំណត់ត្រា</i>")
         return "\n".join(lines)
 
+    def report_png(chat_id, now=None):
+        import card_render
+        now = now or now_kh()
+        start = int(now.replace(day=1, hour=0, minute=0, second=0, microsecond=0).timestamp())
+        conn = _db(config)
+        try:
+            rows = conn.execute("SELECT kind, amount, currency, category FROM cashbook WHERE chat_id=? AND at >= ?",
+                                (chat_id, start)).fetchall()
+        finally:
+            conn.close()
+        if not rows:
+            raise ValueError("empty")
+        khr = rate()
+        usd = lambda r: r["amount"] if r["currency"] == "USD" else r["amount"] / khr
+        cats = {}
+        for r in rows:
+            if r["kind"] == "out":
+                cats[r["category"]] = cats.get(r["category"], 0) + usd(r)
+        return card_render.report_card(now.strftime("%m/%Y"), sum(usd(r) for r in rows if r["kind"] == "in"),
+                                       sum(usd(r) for r in rows if r["kind"] == "out"),
+                                       sorted(cats.items(), key=lambda kv: -kv[1]), khr)
+
     @bot.message_handler(commands=["report", "cashreport"])
     def report_cmd(message):
-        bot.reply_to(message, report_text(message.chat.id), parse_mode="HTML")
+        import card_render
+        text = report_text(message.chat.id)
+        if "មិនទាន់មាន" in text:
+            bot.reply_to(message, text, parse_mode="HTML")
+            return
+        card_render.send_card(bot, message.chat.id, lambda: report_png(message.chat.id), text, reply_to=message.message_id)
 
     class Api:
         pass

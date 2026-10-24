@@ -1813,7 +1813,9 @@ def echo_all(message):
     user_text = message.text
     if not user_text:
         return
-    if weather_service.has_weather_intent(user_text):
+    # 🔒 non-members: plain AI chat only (set by the subscription gate) — no weather/location extras
+    text_only = getattr(message, "_cooler_text_only", False)
+    if not text_only and weather_service.has_weather_intent(user_text):
         weather_slug = weather_service.find_province(user_text)
         if weather_slug:
             _send_weather(message, weather_slug)
@@ -1841,7 +1843,7 @@ def echo_all(message):
             )
         )
     )
-    if location_intent:
+    if location_intent and not text_only:
         _send_location_results(
             message,
             query=user_text,

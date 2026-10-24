@@ -309,6 +309,36 @@ def _clear_command_overrides():
                 logger.debug("delete_my_commands skipped (%s)", type(exc).__name__)
 
 
+OWNER_COMMANDS = (
+    ("status", "🩺 ស្ថានភាព Bot (Owner)"),
+    ("stats", "📊 ចំណូល និងសមាជិក (Owner)"),
+    ("subgroups", "👥 Group បង់/មិនបង់ · ចេញ (Owner)"),
+    ("subs", "💳 បញ្ជីសមាជិកសកម្ម (Owner)"),
+    ("grant", "🎁 ផ្ដល់សមាជិក u|g ID ថ្ងៃ (Owner)"),
+    ("revoke", "🗑️ ដកសមាជិក (Owner)"),
+    ("groups", "📋 Group ទាំងអស់ (Owner)"),
+    ("leave", "🚪 ឲ្យ Bot ចេញពី Group (Owner)"),
+    ("backup", "💾 Backup Database (Owner)"),
+    ("khqrtest", "🧪 សាក KHQR ស្វ័យប្រវត្តិ (Owner)"),
+    ("communityadmin", "🌟 គ្រប់គ្រងសហគមន៍ (Owner)"),
+    ("setcode", "🔑 កំណត់លេខកូដ (Owner)"),
+    ("dailycare", "🛠️ Daily Care (Admin)"),
+)
+GROUP_ADMIN_COMMANDS = (
+    ("guard", "🛡️ ការពារ Group (Admin)"),
+    ("warn", "⚠️ Warn (Reply លើសារ)"),
+    ("unwarn", "✅ លុប Warn"),
+    ("mute", "🔇 បិទមាត់ (នាទី)"),
+    ("unmute", "🔊 បើកមាត់វិញ"),
+    ("ban", "🚫 Ban (Reply លើសារ)"),
+    ("kick", "👢 ដកចេញ (Reply លើសារ)"),
+    ("unban", "♻️ Unban USER_ID"),
+    ("setwelcome", "👋 កំណត់សារស្វាគមន៍"),
+    ("badword", "🤬 ពាក្យហាមឃាត់"),
+    ("allowlink", "🔗 អនុញ្ញាត Link"),
+)
+
+
 MENU_COMMANDS = (
     "start", "hub", "menu", "pay", "prompt", "studio", "imagine", "song", "say", "calendar", "morning", "rap", "play", "games", "fortune", "quiz", "card", "checkin",
     "health", "sos", "parent", "pet", "rate", "gold", "news", "weather", "trip", "follow", "contact", "help",
@@ -406,16 +436,43 @@ def setup_bot_commands():
             BotCommand("autoanswer", "🤖 Group ឆ្លើយស្វ័យប្រវត្តិ (Admin)"),
             BotCommand("forget", "🗑️ លុបអ្វីដែល Bot ចាំ"),
             BotCommand("kbclear", "🗑️ លុបឯកសារ AI ទាំងអស់"),
+            BotCommand("dice", "🎲 គប់គ្រាប់ឡុកឡាក់"),
+            BotCommand("dart", "🎯 បោះព្រួញ"),
+            BotCommand("basket", "🏀 បោះបាល់បោះ"),
+            BotCommand("football", "⚽ ទាត់បាល់"),
+            BotCommand("bowling", "🎳 Bowling"),
+            BotCommand("slot", "🎰 Slot ម៉ាស៊ីន"),
+            BotCommand("market", "📈 ដុល្លារ មាស ព័ត៌មាន"),
+            BotCommand("askfamily", "👨‍👩‍👧 សួរ AI អំពីកូន និងសត្វ"),
         ]
         # Main commands first (in MENU_COMMANDS order), then every other public command,
         # so typing "/m" shows /myplan, /memory ... too. Telegram allows up to 100.
         by_name = {c.command: c for c in commands}
-        hidden = {"dailycare", "register", "code"}            # admin / internal ones stay out of the menu
+        hidden = {"dailycare", "register", "code"}            # admin / internal ones stay out of the public menu
         ordered = [n for n in MENU_COMMANDS if n in by_name]
         ordered += [n for n in by_name if n not in ordered and n not in hidden]
-        commands = [by_name[n] for n in ordered][:100]
+        public = [by_name[n] for n in ordered][:100]
         _clear_command_overrides()
-        bot.set_my_commands(commands)
+        bot.set_my_commands(public)
+        # Group admins see the moderation commands too; the owner/admins see owner tools.
+        from telebot import types as tg_types
+        minor = {"exercise", "balance", "warning", "bp", "water", "sleep", "videoprompt", "songprompt", "imageprompt"}
+        admin_names = {c for c, _d in GROUP_ADMIN_COMMANDS} | {c for c, _d in OWNER_COMMANDS}
+        trimmed = [c for c in public if c.command not in minor and c.command not in admin_names]
+        group_admin = [BotCommand(c, d) for c, d in GROUP_ADMIN_COMMANDS] + trimmed
+        bot.set_my_commands(group_admin[:100], scope=tg_types.BotCommandScopeAllChatAdministrators())
+        # owner: owner tools + admin tools + the main public list (the few that don't fit still work when typed)
+        rare = {"register", "team", "events", "notifications", "ev", "fuel", "duel", "gametop", "code", "vip",
+                "number", "palm", "dream", "community", "profile", "leaderboard", "movie", "myname", "music"}
+        owner_list = ([BotCommand(c, d) for c, d in OWNER_COMMANDS] + [BotCommand(c, d) for c, d in GROUP_ADMIN_COMMANDS]
+                      + [c for c in trimmed if c.command not in rare] + [c for c in trimmed if c.command in rare]
+                      + [c for c in public if c.command in minor])[:100]
+        for chat_id in {getattr(config, "OWNER_ID", 0), *getattr(config, "ADMIN_IDS", [])}:
+            if chat_id:
+                try:
+                    bot.set_my_commands(owner_list, scope=tg_types.BotCommandScopeChat(chat_id))
+                except Exception as exc:
+                    logger.info("owner command list skipped (%s)", type(exc).__name__)
         logger.info("Bot commands menu registered successfully.")
     except Exception as e:
         logger.warning(f"Could not register bot commands menu: {e}")

@@ -167,8 +167,9 @@ class TestLocationService(unittest.TestCase):
             service = LocationService(post=post)
             stations = service._fetch_stations(11.5564, 104.9282, 5000)
         self.assertEqual([s["name"] for s in stations], ["PTT"])
-        self.assertEqual(seen[0][0], location_service.OVERPASS_URLS[0])
-        self.assertEqual(seen[1][0], location_service.OVERPASS_URLS[1])
+        # mirrors are asked in parallel now: every mirror may be tried, one failing is fine
+        self.assertTrue({u for u, _c, _t in seen} <= set(location_service.OVERPASS_URLS))
+        self.assertGreaterEqual(len(seen), 2)
         self.assertTrue(seen[0][1].startswith("data=") and seen[0][2] == "application/x-www-form-urlencoded")
 
     def test_distance_radius_filter_and_missing_coordinates(self):

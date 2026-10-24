@@ -21,6 +21,44 @@ API = "https://generativelanguage.googleapis.com/v1beta"
 MODELS = ("gemini-3.8-flash", "gemini-3.6-flash", "gemini-2.5-flash")
 WHAT = {"ev": "electric vehicle (EV) charging stations", "fuel": "fuel / gas / petrol stations"}
 _cache = {}
+FREE_PER_MONTH = 5000      # Google's free grounded requests / month (Gemini 3+)
+
+
+def monthly_limit():
+    """Stay safely under the free quota so the owner never pays (MAPS_MONTHLY_LIMIT, default 4000)."""
+    try:
+        return int(os.getenv("MAPS_MONTHLY_LIMIT", "4000") or 4000)
+    except ValueError:
+        return 4000
+
+
+def _quota_file():
+    db = os.getenv("BOT_DB_PATH", "bot_database.db")
+    return os.path.join(os.path.dirname(os.path.abspath(db)), "maps_quota.json")
+
+
+def _month():
+    return time.strftime("%Y-%m", time.gmtime())
+
+
+def used_this_month():
+    import json
+    try:
+        with open(_quota_file()) as f:
+            data = json.load(f)
+        return int(data.get("used", 0)) if data.get("month") == _month() else 0
+    except Exception:
+        return 0
+
+
+def _add_usage(n):
+    import json
+    total = used_this_month() + n          # read before opening for write (that truncates the file)
+    try:
+        with open(_quota_file(), "w") as f:
+            json.dump({"month": _month(), "used": total}, f)
+    except Exception:
+        pass
 
 
 def enabled(api_key):
@@ -110,6 +148,8 @@ def search(api_key, kind, lat=None, lon=None, place="", client=None, timeout=45)
     hit = _cache.get(key)
     if hit and hit[0] > time.time():
         return hit[1]
+    if used_this_month() >= monthly_limit():
+        raise RuntimeError(f"free monthly quota reached ({used_this_month()}/{monthly_limit()})")
     payload = {"contents": [{"role": "user", "parts": [{"text": prompt(kind, lat, lon, place)}]}],
                "tools": [{"googleMaps": {}}],
                "generationConfig": {"temperature": 0.1, "maxOutputTokens": 4096}}
@@ -139,7 +179,10 @@ def search(api_key, kind, lat=None, lon=None, place="", client=None, timeout=45)
                 continue
             parts = (cands[0].get("content") or {}).get("parts") or []
             text = "".join(p.get("text") or "" for p in parts if not p.get("thought"))
-            chunks = (cands[0].get("groundingMetadata") or {}).get("groundingChunks") or []
+            meta = cands[0].get("groundingMetadata") or {}
+            chunks = meta.get("groundingChunks") or []
+            # Google bills each search the model runs, so count them all (at least 1)
+            _add_usage(max(1, len(meta.get("webSearchQueries") or meta.get("retrievalQueries") or [])))
             stations = parse(text, chunks, kind, lat, lon)
             _cache[key] = (time.time() + ttl, stations)
             while len(_cache) > 300:

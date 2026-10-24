@@ -224,7 +224,7 @@ def _checks(bot, config):
         found = maps_places.search(key, "ev", lat=11.5564, lon=104.9282)
         if not found:
             raise RuntimeError("no places")
-        return f"Google Maps ✅ ({len(found)} EV)"
+        return f"Google Maps ✅ ({len(found)} EV) · ប្រើ {maps_places.used_this_month()}/{maps_places.monthly_limit()} ខែនេះ (ឥតគិតថ្លៃ)"
 
     def cards():
         import card_render

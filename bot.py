@@ -557,6 +557,8 @@ def _format_location_page(results, token, page, maps=None):
             lines.append(f"⚡ កម្លាំងសាកដែលបានដាក់ស្លាក៖ {station['power']}")
         if station.get("hours"):
             lines.append(f"🕒 ម៉ោង (តាម OpenStreetMap; សូមផ្ទៀងផ្ទាត់)៖ {station['hours']}")
+        if station.get("details"):
+            lines.append(f"ℹ️ {station['details']}")
         if station.get("phone"):
             lines.append(f"☎️ {station['phone']}")
         chunks.append("\n".join(lines))
@@ -572,12 +574,14 @@ def _format_location_page(results, token, page, maps=None):
         )
     if nav_buttons:
         keyboard.row(*nav_buttons)
-    footer = "\n\nប្រភព៖ OpenStreetMap។ ទិន្នន័យអាចមិនពេញលេញ; មិនមានស្ថានភាព charger ផ្ទាល់ពេលទេ។"
+    from_google = bool(results) and results[0].get("source") == "google"
+    footer = ("\n\nប្រភព៖ Google Maps ✅ — ចុច 🗺️ ផ្លូវទៅ ដើម្បីបើកផ្លូវ។" if from_google else
+              "\n\nប្រភព៖ OpenStreetMap។ ទិន្នន័យអាចមិនពេញលេញ; មិនមានស្ថានភាព charger ផ្ទាល់ពេលទេ។")
     if maps:
         kind, lat, lon, query = maps
         for row in _maps_fallback_markup(kind, lat, lon, query, label="🌐 មើលទាំងអស់ជិតអ្នក (Google Maps)").keyboard:
             keyboard.row(*row)
-        if len(results) < 3:
+        if len(results) < 3 and not from_google:
             footer = ("\n\n💡 OpenStreetMap មានទិន្នន័យ" + ("ស្ថានីយ EV" if kind == "ev" else "ស្ថានីយ") +
                       " នៅកម្ពុជាតិចនៅឡើយ — ចុច 🌐 Google Maps ខាងក្រោម ដើម្បីឃើញកន្លែងច្រើនជាង និងជិតជាងនេះ។")
     return (
@@ -600,6 +604,28 @@ def _maps_fallback_markup(kind, lat=None, lon=None, query="", label="🗺️ ប
     return markup
 
 
+def _google_places_result(query, kind, lat, lon):
+    """Google Maps (via Gemini grounding) first — far more EV chargers than OpenStreetMap. None = use OSM."""
+    import maps_places
+    key = getattr(config, "GEMINI_API_KEY", "")
+    if not maps_places.enabled(key):
+        return None
+    parsed = location_service.normalize_query(query or "")
+    kind = kind or parsed.get("kind")
+    place = parsed.get("location") or ""
+    if lat is None and not place:
+        return None
+    try:
+        stations = maps_places.search(key, kind, lat=lat, lon=lon, place=place)
+    except Exception as exc:
+        logger.warning("Google Maps grounding failed (%s)", str(exc)[:200])
+        return None
+    if len(stations) < 2:
+        return None
+    return {"status": "ok", "stations": stations, "origin": "google",
+            "center": (lat, lon) if lat is not None else (None, None), "radius_m": None}
+
+
 def _send_location_results(message, query="", kind=None, lat=None, lon=None):
     try:
         bot.send_chat_action(message.chat.id, "find_location")
@@ -610,15 +636,17 @@ def _send_location_results(message, query="", kind=None, lat=None, lon=None):
         waiting = bot.reply_to(message, "🔎 កំពុងស្វែងរក" + (" ស្ថានីយសាក EV ⚡" if kind == "ev" else " ស្ថានីយប្រេង ⛽") + " ...")
     except Exception:
         pass
+    result = _google_places_result(query, kind, lat, lon)
     try:
-        result = location_service.location_service.search(
-            query,
-            lat=lat,
-            lon=lon,
-            kind=kind,
-        )
+        if result is None:
+            result = location_service.location_service.search(
+                query,
+                lat=lat,
+                lon=lon,
+                kind=kind,
+            )
         # OpenStreetMap is thin in Cambodia (especially EV chargers): look further before giving up.
-        if (result.get("status") in ("ok", "empty") and len(result["stations"]) < 3
+        if (result.get("status") in ("ok", "empty") and result.get("origin") != "google" and len(result["stations"]) < 3
                 and result.get("radius_m") == location_service.SEARCH_RADIUS_METERS):
             try:
                 wider = location_service.location_service.search(query, lat=lat, lon=lon, kind=kind,

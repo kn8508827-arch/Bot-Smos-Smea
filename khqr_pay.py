@@ -252,6 +252,7 @@ def register(bot, config):
             return None
         md5 = md5_of(qr)
         what = (f"👥 Group <b>{html.escape(title or str(target_id))}</b>" if kind == "g"
+                else "➕ សិទ្ធិដាក់ Bot ចូល Group ១" if kind == "c"
                 else "🧪 តេស្ត KHQR" if test else "👤 សមាជិកម្នាក់")
         m = InlineKeyboardMarkup()
         m.row(InlineKeyboardButton("✅ ខ្ញុំបង់រួចហើយ — ពិនិត្យឥឡូវ", callback_data=f"khqr:chk:{md5[:16]}"))
@@ -296,7 +297,11 @@ def register(bot, config):
                       (row["kind"], row["target_id"], row["payer_id"], row["payer_name"], "khqr:" + row["md5"],
                        row["created_at"], int(time.time())))
         try:
-            if row["kind"] == "g":
+            if row["kind"] == "c":   # group pass: until is the payer's credit total
+                notice = getattr(bot, "_cooler_credit_notice", None)
+                if notice is not None:
+                    notice(row["payer_id"])
+            elif row["kind"] == "g":
                 bot.send_message(row["chat_id"], f"🎉 បង់រួចរាល់! Group បើកដំណើរការរហូតដល់ <b>{sub.fmt_date(until)}</b> ✅",
                                  parse_mode="HTML")
                 bot.send_message(row["target_id"], f"🎉 Group នេះបានបង់រួចហើយ! Cooler Bot ធ្វើការរហូតដល់ "
@@ -311,7 +316,9 @@ def register(bot, config):
             try:
                 bot.send_message(owner, f"💰 <b>KHQR ចូលស្វ័យប្រវត្តិ</b> {html.escape(row['amount'])} {row['currency']} · "
                                         f"{'👥' if row['kind'] == 'g' else '👤'} <code>{row['target_id']}</code> "
-                                        f"(payer <code>{row['payer_id']}</code>) → {sub.fmt_date(until)}", parse_mode="HTML")
+                                        f"(payer <code>{row['payer_id']}</code>) → "
+                                        f"{'សិទ្ធិ Group ' + str(until) if row['kind'] == 'c' else sub.fmt_date(until)}",
+                                 parse_mode="HTML")
             except Exception:
                 pass
         try:
@@ -432,7 +439,7 @@ def register(bot, config):
             kind = parts[2] if len(parts) > 2 else "u"
             sub_waiting = getattr(bot, "_cooler_sub_waiting", None)
             if sub_waiting is not None:
-                sub_waiting[call.from_user.id] = (kind if kind in ("u", "g") else "u", call.from_user.id,
+                sub_waiting[call.from_user.id] = (kind if kind in ("u", "g", "c") else "u", call.from_user.id,
                                                   time.monotonic() + 3600)
             bot.send_message(call.message.chat.id, "🧾 ថតរូប / Screenshot បង្កាន់ដៃ ហើយផ្ញើមកទីនេះ — Owner នឹង Approve 🙏")
             return

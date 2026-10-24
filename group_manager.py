@@ -292,6 +292,12 @@ def register(bot, config):
         chat = getattr(update, "chat", None)
         if status in _ACTIVE:
             record_chat(config, chat, status="member")
+            check = getattr(bot, "_cooler_on_bot_added", None)  # 💳 subscription: members + 5$ pass only
+            if check is not None:
+                try:
+                    check(update)
+                except Exception as exc:
+                    logger.warning("group join check failed (%s)", type(exc).__name__)
         elif status in ("left", "kicked"):
             record_chat(config, chat, status="left")
 

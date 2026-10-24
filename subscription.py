@@ -5,10 +5,14 @@
             whoever pays (group owner or anyone who added the bot).
   • Payment: ABA KHQR / pay link → the payer sends the receipt photo to the bot →
             the owner taps ✅ Approve / ❌ Reject.
-  • Unpaid groups get a notice with the QR and SUB_GROUP_GRACE_HOURS (24 h); after that,
-    and when a paid month ends (+24 h notice), the bot leaves the group by itself.
-  • Unpaid people can still use a few free features (welcome, menu, follow, SOS and
-    health tips); everything else shows the payment screen.
+  • Adding the bot to a group: ONLY active members (1$) can do it, and they must buy a
+    group pass (5$, kind "c" = one credit) BEFORE adding. When the bot joins a group it checks
+    who added it: member + credit → the credit is used and the group is paid for SUB_DAYS days;
+    otherwise the bot explains why and leaves the group immediately. (/addgroup, Hub "+ Group")
+  • When a paid group month ends, the group gets a notice and SUB_GROUP_GRACE_HOURS (24 h)
+    to renew; after that the bot leaves by itself.
+  • Non-members can only chat with the bot in plain text (AI chat) plus /start, /pay, /hub,
+    /follow, /contact and /sos; every other feature shows the payment screen.
   • Owner/admins are never blocked. SUBSCRIPTION_ENABLED=false turns everything off.
 
 Keeping members: reminders 3 days and 1 day before the end (with a renew button) and a
@@ -36,15 +40,14 @@ _HERE = os.path.dirname(os.path.abspath(__file__))
 
 ALL_CONTENT = ["text", "photo", "voice", "audio", "video", "video_note", "document", "sticker",
                "animation", "location", "contact"]
+# Non-members: plain-text chat only, plus what they need to look around, pay and follow Vid Cooler.
 FREE_COMMANDS = {
-    "start", "help", "menu", "about", "pay", "subscribe", "member", "myplan", "plan",
-    "follow", "social", "tiktok", "contact", "vidcooler",
-    "sos", "health", "exercise", "balance", "warning", "water", "sleep",
-    "calendar", "today", "khmerdate", "lunar", "morning", "brief", "scam", "checkscam", "hub", "app", "icom", "talk",
+    "start", "help", "menu", "about", "pay", "subscribe", "member", "myplan", "plan", "addgroup",
+    "follow", "social", "tiktok", "contact", "vidcooler", "sos", "hub", "app",
 }
-FREE_CALLBACKS = ("hub:", "cal:", "x:", "khqr:", "nav:main", "nav:about", "nav:cat:", "nav:team", "nav:events", "sub:", "follow:menu", "health:",
-                  "hmore:water", "hmore:sleep")
+FREE_CALLBACKS = ("hub:", "khqr:", "nav:main", "nav:about", "nav:cat:", "nav:team", "nav:events", "sub:", "follow:menu")
 GROUP_FREE_COMMANDS = {"pay", "subscribe", "member", "myplan", "plan", "leave", "groups", "group"}
+KINDS = ("u", "g", "c")   # person · group · group pass (credit to add the bot to one new group)
 
 
 def settings():
@@ -90,6 +93,32 @@ def init_schema(config):
             kind TEXT NOT NULL, target_id INTEGER NOT NULL, period INTEGER NOT NULL, stage TEXT NOT NULL,
             sent_at INTEGER NOT NULL, PRIMARY KEY (kind, target_id, period, stage))""")
         conn.execute("CREATE TABLE IF NOT EXISTS sub_meta (key TEXT PRIMARY KEY, value TEXT)")
+        # paid group passes: one credit = the right to add the bot to one new group
+        conn.execute("""CREATE TABLE IF NOT EXISTS group_credits (
+            user_id INTEGER PRIMARY KEY, credits INTEGER NOT NULL DEFAULT 0, updated_at INTEGER)""")
+
+
+def credits(config, user_id):
+    with _connect(config) as conn:
+        row = conn.execute("SELECT credits FROM group_credits WHERE user_id=?", (user_id,)).fetchone()
+    return row["credits"] if row else 0
+
+
+def add_credit(config, user_id, n=1):
+    """Add n group passes; returns the new total."""
+    with _connect(config) as conn:
+        conn.execute("""INSERT INTO group_credits(user_id, credits, updated_at) VALUES (?, ?, ?)
+            ON CONFLICT(user_id) DO UPDATE SET credits=max(0, credits + excluded.credits),
+            updated_at=excluded.updated_at""", (user_id, int(n), int(time.time())))
+    return credits(config, user_id)
+
+
+def use_credit(config, user_id):
+    """Spend one group pass atomically. True when one was available."""
+    with _connect(config) as conn:
+        cur = conn.execute("UPDATE group_credits SET credits=credits-1, updated_at=? "
+                           "WHERE user_id=? AND credits > 0", (int(time.time()), user_id))
+        return cur.rowcount == 1
 
 
 def price_value(text):
@@ -127,7 +156,7 @@ def stats(config, now=None):
     """Numbers for the owner dashboard and the daily report."""
     s = settings()
     now = int(now or time.time())
-    price = {"u": price_value(s.user_price), "g": price_value(s.group_price)}
+    price = {"u": price_value(s.user_price), "g": price_value(s.group_price), "c": price_value(s.group_price)}
     this_m, last_m = month_start(now), month_start(now, 1)
     day0 = int(datetime.fromtimestamp(now, TZ_KH).replace(hour=0, minute=0, second=0, microsecond=0).timestamp())
     with _connect(config) as conn:
@@ -137,10 +166,11 @@ def stats(config, now=None):
         pending = conn.execute("SELECT COUNT(*) FROM sub_payments WHERE status='pending'").fetchone()[0]
 
     def revenue(start, end):
-        return sum(price[p["kind"]] for p in pays if start <= p["decided_at"] < end)
+        return sum(price.get(p["kind"], 0) for p in pays if start <= p["decided_at"] < end)
 
     def count(start, end, kind):
-        return sum(1 for p in pays if p["kind"] == kind and start <= p["decided_at"] < end)
+        kinds = ("g", "c") if kind == "g" else (kind,)
+        return sum(1 for p in pays if p["kind"] in kinds and start <= p["decided_at"] < end)
 
     per_target = {}
     for p in pays:
@@ -176,6 +206,10 @@ def is_active(config, kind, target_id, now=None):
 
 
 def extend(config, kind, target_id, days, now=None):
+    """Switch a paid period on. For kind "c" (group pass) target_id is the payer: one credit is
+    added and the new credit total is returned instead of a date."""
+    if kind == "c":
+        return add_credit(config, target_id, 1)
     now = int(now or time.time())
     start = max(now, paid_until(config, kind, target_id))
     until = start + days * DAY
@@ -285,10 +319,11 @@ def register(bot, config):
     def benefits():
         s = settings()
         return (f"💳 <b>សមាជិក Cooler Bot</b>\n\n"
-                f"👤 <b>ម្នាក់ឯង៖ {html.escape(s.user_price)} / {s.days} ថ្ងៃ</b> — ប្រើគ្រប់មុខងារ (AI ជជែក កែរូប AI "
+                "🆓 <b>មិនទាន់ជាសមាជិក៖</b> ជជែកអក្សរជាមួយ Bot បានតែប៉ុណ្ណោះ\n"
+                f"👤 <b>សមាជិក៖ {html.escape(s.user_price)} / {s.days} ថ្ងៃ</b> — ប្រើគ្រប់មុខងារ (កែរូប AI "
                 f"Prompt Studio ហ្គេម Quiz Fan Card ព័ត៌មាន មាស ដុល្លារ ...)\n"
-                f"👥 <b>Group៖ {html.escape(s.group_price)} / {s.days} ថ្ងៃ</b> — Bot ធ្វើការក្នុង Group នោះ "
-                f"(អ្នកណាបង់ក៏បាន)\n\n"
+                f"👥 <b>ដាក់ Bot ចូល Group៖ {html.escape(s.group_price)} / {s.days} ថ្ងៃ</b> — សម្រាប់សមាជិកប៉ុណ្ណោះ "
+                "បង់មុន ទើប Add បាន (/addgroup)\n\n"
                 f"📅 គិត {s.days} ថ្ងៃ ចាប់ពីថ្ងៃ Approve\n"
                 "🙏 លុយនេះជួយ Vid Cooler រក្សា Bot ឲ្យដំណើរការ និង Update មុខងារថ្មីៗសម្រាប់ហ្វេន ❤️")
 
@@ -302,10 +337,10 @@ def register(bot, config):
 
     def free_text():
         return ("🆓 <b>មុខងារឥតគិតថ្លៃ</b>\n\n"
-                "🆘 /sos — លេខទូរស័ព្ទបន្ទាន់\n🧓 /health — សុខភាព និងលំហាត់ប្រាណ\n"
-                "🏃 /exercise · ⚖️ /balance · 🚨 /warning · 💧 /water · 😴 /sleep\n"
+                "💬 ជជែកអក្សរជាមួយ Bot — គ្រាន់តែវាយសារមក\n"
+                "🆘 /sos — លេខទូរស័ព្ទបន្ទាន់\n"
                 "📲 /follow — តាមដាន Vid Cooler\n\n"
-                "🔒 មុខងារផ្សេងទៀតសម្រាប់សមាជិក — /pay")
+                "🔒 មុខងារផ្សេងទាំងអស់ និងការដាក់ Bot ចូល Group សម្រាប់សមាជិក — /pay")
 
     def plan_text(uid):
         until = paid_until(config, "u", uid)
@@ -328,13 +363,15 @@ def register(bot, config):
         if hook is not None:
             # ⚡ automatic KHQR (Bakong); the receipt photo still works as a fallback
             try:
-                price = price_value(s.group_price if kind == "g" else s.user_price)
+                price = price_value(s.group_price if kind in ("g", "c") else s.user_price)
                 if price > 0 and hook(chat_id, uid, kind, target_id, price, title):
                     return
             except Exception as exc:
                 logger.warning("KHQR hook failed (%s)", type(exc).__name__)
         what = (f"👥 Group <b>{html.escape(title or str(target_id))}</b> — {html.escape(s.group_price)} / {s.days} ថ្ងៃ"
-                if kind == "g" else f"👤 សមាជិកម្នាក់ — {html.escape(s.user_price)} / {s.days} ថ្ងៃ")
+                if kind == "g" else
+                f"➕ សិទ្ធិដាក់ Bot ចូល Group ១ — {html.escape(s.group_price)} / {s.days} ថ្ងៃ" if kind == "c"
+                else f"👤 សមាជិកម្នាក់ — {html.escape(s.user_price)} / {s.days} ថ្ងៃ")
         caption = (f"💳 <b>បង់ប្រាក់</b>\n{what}\n\n"
                    f"1️⃣ Scan KHQR ឬចុច «បង់តាម ABA»\n🏦 {html.escape(s.account)}\n"
                    "2️⃣ ថតរូប/Screenshot បង្កាន់ដៃ ហើយ <b>ផ្ញើរូបនោះមកទីនេះ</b>\n"
@@ -389,7 +426,12 @@ def register(bot, config):
             return False  # payment receipt
         if cmd in FREE_COMMANDS:
             return False
-        return not is_active(config, "u", uid)
+        if is_active(config, "u", uid):
+            return False
+        if getattr(message, "content_type", "") == "text" and cmd is None:
+            message._cooler_text_only = True   # non-member: plain AI chat only (bot.py skips extras)
+            return False
+        return True
 
     @bot.message_handler(func=blocked_message, content_types=ALL_CONTENT)
     def gate_message(message):
@@ -521,7 +563,8 @@ def register(bot, config):
             bot.reply_to(message, "⚠️ Bot មិនទាន់កំណត់ Owner ទេ។ សូមទាក់ទង Vid Cooler ផ្ទាល់ (/contact) 🙏")
             return
         s = settings()
-        plan = (f"👥 Group {s.group_price} — {html.escape(str(target_id))}" if kind == "g" else f"👤 សមាជិក {s.user_price}")
+        plan = (f"👥 Group {s.group_price} — {html.escape(str(target_id))}" if kind == "g"
+                else f"➕ សិទ្ធិដាក់ Bot ចូល Group {s.group_price}" if kind == "c" else f"👤 សមាជិក {s.user_price}")
         if kind == "g":
             title = next((g["title"] for g in _active_groups(config) if g["chat_id"] == target_id), None)
             if title:
@@ -556,7 +599,11 @@ def register(bot, config):
         with _connect(config) as conn:
             conn.execute("UPDATE sub_payments SET status=?, decided_at=? WHERE id=?", (status, int(time.time()), pid))
         kind, target, payer = row["kind"], row["target_id"], row["payer_id"]
-        if approve:
+        if approve and kind == "c":
+            total = extend(config, "c", payer, s.days)
+            note = f"✅ Approved #{pid} — សិទ្ធិ Group (មាន {total})"
+            credit_notice(payer)
+        elif approve:
             until = extend(config, kind, target, s.days)
             note = f"✅ Approved #{pid} — រហូតដល់ {fmt_date(until)}"
             try:
@@ -638,7 +685,13 @@ def register(bot, config):
             return
         bot.answer_callback_query(call.id)
         if action == "pay":
-            send_payment(chat_id, uid, "u", uid)
+            kind = parts[2] if len(parts) > 2 and parts[2] in ("u", "c") else "u"
+            if kind == "c" and not (privileged(uid) or is_active(config, "u", uid)):
+                send_paywall(chat_id, "🔒 <b>ត្រូវចូលជាសមាជិកសិន</b> ទើបអាចដាក់ Bot ចូល Group បាន\n\n")
+                return
+            send_payment(chat_id, uid, kind, uid)
+        elif action == "addgroup":
+            show_addgroup(chat_id, uid)
         elif action == "free":
             bot.send_message(chat_id, free_text(), parse_mode="HTML")
         elif action == "plan":
@@ -646,6 +699,133 @@ def register(bot, config):
         elif action == "cancel":
             waiting.pop(uid, None)
             bot.send_message(chat_id, "បានបោះបង់ការបង់ប្រាក់ហើយ។")
+
+    # ---------- adding the bot to a group: members only, 5$ pass first ----------
+
+    def add_link():
+        username = bot_username()
+        return f"https://t.me/{username}?startgroup=cooler" if username else None
+
+    def credit_notice(uid):
+        """Tell a payer they can now add the bot (button opens Telegram's group picker)."""
+        n = credits(config, uid)
+        m = InlineKeyboardMarkup()
+        link = add_link()
+        if link:
+            m.row(InlineKeyboardButton("➕ ជ្រើស Group ដាក់ Bot ចូល", url=link))
+        try:
+            bot.send_message(uid, f"🎉 <b>បង់រួចរាល់!</b> អ្នកមានសិទ្ធិដាក់ Bot ចូល Group៖ <b>{n}</b>\n\n"
+                                  "👇 ចុចប៊ូតុង ជ្រើស Group ហើយ Bot នឹងដំណើរការភ្លាម "
+                                  f"{settings().days} ថ្ងៃ ✅\n"
+                                  "💡 Group នោះត្រូវអនុញ្ញាតឲ្យអ្នក Add សមាជិកបាន", reply_markup=m, parse_mode="HTML")
+        except Exception as exc:
+            logger.warning("credit notice failed (%s)", type(exc).__name__)
+    bot._cooler_credit_notice = credit_notice
+
+    def show_addgroup(chat_id, uid):
+        s = settings()
+        m = InlineKeyboardMarkup()
+        link = add_link()
+        if not s.enabled or privileged(uid):
+            if link:
+                m.row(InlineKeyboardButton("➕ ជ្រើស Group ដាក់ Bot ចូល", url=link))
+            bot.send_message(chat_id, "👑 ដាក់ Bot ចូល Group ណាក៏បាន 👇", reply_markup=m)
+            return
+        if not is_active(config, "u", uid):
+            m.row(InlineKeyboardButton(f"💳 ចូលជាសមាជិក {s.user_price}", callback_data="sub:pay:u"))
+            bot.send_message(chat_id, "🔒 <b>ដាក់ Bot ចូល Group បានតែសមាជិកប៉ុណ្ណោះ</b>\n\n"
+                                      f"1️⃣ ចូលជាសមាជិក {html.escape(s.user_price)}\n"
+                                      f"2️⃣ បង់ {html.escape(s.group_price)} សម្រាប់ Group ១ ({s.days} ថ្ងៃ)\n"
+                                      "3️⃣ ចុច ➕ ជ្រើស Group — Bot ដំណើរការភ្លាម ✅",
+                             reply_markup=m, parse_mode="HTML")
+            return
+        n = credits(config, uid)
+        if n > 0:
+            if link:
+                m.row(InlineKeyboardButton("➕ ជ្រើស Group ដាក់ Bot ចូល", url=link))
+            bot.send_message(chat_id, f"✅ អ្នកមានសិទ្ធិដាក់ Bot ចូល Group៖ <b>{n}</b>\n👇 ចុចប៊ូតុង ហើយជ្រើស Group",
+                             reply_markup=m, parse_mode="HTML")
+            return
+        m.row(InlineKeyboardButton(f"💳 បង់ {s.group_price} ដាក់ Bot ចូល Group", callback_data="sub:pay:c"))
+        bot.send_message(chat_id, f"👥 <b>ដាក់ Bot ចូល Group</b> — {html.escape(s.group_price)} / {s.days} ថ្ងៃ\n\n"
+                                  "បង់មុន → ទទួលប៊ូតុង ➕ ជ្រើស Group → Bot ដំណើរការភ្លាម ✅\n"
+                                  "⚠️ បើ Add ដោយមិនទាន់បង់ Bot នឹងចាកចេញភ្លាម",
+                         reply_markup=m, parse_mode="HTML")
+
+    @bot.message_handler(commands=["addgroup"])
+    def addgroup_cmd(message):
+        if getattr(message.chat, "type", None) != "private":
+            m = InlineKeyboardMarkup()
+            username = bot_username()
+            if username:
+                m.row(InlineKeyboardButton("➕ ដាក់ Bot ចូល Group", url=f"https://t.me/{username}?start=addgroup"))
+            bot.reply_to(message, "សូមប្រើ /addgroup ក្នុង Private Chat ជាមួយ Bot 👇", reply_markup=m)
+            return
+        show_addgroup(message.chat.id, message.from_user.id)
+
+    @bot.message_handler(commands=["start"], func=lambda m: (m.text or "").split()[1:2] == ["addgroup"])
+    def start_addgroup(message):
+        show_addgroup(message.chat.id, message.from_user.id)
+
+    def on_bot_added(update):
+        """Called by group_manager when the bot's own membership changes.
+        Only an active member holding a group pass can bring the bot into a new group."""
+        s = settings()
+        chat = getattr(update, "chat", None)
+        if not s.enabled or not is_group(chat):
+            return
+        old = getattr(getattr(update, "old_chat_member", None), "status", None)
+        new = getattr(getattr(update, "new_chat_member", None), "status", None)
+        if new not in ("member", "administrator") or old in ("member", "administrator", "creator", "restricted"):
+            return  # not a fresh join (e.g. promoted to admin)
+        adder = getattr(update, "from_user", None)
+        uid = getattr(adder, "id", None)
+        cid = chat.id
+        title = html.escape((getattr(chat, "title", None) or str(cid))[:40])
+        if privileged(uid) or exempt(cid) or is_active(config, "g", cid):
+            return  # owner/admin, owner's own group, or the group is still paid
+        member = uid is not None and is_active(config, "u", uid)
+        if member and use_credit(config, uid):
+            until = extend(config, "g", cid, s.days)
+            clear_group_deadline(config, cid)
+            try:
+                bot.send_message(cid, f"🎉 <b>សួស្ដី! Cooler Bot បានចូល Group ហើយ</b>\n"
+                                      f"✅ ដំណើរការរហូតដល់ <b>{fmt_date(until)}</b> — វាយ /menu ដើម្បីចាប់ផ្ដើម 🚀",
+                                 parse_mode="HTML")
+            except Exception:
+                pass
+            try:
+                bot.send_message(uid, f"✅ Bot បានចូល <b>{title}</b> ហើយ — ដំណើរការរហូតដល់ {fmt_date(until)}\n"
+                                      f"➕ សិទ្ធិនៅសល់៖ {credits(config, uid)}", parse_mode="HTML")
+            except Exception:
+                pass
+            owner_alert(f"➕ Group ថ្មី <b>{title}</b> (ដោយ <code>{uid}</code>) — បើកដល់ {fmt_date(until)}")
+            return
+        why = ("🔒 មានតែ <b>សមាជិក Cooler Bot</b> ដែលបានបង់ {g} សម្រាប់ Group ទើបអាចដាក់ Bot ចូលបាន"
+               if not member else "🔒 ត្រូវបង់ <b>{g}</b> ជាមុនសិន ទើបអាចដាក់ Bot ចូល Group បាន")
+        why = why.format(g=html.escape(s.group_price))
+        try:
+            bot.send_message(cid, f"{why}\n👋 Cooler Bot សូមលាសិន 🙏", parse_mode="HTML")
+        except Exception:
+            pass
+        if uid is not None:
+            m = InlineKeyboardMarkup()
+            m.row(InlineKeyboardButton(f"💳 បង់ {s.group_price} ដាក់ Bot ចូល Group" if member
+                                       else f"💳 ចូលជាសមាជិក {s.user_price}",
+                                       callback_data="sub:pay:c" if member else "sub:pay:u"))
+            try:
+                bot.send_message(uid, f"{why}\n\nBot បានចាកចេញពី <b>{title}</b> វិញហើយ។ "
+                                      "បង់រួច ចុច ➕ ជ្រើស Group ម្ដងទៀត ✅", reply_markup=m, parse_mode="HTML")
+            except Exception:
+                pass  # they never opened the bot in private
+        try:
+            bot.leave_chat(cid)
+        except Exception as exc:
+            logger.warning("refused-group leave failed (%s)", type(exc).__name__)
+        _mark_group_left(config, cid)
+        clear_group_deadline(config, cid)
+        owner_alert(f"🚫 មានគេ Add Bot ចូល <b>{title}</b> ដោយមិនបានបង់ (<code>{uid}</code>) — Bot ចាកចេញភ្លាម")
+    bot._cooler_on_bot_added = on_bot_added
 
     # ---------- owner tools ----------
 
@@ -743,12 +923,19 @@ def register(bot, config):
         parts = (message.text or "").split()
         cmd = parts[0][1:].split("@")[0].lower()
         try:
-            kind = {"u": "u", "user": "u", "g": "g", "group": "g"}[parts[1].lower()]
+            kind = {"u": "u", "user": "u", "g": "g", "group": "g", "c": "c", "pass": "c"}[parts[1].lower()]
             target = int(parts[2])
             days = int(parts[3]) if len(parts) > 3 else settings().days
         except (IndexError, KeyError, ValueError):
             bot.reply_to(message, "របៀបប្រើ៖ <code>/grant u USER_ID 30</code> · <code>/grant g -100GROUP_ID</code> · "
-                         "<code>/revoke u USER_ID</code>", parse_mode="HTML")
+                         "<code>/grant c USER_ID 1</code> (សិទ្ធិដាក់ចូល Group) · <code>/revoke u USER_ID</code>", parse_mode="HTML")
+            return
+        if kind == "c":   # /grant c USER_ID [n] → n group passes · /revoke c USER_ID → all removed
+            n = int(parts[3]) if len(parts) > 3 else 1
+            total = add_credit(config, target, -credits(config, target) if cmd == "revoke" else n)
+            bot.reply_to(message, f"➕ {target} មានសិទ្ធិដាក់ Bot ចូល Group៖ {total}")
+            if cmd == "grant":
+                credit_notice(target)
             return
         if cmd == "revoke":
             revoke(config, kind, target)

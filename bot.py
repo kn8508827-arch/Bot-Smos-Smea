@@ -536,7 +536,10 @@ def _location_prompt(message, kind=None):
         )
 
 
-def _format_location_page(results, token, page):
+_LOCATION_WIDE_RADIUS = 60000
+
+
+def _format_location_page(results, token, page, maps=None):
     start = page * _LOCATION_PAGE_SIZE
     current = results[start:start + _LOCATION_PAGE_SIZE]
     chunks = []
@@ -569,14 +572,22 @@ def _format_location_page(results, token, page):
         )
     if nav_buttons:
         keyboard.row(*nav_buttons)
+    footer = "\n\nប្រភព៖ OpenStreetMap។ ទិន្នន័យអាចមិនពេញលេញ; មិនមានស្ថានភាព charger ផ្ទាល់ពេលទេ។"
+    if maps:
+        kind, lat, lon, query = maps
+        for row in _maps_fallback_markup(kind, lat, lon, query, label="🌐 មើលទាំងអស់ជិតអ្នក (Google Maps)").keyboard:
+            keyboard.row(*row)
+        if len(results) < 3:
+            footer = ("\n\n💡 OpenStreetMap មានទិន្នន័យ" + ("ស្ថានីយ EV" if kind == "ev" else "ស្ថានីយ") +
+                      " នៅកម្ពុជាតិចនៅឡើយ — ចុច 🌐 Google Maps ខាងក្រោម ដើម្បីឃើញកន្លែងច្រើនជាង និងជិតជាងនេះ។")
     return (
         "\n\n".join(chunks)
-        + "\n\nប្រភព៖ OpenStreetMap។ ទិន្នន័យអាចមិនពេញលេញ; មិនមានស្ថានភាព charger ផ្ទាល់ពេលទេ។",
+        + footer,
         keyboard,
     )
 
 
-def _maps_fallback_markup(kind, lat=None, lon=None, query=""):
+def _maps_fallback_markup(kind, lat=None, lon=None, query="", label="🗺️ បើកក្នុង Google Maps"):
     """Google Maps search buttons — always work, even when OpenStreetMap is down."""
     from urllib.parse import quote
     what = "EV charging station" if kind == "ev" else "gas station"
@@ -585,7 +596,7 @@ def _maps_fallback_markup(kind, lat=None, lon=None, query=""):
     else:
         url = f"https://www.google.com/maps/search/{quote(what + ' ' + (query or 'Cambodia'))}"
     markup = InlineKeyboardMarkup()
-    markup.row(InlineKeyboardButton("🗺️ បើកក្នុង Google Maps", url=url))
+    markup.row(InlineKeyboardButton(label, url=url))
     return markup
 
 
@@ -606,6 +617,16 @@ def _send_location_results(message, query="", kind=None, lat=None, lon=None):
             lon=lon,
             kind=kind,
         )
+        # OpenStreetMap is thin in Cambodia (especially EV chargers): look further before giving up.
+        if (result.get("status") in ("ok", "empty") and len(result["stations"]) < 3
+                and result.get("radius_m") == location_service.SEARCH_RADIUS_METERS):
+            try:
+                wider = location_service.location_service.search(query, lat=lat, lon=lon, kind=kind,
+                                                                  radius_m=_LOCATION_WIDE_RADIUS)
+                if len(wider["stations"]) > len(result["stations"]):
+                    result = wider
+            except location_service.LocationSearchError:
+                pass
     except location_service.LocationSearchError as exc:
         cause = exc.__cause__
         logger.warning(
@@ -652,8 +673,9 @@ def _send_location_results(message, query="", kind=None, lat=None, lon=None):
         "owner_id": getattr(getattr(message, "from_user", None), "id", None),
         "expires_at": now + _LOCATION_STATE_TTL,
         "stations": stations,
+        "maps": (kind or stations[0].get("kind"), *(result.get("center") or (lat, lon)), query),
     }
-    text, markup = _format_location_page(stations, token, 0)
+    text, markup = _format_location_page(stations, token, 0, _location_result_pages[token]["maps"])
     bot.reply_to(message, text, reply_markup=markup)
 
 
@@ -1460,7 +1482,7 @@ def callback_query(call):
                     return
                 last_page = max(0, (len(state["stations"]) - 1) // _LOCATION_PAGE_SIZE)
                 page = min(max(0, int(page_text)), last_page)
-                text, markup = _format_location_page(state["stations"], token, page)
+                text, markup = _format_location_page(state["stations"], token, page, state.get("maps"))
                 bot.answer_callback_query(call.id)
                 try:
                     bot.edit_message_text(

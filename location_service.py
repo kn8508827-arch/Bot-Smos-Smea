@@ -519,7 +519,8 @@ class LocationService:
             )
             results.append(result)
         results.sort(key=lambda station: station["distance_km"])
-        return {"status": "ok" if results else "empty", "stations": results, "origin": origin}
+        return {"status": "ok" if results else "empty", "stations": results, "origin": origin,
+                "center": (lat, lon), "radius_m": requested_radius}
 
 
 location_service = LocationService()

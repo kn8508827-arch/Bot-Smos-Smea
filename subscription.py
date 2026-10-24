@@ -40,7 +40,7 @@ FREE_COMMANDS = {
     "start", "help", "menu", "about", "pay", "subscribe", "member", "myplan", "plan",
     "follow", "social", "tiktok", "contact", "vidcooler",
     "sos", "health", "exercise", "balance", "warning", "water", "sleep",
-    "calendar", "today", "khmerdate", "lunar", "morning", "brief", "scam", "checkscam", "hub", "app",
+    "calendar", "today", "khmerdate", "lunar", "morning", "brief", "scam", "checkscam", "hub", "app", "icom", "talk",
 }
 FREE_CALLBACKS = ("hub:", "cal:", "x:", "khqr:", "nav:main", "nav:about", "nav:cat:", "nav:team", "nav:events", "sub:", "follow:menu", "health:",
                   "hmore:water", "hmore:sleep")

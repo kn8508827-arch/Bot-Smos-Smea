@@ -31,8 +31,15 @@ GO = {   # hub tile key -> command it runs
     "cash": "/cash", "report": "/report", "kb": "/kb", "memory": "/memory", "pay": "/pay",
     "myplan": "/myplan", "follow": "/follow", "contact": "/contact", "sos": "/sos", "menu": "/menu",
     "help": "/help", "stats": "/stats", "subgroups": "/subgroups", "status": "/status", "goodday": "/goodday",
-    "summary": "/summary", "guard": "/guard", "invite": "/invite", "nearby": "/nearby",
+    "summary": "/summary", "guard": "/guard", "invite": "/invite", "nearby": "/nearby", "icom": "/icom",
 }
+
+
+ICOM_URL_DEFAULT = "https://team-smos-snea.lovable.app/icom"
+
+
+def icom_url():
+    return os.getenv("ICOM_URL", "").strip() or ICOM_URL_DEFAULT
 
 
 def hub_url():
@@ -137,6 +144,20 @@ def register(bot, config):
     def hub_text():
         return ("🚀 <b>Cooler Hub</b> — គ្រប់មុខងារក្នុងផ្ទាំងតែមួយ ✨\n"
                 "AI · គូររូប · ច្រៀង · ហ្គេម · ប្រតិទិន · លុយ · ឧបករណ៍ — ចុចដើម្បីបើក 👇")
+
+    def icom_markup():
+        m = InlineKeyboardMarkup()
+        # A plain URL button opens the phone's browser, where the microphone and the saved login work.
+        m.row(InlineKeyboardButton("🎙️ ចូល ICOM ឥឡូវ", url=icom_url()))
+        m.row(InlineKeyboardButton("🚀 Cooler Hub", callback_data="hub:open"))
+        return m
+
+    @bot.message_handler(commands=["icom", "talk"])
+    def icom_cmd(message):
+        bot.reply_to(message, "🎙️ <b>ICOM — Team ស្មោះស្នេហ៍</b>\n"
+                              "ចុចប៊ូតុងខាងក្រោម ហើយ Login (ម្ដងគត់) → ចូលនិយាយជាមួយក្រុមភ្លាម 🔊\n"
+                              "💡 អនុញ្ញាត Microphone ពេល Browser សួរ",
+                     reply_markup=icom_markup(), parse_mode="HTML")
 
     @bot.message_handler(commands=["hub", "app"])
     def hub_cmd(message):

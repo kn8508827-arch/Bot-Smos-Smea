@@ -102,6 +102,27 @@ def personal_data(config, user, bot_username, now=None):
                          "g": [[k, round(v, 2)] for k, v in sorted(cats.items(), key=lambda kv: -kv[1])[:5]]}
     except Exception:
         pass
+    try:   # ⭐ points · level · check-in streak for the flip card
+        import sqlite3
+        import community_features as cf
+        conn = sqlite3.connect(getattr(config, "BOT_DB_PATH", "bot_database.db"), timeout=10)
+        conn.row_factory = sqlite3.Row
+        try:
+            pts, vip = cf._points(conn, uid)
+            days = {r[0] for r in conn.execute(
+                "SELECT local_date FROM community_checkins WHERE user_id=? ORDER BY local_date DESC LIMIT 60", (uid,))}
+        finally:
+            conn.close()
+        streak, day = 0, datetime.fromtimestamp(now, TZ_KH).date()
+        if day.isoformat() not in days:
+            day -= timedelta(days=1)          # today's check-in not done yet: count up to yesterday
+        while day.isoformat() in days:
+            streak += 1
+            day -= timedelta(days=1)
+        if pts or streak or vip:
+            data["p"] = [pts, cf._level(pts, vip), streak]
+    except Exception:
+        pass
     if owner:
         try:
             st = sub.stats(config, now)
@@ -159,9 +180,21 @@ def register(bot, config):
                               "💡 អនុញ្ញាត Microphone ពេល Browser សួរ",
                      reply_markup=icom_markup(), parse_mode="HTML")
 
+    def personal_menu_button(user, chat_id):
+        """The chat's menu button opens the hub *with* this person's card data (refreshed on /hub)."""
+        if os.getenv("HUB_MENU_BUTTON", "true").strip().lower() in ("0", "false", "no", "off"):
+            return
+        try:
+            bot.set_chat_menu_button(chat_id=chat_id, menu_button=MenuButtonWebApp(
+                type="web_app", text="🚀 Hub", web_app=WebAppInfo(url=personal_url(user))))
+        except Exception as exc:
+            logger.info("personal menu button skipped (%s)", type(exc).__name__)
+
     @bot.message_handler(commands=["hub", "app"])
     def hub_cmd(message):
         private = getattr(message.chat, "type", "") == "private"
+        if private:
+            personal_menu_button(message.from_user, message.chat.id)
         bot.reply_to(message, hub_text(), reply_markup=hub_markup(message.from_user, private), parse_mode="HTML")
 
     def is_go(message):
@@ -172,6 +205,7 @@ def register(bot, config):
     def start_go(message):
         key = message.text.split()[1]
         if key == "hub":
+            personal_menu_button(message.from_user, message.chat.id)
             bot.reply_to(message, hub_text(), reply_markup=hub_markup(message.from_user, True), parse_mode="HTML")
             return
         cmd = GO.get(key[3:])
@@ -208,4 +242,5 @@ def register(bot, config):
     api.hub_markup = hub_markup
     api.personal_url = personal_url
     api.setup_menu_button = setup_menu_button
+    api.personal_menu_button = personal_menu_button
     return api

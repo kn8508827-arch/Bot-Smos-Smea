@@ -137,6 +137,45 @@ def load_persona_text() -> Optional[str]:
     return None
 
 
+_feature_guide_cache: Optional[str] = None
+_recent_commands: Dict[int, Tuple[str, float]] = {}
+
+
+def load_feature_guide() -> str:
+    """What the bot can do and how (persona/feature_guide.txt), so the AI can explain features step by step."""
+    global _feature_guide_cache
+    if _feature_guide_cache is None:
+        try:
+            with open(os.path.join(os.path.dirname(__file__), "persona", "feature_guide.txt"), encoding="utf-8") as f:
+                _feature_guide_cache = f.read().strip()
+        except OSError:
+            _feature_guide_cache = ""
+    return _feature_guide_cache
+
+
+def remember_command(user_id: Optional[int], text: Optional[str]) -> None:
+    """Note the last /command a user ran, so a follow-up like «ធ្វើម៉េច?» is understood in context."""
+    if user_id is None or not text or not text.startswith("/"):
+        return
+    cmd = text.split()[0].split("@")[0]
+    if cmd.lower() in ("/start", "/reset"):
+        return
+    _recent_commands[user_id] = (text[:200], time.time())
+    if len(_recent_commands) > 5000:   # keep memory bounded
+        for uid in sorted(_recent_commands, key=lambda u: _recent_commands[u][1])[:1000]:
+            _recent_commands.pop(uid, None)
+
+
+def recent_command_note(user_id: Optional[int]) -> str:
+    hit = _recent_commands.get(user_id) if user_id is not None else None
+    if not hit or time.time() - hit[1] > 1800:
+        return ""
+    minutes = max(1, int((time.time() - hit[1]) // 60))
+    return (f"\n\nContext: about {minutes} minute(s) ago this user ran the bot command «{hit[0]}». "
+            "If their message is a short follow-up like «ធ្វើម៉េច» / «យ៉ាងម៉េច» / «how», they are asking how to use "
+            "THAT feature — explain it step by step with real examples from the feature guide.\n")
+
+
 def get_system_instruction(user_name: Optional[str] = None, user_id: Optional[int] = None) -> str:
     """Build the system instruction for Cooler Bot.
 
@@ -181,17 +220,28 @@ def get_system_instruction(user_name: Optional[str] = None, user_id: Optional[in
         )
 
     style = (
-        "Use gender titles (ស្រី / ប្រុស / មិត្ត) only when the user has stated their gender; never guess it. "
+        "How to answer: answer exactly what was asked, completely and clearly, like a patient expert friend. "
+        "For «how / why / what is» questions give a full explanation: a one-line direct answer first, then numbered "
+        "steps or short sections with concrete examples (real commands from the feature guide), then one practical tip. "
+        "Simple chit-chat stays short; questions that need explaining get a thorough answer — never a vague one-liner, "
+        "and never answer a clear question with another question. Use short paragraphs, emoji headings and lists "
+        "so it is easy to read on a phone. Avoid repetitive greetings.\n"
+        "Addressing the user: if they told you their gender, use it. Otherwise you may infer it from the display name "
+        "only when the name is clearly typical of one gender; many Khmer names are used by both (e.g. សុខា, ដារ៉ា, "
+        "ចាន់ថា) — treat those as unclear. When unclear, use the neutral «បង». If they correct you, apologise "
+        "briefly and use what they said from then on.\n"
         "Never invent facts, names, or claims about real people or system state. If you are unsure, say so. "
-        "Ask at most one concise clarifying question, and only when essential information is missing. "
-        "Avoid repetitive greetings. Keep replies concise and useful."
+        "Ask a clarifying question only when essential information is truly missing."
     )
+    guide = load_feature_guide()
+    if guide:
+        style += "\n\n" + guide
     try:
         import ai_extras
         memory = ai_extras.memory_block(config, user_id)
     except Exception:
         memory = ""
-    return persona + identity + style + memory
+    return persona + identity + style + memory + recent_command_note(user_id)
 
 
 def normalize_text(text: str) -> str:
@@ -383,7 +433,7 @@ async def generate_gemini_response(
         "contents": contents,
         "generationConfig": {
             "temperature": 0.7 if temperature is None else temperature,
-            "maxOutputTokens": max_output_tokens or 1024,
+            "maxOutputTokens": max_output_tokens or getattr(config, "AI_MAX_OUTPUT_TOKENS", 2048),
             "topP": 0.95
         }
     }

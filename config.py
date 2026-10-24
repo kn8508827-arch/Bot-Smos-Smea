@@ -49,6 +49,7 @@ def _float_env(name: str, default: float) -> float:
 AI_SUMMARY_ENABLED = os.getenv("AI_SUMMARY_ENABLED", "False").lower() in ("true", "1", "yes")
 AI_CONTEXT_MESSAGE_LIMIT = _int_env("AI_CONTEXT_MESSAGE_LIMIT", 8)
 AI_CONTEXT_CHAR_LIMIT = _int_env("AI_CONTEXT_CHAR_LIMIT", 4000)
+AI_MAX_OUTPUT_TOKENS = _int_env("AI_MAX_OUTPUT_TOKENS", 2048)
 
 # Persistent bot data. On Railway, point this inside the mounted volume.
 BOT_DB_PATH = os.getenv("BOT_DB_PATH", "bot_database.db")

@@ -40,9 +40,9 @@ FREE_COMMANDS = {
     "start", "help", "menu", "about", "pay", "subscribe", "member", "myplan", "plan",
     "follow", "social", "tiktok", "contact", "vidcooler",
     "sos", "health", "exercise", "balance", "warning", "water", "sleep",
-    "calendar", "today", "khmerdate", "lunar", "morning", "brief", "scam", "checkscam",
+    "calendar", "today", "khmerdate", "lunar", "morning", "brief", "scam", "checkscam", "hub", "app",
 }
-FREE_CALLBACKS = ("cal:", "x:", "khqr:", "nav:main", "nav:about", "nav:cat:", "nav:team", "nav:events", "sub:", "follow:menu", "health:",
+FREE_CALLBACKS = ("hub:", "cal:", "x:", "khqr:", "nav:main", "nav:about", "nav:cat:", "nav:team", "nav:events", "sub:", "follow:menu", "health:",
                   "hmore:water", "hmore:sleep")
 GROUP_FREE_COMMANDS = {"pay", "subscribe", "member", "myplan", "plan", "leave", "groups", "group"}
 
@@ -461,7 +461,20 @@ def register(bot, config):
             text = (f"✅ Group ជាសមាជិករហូតដល់ <b>{fmt_date(until)}</b>" if until > time.time()
                     else "🔒 Group នេះមិនទាន់បង់ — /pay")
         else:
-            text = plan_text(message.from_user.id)
+            uid = message.from_user.id
+            text = plan_text(uid)
+            until = paid_until(config, "u", uid)
+            if privileged(uid) or until > time.time():
+                import card_render
+                user = message.from_user
+                name = " ".join(x for x in (getattr(user, "first_name", None), getattr(user, "last_name", None)) if x)
+                left = 999 if privileged(uid) else int((until - time.time()) // DAY) + 1
+                until_txt = "∞" if privileged(uid) else fmt_date(until)[:10]
+                card_render.send_card(bot, message.chat.id,
+                                      lambda: card_render.membership_card(name, until_txt, min(left, 999),
+                                                                          settings().days if left < 999 else 1),
+                                      text, reply_to=message.message_id)
+                return
         bot.reply_to(message, text, parse_mode="HTML")
 
     @bot.message_handler(commands=["start"], func=lambda m: len((m.text or "").split()) > 1

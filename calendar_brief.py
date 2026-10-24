@@ -220,6 +220,34 @@ def brief_text(d, province="phnom_penh", weather=None, rates=None, gold=None, ne
     return "\n".join(lines)
 
 
+def brief_card_png(d, province="phnom_penh"):
+    import card_render
+    import market_info
+    import weather_service as ws
+    k = kc.gregorian_to_khmer(d)
+    weather = None
+    try:
+        day0 = ws.weather_service.fetch(province)["days"][0]
+        weather = {"name": ws.PROVINCES.get(province, ("ភ្នំពេញ",))[0], "tmin": day0["tmin"], "tmax": day0["tmax"],
+                   "desc": ws.describe_code(day0["code"])[1], "rain": day0.get("rain")}
+    except Exception:
+        pass
+    rate = gold_chi = None
+    try:
+        r = market_info.fetch_rates()
+        rate = r["rates"]["KHR"] if r else None
+    except Exception:
+        pass
+    try:
+        g = market_info.fetch_gold()
+        gold_chi = market_info.gold_units(g["oz"])["chi"] if g else None
+    except Exception:
+        pass
+    lunar = f"{kc.kh_num(k.day)}{kc.PHASES[int(k.waning)]} ខែ{kc.LUNAR_MONTHS[k.month]} ឆ្នាំ{kc.ANIMALS[k.animal]}"
+    return card_render.brief_card(f"ថ្ងៃ{kc.WEEKDAYS[k.weekday]} {kc.format_solar(d)}", lunar, weather, rate, gold_chi,
+                                  QUOTES[d.toordinal() % len(QUOTES)], holiday_on(d))
+
+
 def register(bot, config, ask=None):
     """ask(prompt) -> text (for /goodday)."""
     from telebot.types import InlineKeyboardButton, InlineKeyboardMarkup
@@ -346,8 +374,10 @@ def register(bot, config, ask=None):
             bot.answer_callback_query(call.id, "🔕 ឈប់ហើយ")
         elif parts[1] == "preview":
             bot.answer_callback_query(call.id)
-            bot.send_message(chat.id, brief_text(now_kh().date(), subscription(config, chat.id) or "phnom_penh"),
-                             parse_mode="HTML", disable_web_page_preview=True)
+            import card_render
+            prov = subscription(config, chat.id) or "phnom_penh"
+            card_render.send_card(bot, chat.id, lambda: brief_card_png(now_kh().date(), prov),
+                                  brief_text(now_kh().date(), prov))
             return
         else:
             bot.answer_callback_query(call.id)
@@ -382,9 +412,19 @@ def register(bot, config, ask=None):
             if not claimed:
                 continue
             if r["province"] not in cache:
-                cache[r["province"]] = brief_text(now.date(), r["province"])
+                text = brief_text(now.date(), r["province"])
+                try:
+                    png = brief_card_png(now.date(), r["province"])
+                except Exception:
+                    png = None
+                cache[r["province"]] = (text, png)
+            text, png = cache[r["province"]]
             try:
-                bot.send_message(r["chat_id"], cache[r["province"]], parse_mode="HTML", disable_web_page_preview=True)
+                import card_render
+                if png is not None:
+                    card_render.send_card(bot, r["chat_id"], lambda: png, text)
+                else:
+                    bot.send_message(r["chat_id"], text, parse_mode="HTML", disable_web_page_preview=True)
                 sent += 1
             except Exception as exc:
                 text = str(exc).lower()

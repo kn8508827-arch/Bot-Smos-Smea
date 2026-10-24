@@ -4,6 +4,7 @@ Main Entry Point សម្រាប់ Team ស្មោះស្នេហ៍ Te
 """
 import os
 import sys
+import khmer_shaping  # noqa: F401  (load fribidi before any PIL.ImageFont import)
 import time
 import asyncio
 import logging

@@ -345,7 +345,7 @@ GROUP_ADMIN_COMMANDS = (
 
 
 MENU_COMMANDS = (
-    "start", "hub", "menu", "pay", "nearby", "prompt", "studio", "imagine", "song", "say", "calendar", "morning", "rap", "play", "games", "fortune", "quiz", "card", "checkin",
+    "start", "hub", "icom", "menu", "pay", "nearby", "prompt", "studio", "imagine", "song", "say", "calendar", "morning", "rap", "play", "games", "fortune", "quiz", "card", "checkin",
     "health", "sos", "parent", "pet", "rate", "gold", "news", "weather", "trip", "follow", "contact", "help",
 )
 
@@ -402,6 +402,7 @@ def setup_bot_commands():
             BotCommand("song", "🎧 Bot ច្រៀង & Rap មានភ្លេង Beat"),
             BotCommand("beat", "🥁 បង្កើត Beat ៣០ វិនាទី"),
             BotCommand("hub", "🚀 Cooler Hub — គ្រប់មុខងារ"),
+            BotCommand("icom", "🎙️ ICOM — ចូលនិយាយជាមួយក្រុមភ្លាម"),
             BotCommand("nearby", "📍 មិត្តនៅឯណា (ចែករំលែកទីតាំងក្នុង Group)"),
             BotCommand("stopshare", "⛔ ឈប់ចែករំលែកទីតាំង"),
             BotCommand("imagine", "🎨 គូររូបពីអក្សរ"),

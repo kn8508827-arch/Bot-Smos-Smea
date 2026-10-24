@@ -12,6 +12,7 @@ import io
 import math
 import os
 
+import khmer_shaping  # noqa: F401  (must load before PIL.ImageFont: Khmer text shaping)
 from PIL import Image, ImageDraw, ImageFilter, ImageFont, features
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
@@ -44,7 +45,10 @@ def font(size, weight=700, khmer=True):
 
 def clean(text):
     """Drop emoji and symbols the fonts don't have (they would show as boxes)."""
-    return "".join(ch for ch in (text or "") if ord(ch) < 0x2190 or 0x1780 <= ord(ch) <= 0x19FF).strip()
+    keep_khmer = KHMER_OK      # without shaping, Khmer would draw as empty boxes — drop it instead
+    return "".join(ch for ch in (text or "")
+                   if ord(ch) < 0x1780 or (keep_khmer and 0x1780 <= ord(ch) <= 0x19FF)
+                   or 0x19FF < ord(ch) < 0x2190).strip()
 
 
 def L(kh, en):
@@ -191,9 +195,9 @@ def brief_card(date_text, lunar_text, weather=None, rate=None, gold_chi=None, qu
     img = aurora("sunset", seed=len(date_text))
     d = ImageDraw.Draw(img)
     neon_text(img, (80, 100), L("អរុណសួស្ដី", "GOOD MORNING"), font(84, 700), glow=(255, 150, 60))
-    d.text((80, 225), date_text, font=font(46, 600), fill=(255, 240, 220))
+    d.text((80, 225), clean(date_text), font=font(46, 600), fill=(255, 240, 220))
     if lunar_text:
-        d.text((80, 295), lunar_text[:40], font=font(36, 500), fill=(255, 215, 190))
+        d.text((80, 295), clean(lunar_text)[:40], font=font(36, 500), fill=(255, 215, 190))
     y = 380
     if holiday:
         glass(img, (60, y, W - 60, y + 110), radius=30, alpha=70)
@@ -211,7 +215,7 @@ def brief_card(date_text, lunar_text, weather=None, rate=None, gold_chi=None, qu
                    fill=(180, 230, 255), anchor="ra")
         y += 330
     tw = (W - 160 - 20) // 2
-    for i, (label, value) in enumerate([(L("ដុល្លារ", "USD"), f"{rate:,.0f} ៛" if rate else "—"),
+    for i, (label, value) in enumerate([(L("ដុល្លារ", "USD"), (f"{rate:,.0f} ៛" if KHMER_OK else f"{rate:,.0f}") if rate else "—"),
                                         (L("មាស / ជី", "GOLD / chi"), f"${gold_chi:,.0f}" if gold_chi else "—")]):
         x0 = 80 + i * (tw + 20)
         glass(img, (x0, y, x0 + tw, y + 190), radius=32)

@@ -8,6 +8,7 @@ import logging
 from typing import Dict, Optional, Tuple
 
 import httpx
+import khmer_shaping  # noqa: F401  (must load before PIL.ImageFont: Khmer text shaping)
 from PIL import Image
 
 import config

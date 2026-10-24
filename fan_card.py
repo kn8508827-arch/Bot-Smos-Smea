@@ -8,6 +8,7 @@ import io
 import os
 from typing import Optional
 
+import khmer_shaping  # noqa: F401  (must load before PIL.ImageFont: Khmer text shaping)
 from PIL import Image, ImageDraw, ImageFilter, ImageFont
 
 W, H = 1080, 640

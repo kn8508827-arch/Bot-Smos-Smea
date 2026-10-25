@@ -126,11 +126,10 @@ def personal_data(config, user, bot_username, now=None):
     except Exception:
         pass
     try:   # 📰 TPNews latest headlines for the live strip (kept short: the URL must stay small)
-        import tpnews_feed
-        tp = tpnews_feed.latest(config, 2)
-        if tp:
-            data["tp"] = [[pid, title[:48], ts] for pid, title, ts in tp]
-            data["tc"] = tpnews_feed.channel()
+        import fb_pages   # ⭐ partner Facebook Page posts (48 h, newest partner first)
+        sp = fb_pages.spotlight(config, now)
+        if sp:
+            data["sp"] = [[key, name, logo, text[:48], ts, link] for key, name, logo, text, ts, link in sp]
     except Exception:
         pass
     if owner:

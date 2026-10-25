@@ -131,6 +131,10 @@ market_info.register(bot, config)
 # 📰 TPNews live: new posts on the TPNews channel → subscribers (/tpnews) + the Hub
 import tpnews_feed
 _tpnews = tpnews_feed.register(bot, config)
+# 📘 Partner Facebook Pages (Page posts only) → Hub spotlight + partner alerts. /fbconnect · /fbpages (owner)
+import fb_pages
+_fb_pages = fb_pages.register(bot, config, on_new=lambda partner, post: (
+    _tpnews["announce_fb"](post) if partner == "tpnews" else None))
 
 
 def _fan_ask_gemini(prompt):
@@ -1904,7 +1908,7 @@ if __name__ == '__main__':
 
     dailycare_scheduler = scheduler.start_scheduler(bot)
     _subscription.start_loop()
-    _tpnews["start_loop"]()
+    _fb_pages["start_loop"]()   # TPNews Telegram channel is no longer read: Facebook Page only
     _khqr.start_loop()
     _calendar.start_loop()
     _daily.start_loop()

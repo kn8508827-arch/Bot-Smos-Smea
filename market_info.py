@@ -193,10 +193,13 @@ NEWS_KEYWORDS = {   # filter for the Khmer site feeds (NEWS_FEEDS) per topic
 def _news_sources(topic, query):
     """Tried in order until one gives stories: Google News Khmer (2 days → 7 days), the Khmer news sites
     (NEWS_FEEDS), Google News in English. Datacenter IPs sometimes get blocked by one source, not all."""
+    if not query:
+        yield "sites", None          # 🇰🇭 top stories: Cambodian news sites first
     yield "google-km", (NEWS_SEARCH_URL.format(q=quote(query)) if query else NEWS_TOP_URL)
     if query:
         yield "google-km-7d", NEWS_SEARCH_URL.replace("when:2d", "when:7d").format(q=quote(query))
-    yield "sites", None
+    if query:
+        yield "sites", None
     yield "google-en", NEWS_EN_SEARCH_URL.format(q=quote(NEWS_EN_TOPIC.get(topic, "Cambodia")))
 
 
@@ -288,21 +291,68 @@ def gold_text(gold, rates=None):
     ])
 
 
+FLAG_WORLD = "🌍"
+
+
+def flag(code):
+    """'KH' → 🇰🇭 ; anything else that is not two letters → 🌍"""
+    code = (code or "").strip().upper()
+    if len(code) != 2 or not code.isalpha() or code in ("XX", "ZZ", "EU", "UN"):
+        return FLAG_WORLD
+    return "".join(chr(0x1F1E6 + ord(c) - 65) for c in code)
+
+
+ENRICH_PROMPT = """For each numbered news headline below:
+1) the 2-letter ISO country code of the country the story is mainly ABOUT (use XX if global / several countries),
+2) a short natural Khmer headline (max 70 Khmer characters, keep names of people and places; if it is already Khmer keep it).
+Reply ONLY with lines in this exact form:  N | CC | Khmer headline
+{lines}"""
+
+
+def enrich_news(items, ask):
+    """Adds it['flag'] and a Khmer it['kh'] title with one AI call (results cached with the items)."""
+    if not items or ask is None or all("flag" in it for it in items):
+        return items
+    lines = "\n".join(f"{i}. {it['title']}" for i, it in enumerate(items, 1))
+    try:
+        reply = ask(ENRICH_PROMPT.format(lines=lines)) or ""
+    except Exception as exc:
+        logger.info("news enrich failed (%s)", type(exc).__name__)
+        return items
+    for line in reply.splitlines():
+        m = re.match(r"\s*(\d+)\s*[|.)]\s*([A-Za-z]{2})\s*\|\s*(.+)", line)
+        if m and 1 <= int(m.group(1)) <= len(items):
+            it = items[int(m.group(1)) - 1]
+            it["flag"] = flag(m.group(2))
+            if re.search(r"[\u1780-\u17FF]", m.group(3)):
+                it["kh"] = m.group(3).strip()
+    for it in items:
+        it.setdefault("flag", flag("KH") if re.search(r"[\u1780-\u17FF]", it["title"]) else FLAG_WORLD)
+    return items
+
+
 def news_text(topic, items):
     label = NEWS_TOPICS.get(topic, NEWS_TOPICS["top"])[0]
     lines = [f"📰 <b>ព័ត៌មាន {label}</b>", ""]
     for i, it in enumerate(items, 1):
         meta = " · ".join(x for x in (it["source"], it["when"]) if x)
-        lines.append(f"{i}. <a href=\"{html.escape(it['link'], quote=True)}\">{html.escape(it['title'])}</a>"
-                     + (f"\n    <i>{html.escape(meta)}</i>" if meta else ""))
-    lines += ["", "ℹ️ ចំណងជើងពី Google News — ចុចដើម្បីអានពេញពីប្រភពដើម"]
+        title = it.get("kh") or it["title"]
+        lines.append(f"{it.get('flag', FLAG_WORLD)} <a href=\"{html.escape(it['link'], quote=True)}\">"
+                     f"<b>{html.escape(title)}</b></a>" + (f"\n      <i>{html.escape(meta)}</i>" if meta else ""))
+        lines.append("")
+    lines += ["ℹ️ ទង់ជាតិ = ប្រទេសដែលព័ត៌មាននិយាយអំពី · ចុចចំណងជើងដើម្បីអានពេញពីប្រភពដើម"]
     return "\n".join(lines)
 
 
 # ---------------- bot ----------------
 
-def register(bot, config=None):
+def register(bot, config=None, ask=None):
+    """ask(prompt) -> text: used once per news refresh to add flags + Khmer headlines (optional)."""
     from telebot.types import InlineKeyboardButton, InlineKeyboardMarkup
+    if ask is None and config is not None and getattr(config, "GEMINI_API_KEY", ""):
+        def ask(prompt):
+            import knowledge_base
+            return knowledge_base.gemini(config.GEMINI_API_KEY, [{"text": prompt}], max_tokens=1500, temperature=0.1)
 
     def hub_markup():
         m = InlineKeyboardMarkup()
@@ -345,7 +395,7 @@ def register(bot, config=None):
             return (gold_text(gold, fetch_rates()) if gold else FAIL), back_markup("mkt:gold:r")
         if kind == "news":
             topic = arg if arg in NEWS_TOPICS else "top"
-            items = fetch_news(topic)
+            items = enrich_news(fetch_news(topic), ask)
             return (news_text(topic, items) if items else FAIL), news_markup(topic)
         return HUB_TEXT, hub_markup()
 

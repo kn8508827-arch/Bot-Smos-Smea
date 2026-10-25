@@ -123,7 +123,7 @@ def register(bot, config, ask=None, client=None):
     def send(page_id, psid, message, action=None):
         token = page_token(page_id)
         if not token:
-            logger.warning("messenger: no token for page %s", page_id)
+            logger.warning("messenger: no token for page %s — run /msgconnect again", page_id)
             return False
         body = {"recipient": {"id": psid}}
         if action:
@@ -136,6 +136,8 @@ def register(bot, config, ask=None, client=None):
             r = c.post(graph("me/messages"), params={"access_token": token}, json=body)
             if r.status_code >= 400:
                 logger.warning("messenger send failed: %s", r.text[:300])
+            if r.status_code < 400:
+                logger.info("messenger sent to page %s", page_id)
             return r.status_code < 400
         finally:
             if client is None:
@@ -157,6 +159,7 @@ def register(bot, config, ask=None, client=None):
 
     def handle_event(page_id, ev):
         psid = (ev.get("sender") or {}).get("id")
+        logger.info("messenger event: page=%s keys=%s", page_id, ",".join(sorted(ev.keys())))
         if not psid or psid == page_id:
             return
         msg = ev.get("message") or {}
@@ -218,6 +221,7 @@ def register(bot, config, ask=None, client=None):
                 return self._send(404, "not found")
             body = self.rfile.read(min(int(self.headers.get("Content-Length") or 0), 1_000_000))
             if not valid_signature(body, self.headers.get("X-Hub-Signature-256"), os.getenv("FB_APP_SECRET", "").strip()):
+                logger.warning("messenger webhook: BAD SIGNATURE — FB_APP_SECRET on Railway does not match the Meta app secret")
                 return self._send(403, "bad signature")
             self._send(200, "EVENT_RECEIVED")      # answer Meta fast, work in the background
             try:

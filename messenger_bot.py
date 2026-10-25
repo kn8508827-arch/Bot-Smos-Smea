@@ -29,7 +29,9 @@ logger = logging.getLogger(__name__)
 MAX_LEN = 1900
 WELCOME = ("សួស្ដី! 👋 ខ្ញុំ Cooler Bot កូនប្រុសរបស់ Vid Cooler 😎\n"
            "សួរខ្ញុំបានគ្រប់រឿងជាភាសាខ្មែរ — ឬចូល Telegram ដើម្បីប្រើ AI គូររូប ហ្គេម ប្រតិទិន និងមុខងារជាច្រើនទៀត 🚀")
-ID_OFFSET = 9_000_000_000_000_000   # keeps Messenger people apart from Telegram user ids in the AI history
+def ai_user_id(psid):
+    """Messenger people get a NEGATIVE id (fits SQLite int64, never clashes with Telegram user ids)."""
+    return -(10 ** 17 + int(psid) % 10 ** 17)
 
 
 def graph(path):
@@ -133,7 +135,7 @@ def register(bot, config, ask=None, client=None):
         try:
             r = c.post(graph("me/messages"), params={"access_token": token}, json=body)
             if r.status_code >= 400:
-                logger.warning("messenger send failed: %s", r.text[:200])
+                logger.warning("messenger send failed: %s", r.text[:300])
             return r.status_code < 400
         finally:
             if client is None:
@@ -172,7 +174,7 @@ def register(bot, config, ask=None, client=None):
             return
         send(page_id, psid, None, action="typing_on")
         try:
-            reply = ask(ID_OFFSET + int(psid) % ID_OFFSET, text[:2000], None)
+            reply = ask(ai_user_id(psid), text[:2000], None)
         except Exception as exc:
             logger.warning("messenger AI failed (%s)", type(exc).__name__)
             reply = "😔 ខ្ញុំរវល់បន្តិច — សូមសាកម្ដងទៀតបន្តិចទៀត 🙏"
@@ -181,6 +183,7 @@ def register(bot, config, ask=None, client=None):
 
     def handle_body(body):
         data = json.loads(body.decode("utf-8") or "{}")
+        logger.info("messenger webhook: object=%s entries=%d", data.get("object"), len(data.get("entry", [])))
         if data.get("object") != "page":
             return
         for entry in data.get("entry", []):

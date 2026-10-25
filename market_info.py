@@ -179,16 +179,55 @@ def parse_news(xml_text, limit=8):
     return items
 
 
+NEWS_EN_SEARCH_URL = "https://news.google.com/rss/search?q={q}&hl=en-KH&gl=KH&ceid=KH:en"
+NEWS_EN_TOPIC = {"top": "Cambodia", "economy": "Cambodia economy", "tech": "technology AI",
+                 "sport": "Cambodia sport", "ent": "Cambodia entertainment"}
+NEWS_KEYWORDS = {   # filter for the Khmer site feeds (NEWS_FEEDS) per topic
+    "economy": ("សេដ្ឋកិច្ច", "ពាណិជ្ជកម្ម", "វិនិយោគ", "ធនាគារ", "economy", "trade", "bank", "invest"),
+    "tech": ("បច្ចេកវិទ្យា", "ឌីជីថល", "AI", "tech", "digital", "app"),
+    "sport": ("កីឡា", "បាល់", "ប្រដាល់", "sport", "football", "SEA Games"),
+    "ent": ("តារា", "ចម្រៀង", "ភាពយន្ត", "កុន", "concert", "film", "music", "star"),
+}
+
+
+def _news_sources(topic, query):
+    """Tried in order until one gives stories: Google News Khmer (2 days → 7 days), the Khmer news sites
+    (NEWS_FEEDS), Google News in English. Datacenter IPs sometimes get blocked by one source, not all."""
+    yield "google-km", (NEWS_SEARCH_URL.format(q=quote(query)) if query else NEWS_TOP_URL)
+    if query:
+        yield "google-km-7d", NEWS_SEARCH_URL.replace("when:2d", "when:7d").format(q=quote(query))
+    yield "sites", None
+    yield "google-en", NEWS_EN_SEARCH_URL.format(q=quote(NEWS_EN_TOPIC.get(topic, "Cambodia")))
+
+
+def _site_stories(topic, client=None):
+    import news_brief
+    items = []
+    for url in news_brief.feeds():
+        try:
+            items += news_brief.parse_feed(_get(url, client).text, news_brief._host(url), limit=15)
+        except Exception as exc:
+            logger.info("news site %s failed (%s)", news_brief._host(url), type(exc).__name__)
+    words = NEWS_KEYWORDS.get(topic)
+    if words:
+        items = [i for i in items if any(w.lower() in i["title"].lower() for w in words)]
+    return [{"title": i["title"], "link": i["link"], "source": i["source"], "when": ""} for i in items[:8]]
+
+
 def fetch_news(topic="top", client=None):
     label, query = NEWS_TOPICS.get(topic, NEWS_TOPICS["top"])
-    url = NEWS_SEARCH_URL.format(q=quote(query)) if query else NEWS_TOP_URL
 
     def load():
-        try:
-            return parse_news(_get(url, client).text)
-        except Exception as exc:
-            logger.warning("news failed (%s)", type(exc).__name__)
-            return None
+        for name, url in _news_sources(topic, query):
+            try:
+                items = _site_stories(topic, client) if url is None else parse_news(_get(url, client).text)
+            except Exception as exc:
+                logger.warning("news source %s failed (%s: %s)", name, type(exc).__name__, str(exc)[:120])
+                continue
+            if items:
+                return items
+            logger.info("news source %s gave no stories", name)
+        return None
     return _cached("news:" + topic, 900, load)
 
 

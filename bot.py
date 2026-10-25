@@ -131,6 +131,9 @@ market_info.register(bot, config)
 # 📰 TPNews live: new posts on the TPNews channel → subscribers (/tpnews) + the Hub
 import tpnews_feed
 _tpnews = tpnews_feed.register(bot, config)
+# 💬 Cooler Bot in Facebook Messenger (webhook server on $PORT) · /msgconnect (owner)
+import messenger_bot
+_messenger = messenger_bot.register(bot, config)
 
 
 def _fan_ask_gemini(prompt):
@@ -1905,6 +1908,7 @@ if __name__ == '__main__':
     dailycare_scheduler = scheduler.start_scheduler(bot)
     _subscription.start_loop()
     _tpnews["start_loop"]()
+    _messenger["start_server"]()
     _khqr.start_loop()
     _calendar.start_loop()
     _daily.start_loop()

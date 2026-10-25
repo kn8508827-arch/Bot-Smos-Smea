@@ -88,6 +88,10 @@ bot = telebot.TeleBot(TOKEN, threaded=True, num_threads=BOT_THREADS, exception_h
 # Paid membership gate (1$/user, 5$/group per 30 days). MUST be registered first so it runs
 # before every other handler. SUBSCRIPTION_ENABLED=false turns it off.
 _subscription = subscription.register(bot, config)
+# 🕘 Staff attendance (/work · /staff · /setwork): GPS + selfie check-in/out, owner notified at once.
+# Registered right after the paywall so its location/selfie steps win over the other photo/location handlers.
+import attendance
+attendance.register(bot, config)
 # 🛡️ Cooler Guard: anti-spam / captcha / warn-ban for paid groups (registered right after the paywall)
 def _group_paid(chat_id):
     st = subscription.settings()
@@ -413,6 +417,7 @@ def setup_bot_commands():
             BotCommand("homework", "📚 ពន្យល់លំហាត់"),
             BotCommand("remind", "⏰ រំលឹកខ្ញុំ"),
             BotCommand("cash", "💵 កត់ចំណាយ/ចំណូល"),
+            BotCommand("work", "🕘 ចូល/ចេញការងារ (បុគ្គលិក)"),
             BotCommand("report", "📊 របាយការណ៍លុយខែនេះ"),
             BotCommand("calendar", "📅 ប្រតិទិនខ្មែរ ថ្ងៃសីល ថ្ងៃឈប់"),
             BotCommand("morning", "☀️ ព័ត៌មានពេលព្រឹក ម៉ោង ៧"),

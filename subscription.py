@@ -44,8 +44,9 @@ ALL_CONTENT = ["text", "photo", "voice", "audio", "video", "video_note", "docume
 FREE_COMMANDS = {
     "start", "help", "menu", "about", "pay", "subscribe", "member", "myplan", "plan", "addgroup",
     "follow", "social", "tiktok", "contact", "vidcooler", "sos", "hub", "app",
+    "work", "workin", "workout", "joinstaff", "staff", "setwork",   # 🕘 staff attendance (staff may not be members)
 }
-FREE_CALLBACKS = ("hub:", "khqr:", "nav:main", "nav:about", "nav:cat:", "nav:team", "nav:events", "sub:", "follow:menu")
+FREE_CALLBACKS = ("hub:", "khqr:", "att:", "nav:main", "nav:about", "nav:cat:", "nav:team", "nav:events", "sub:", "follow:menu")
 GROUP_FREE_COMMANDS = {"pay", "subscribe", "member", "myplan", "plan", "leave", "groups", "group"}
 KINDS = ("u", "g", "c")   # person · group · group pass (credit to add the bot to one new group)
 
@@ -420,6 +421,9 @@ def register(bot, config):
             return False
         if privileged(uid) or chat is None:
             return False
+        att_busy = getattr(bot, "_cooler_att_busy", None)
+        if att_busy is not None and getattr(chat, "type", None) == "private" and att_busy(uid):
+            return False   # 🕘 attendance step: location / selfie
         cmd = command_of(message)
         if is_group(chat):
             if cmd in GROUP_FREE_COMMANDS:

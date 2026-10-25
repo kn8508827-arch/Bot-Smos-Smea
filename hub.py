@@ -32,6 +32,7 @@ GO = {   # hub tile key -> command it runs
     "myplan": "/myplan", "follow": "/follow", "contact": "/contact", "sos": "/sos", "menu": "/menu",
     "help": "/help", "stats": "/stats", "subgroups": "/subgroups", "status": "/status", "goodday": "/goodday",
     "summary": "/summary", "guard": "/guard", "invite": "/invite", "nearby": "/nearby", "icom": "/icom",
+    "live": "/live",
     "addgroup": "/addgroup", "work": "/work", "sleep": "/sleep", "workin": "/workin", "workout": "/workout", "staff": "/staff",
 }
 

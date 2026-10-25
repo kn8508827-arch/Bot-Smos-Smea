@@ -220,6 +220,58 @@ def brief_text(d, province="phnom_penh", weather=None, rates=None, gold=None, ne
     return "\n".join(lines)
 
 
+def news_brief(d, province="phnom_penh", ask=None):
+    """☀️ The designed Khmer morning card with the top 3 news (photos from the news sites).
+    Returns (png, caption, stories). Raises when the card can't be drawn — callers fall back to brief_text."""
+    import market_info
+    import news_brief as nb
+    import weather_service as ws
+    k = kc.gregorian_to_khmer(d)
+    weather = rate = gold_chi = None
+    try:
+        day0 = ws.weather_service.fetch(province)["days"][0]
+        weather = {"name": ws.PROVINCES.get(province, ("ភ្នំពេញ",))[0], "tmin": day0["tmin"], "tmax": day0["tmax"],
+                   "desc": ws.describe_code(day0["code"])[1], "rain": day0.get("rain")}
+    except Exception:
+        pass
+    try:
+        r = market_info.fetch_rates()
+        rate = r["rates"]["KHR"] if r else None
+    except Exception:
+        pass
+    try:
+        g = market_info.fetch_gold()
+        gold_chi = market_info.gold_units(g["oz"])["chi"] if g else None
+    except Exception:
+        pass
+    sila_text = None
+    s = next_sila(d)
+    if s == d:
+        sila_text = "ថ្ងៃនេះជាថ្ងៃសីល"
+    elif s is not None:
+        when = "ស្អែក " if s == d + timedelta(days=1) else ""
+        sila_text = f"ថ្ងៃសីលបន្ទាប់៖ {when}{kc.kh_num(s.day)} {kc.SOLAR_MONTHS[s.month - 1]}"
+    stories = []
+    try:
+        stories = nb.khmerize(nb.fetch_stories(3), ask)
+    except Exception as exc:
+        logger.info("brief news skipped (%s)", type(exc).__name__)
+    lunar = f"{kc.kh_num(k.day)}{kc.PHASES[int(k.waning)]} ខែ{kc.LUNAR_MONTHS[k.month]} ឆ្នាំ{kc.ANIMALS[k.animal]}"
+    png = nb.news_card(f"ថ្ងៃ{kc.WEEKDAYS[k.weekday]} {kc.format_solar(d)}", lunar, sila_text, holiday_on(d),
+                       weather, rate, gold_chi, stories)
+    return png, nb.caption(stories, QUOTES[d.toordinal() % len(QUOTES)]), stories
+
+
+def news_markup(stories):
+    """One button per story, so people open the full article with a tap."""
+    from telebot.types import InlineKeyboardButton, InlineKeyboardMarkup
+    if not stories:
+        return None
+    m = InlineKeyboardMarkup()
+    m.row(*[InlineKeyboardButton(f"📰 ព័ត៌មាន {kc.kh_num(n)}", url=s["link"]) for n, s in enumerate(stories[:3], 1)])
+    return m
+
+
 def brief_card_png(d, province="phnom_penh"):
     import card_render
     import market_info
@@ -332,6 +384,16 @@ def register(bot, config, ask=None):
                 "📅 ថ្ងៃខ្មែរ ថ្ងៃសីល ថ្ងៃឈប់សម្រាក · 🌤️ អាកាសធាតុ · 💵 ដុល្លារ · 🪙 មាស · 📰 ព័ត៌មាន · 💬 ពាក្យលើកទឹកចិត្ត\n\n"
                 "👇 ជ្រើសខេត្ត ដើម្បីចាប់ផ្ដើមទទួល")
 
+    @bot.message_handler(commands=["newstest"], func=lambda m: privileged(getattr(m.from_user, "id", None)))
+    def newstest_cmd(message):
+        """Owner: which NEWS_FEEDS work and carry photos, then a preview of the card."""
+        import news_brief as nb
+        bot.send_chat_action(message.chat.id, "upload_photo")
+        rows = nb.feed_report()
+        bot.reply_to(message, "📰 <b>NEWS_FEEDS</b>\n" + "\n".join(html.escape(r) for r in rows) +
+                     "\n\nប្ដូរប្រភព៖ Railway Variable <code>NEWS_FEEDS</code> (RSS, ចែកដោយ ,)", parse_mode="HTML")
+        send_brief(message.chat.id, now_kh().date(), subscription(config, message.chat.id) or "phnom_penh")
+
     @bot.message_handler(commands=["morning", "brief"])
     def morning_cmd(message):
         arg = ((message.text or "").split() + [""])[1].lower()
@@ -374,10 +436,8 @@ def register(bot, config, ask=None):
             bot.answer_callback_query(call.id, "🔕 ឈប់ហើយ")
         elif parts[1] == "preview":
             bot.answer_callback_query(call.id)
-            import card_render
             prov = subscription(config, chat.id) or "phnom_penh"
-            card_render.send_card(bot, chat.id, lambda: brief_card_png(now_kh().date(), prov),
-                                  brief_text(now_kh().date(), prov))
+            send_brief(chat.id, now_kh().date(), prov)
             return
         else:
             bot.answer_callback_query(call.id)
@@ -387,6 +447,24 @@ def register(bot, config, ask=None):
                                   reply_markup=brief_markup(chat.id), parse_mode="HTML")
         except Exception:
             pass
+
+    def send_brief(chat_id, d, province, cache=None):
+        """Designed news card (photo + short caption + article buttons); plain text if drawing fails."""
+        import io as _io
+        cache = {} if cache is None else cache
+        if province not in cache:
+            try:
+                cache[province] = ("card",) + news_brief(d, province, ask)
+            except Exception as exc:
+                logger.warning("news card failed (%s) — sending text", type(exc).__name__)
+                cache[province] = ("text", brief_text(d, province))
+        kind, *rest = cache[province]
+        if kind == "card":
+            png, cap, stories = rest
+            f = _io.BytesIO(png)
+            f.name = "morning.png"
+            return bot.send_photo(chat_id, f, caption=cap, parse_mode="HTML", reply_markup=news_markup(stories))
+        return bot.send_message(chat_id, rest[0], parse_mode="HTML", disable_web_page_preview=True)
 
     def tick(now=None):
         now = now or now_kh()
@@ -411,20 +489,8 @@ def register(bot, config, ask=None):
                 conn.close()
             if not claimed:
                 continue
-            if r["province"] not in cache:
-                text = brief_text(now.date(), r["province"])
-                try:
-                    png = brief_card_png(now.date(), r["province"])
-                except Exception:
-                    png = None
-                cache[r["province"]] = (text, png)
-            text, png = cache[r["province"]]
             try:
-                import card_render
-                if png is not None:
-                    card_render.send_card(bot, r["chat_id"], lambda: png, text)
-                else:
-                    bot.send_message(r["chat_id"], text, parse_mode="HTML", disable_web_page_preview=True)
+                send_brief(r["chat_id"], now.date(), r["province"], cache)
                 sent += 1
             except Exception as exc:
                 text = str(exc).lower()

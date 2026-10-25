@@ -66,6 +66,10 @@ class MessengerTests(unittest.TestCase):
         with self.assertRaises(Exception):
             self.post({"object": "page", "entry": []}, secret="wrong")
 
+    def test_ai_user_id_fits_sqlite(self):
+        uid = mb.ai_user_id("27183928374659201")
+        self.assertTrue(-2 ** 63 < uid < 0)
+
     def test_split(self):
         self.assertEqual(len(mb.split_text("ក" * 4000)), 3)
 

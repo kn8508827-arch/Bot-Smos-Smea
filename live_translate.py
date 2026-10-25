@@ -1,8 +1,8 @@
 """🎙️ Live translate (walkie-talkie style): talk in Khmer, the bot speaks the other language — and back.
 
 /live → pick a language → for LIVE_MINUTES (20) every voice note (or typed message) in the private chat is:
-  heard → which side spoke (Khmer or the other language) → translated → sent back as text + a voice note
-  in the other language (Cooler Voice TTS). Hold the mic, speak, hand the phone over, the other person replies.
+  🎤 voice in → translated VOICE out (text as caption) · ✍️ text in → translated TEXT out (no voice).
+  The AI works out which side spoke (Khmer or the other language) and translates into the other one. Hold the mic, speak, hand the phone over, the other person replies.
 
 It is near-live (a few seconds per turn): Telegram bots receive voice notes, not a live audio stream.
 LIVE_DAILY_LIMIT (default 80) voice turns per person per day; owner/admins unlimited.
@@ -122,7 +122,7 @@ def register(bot, config, ai=None, tts=None):
                              "1️⃣ សង្កត់ 🎤 ហើយនិយាយ (ខ្មែរ ឬភាសាភ្ញៀវ)\n"
                              "2️⃣ Bot សរសេរ + និយាយបកប្រែចេញជាសំឡេង 🔊\n"
                              "3️⃣ ឲ្យភ្ញៀវសង្កត់ 🎤 ឆ្លើយវិញ — Bot បកជាខ្មែរ\n"
-                             "✍️ វាយអក្សរក៏បាន", reply_markup=stop_markup(), parse_mode="HTML")
+                             "✍️ វាយអក្សរ → ឆ្លើយជាអក្សរ", reply_markup=stop_markup(), parse_mode="HTML")
         elif parts[1] == "menu":
             bot.send_message(call.message.chat.id, "🌐 ជ្រើសភាសា 👇", reply_markup=lang_markup())
         elif parts[1] == "stop":
@@ -168,18 +168,23 @@ def register(bot, config, ai=None, tts=None):
             return
         to_khmer = res.get("from") != "km"
         flag = "🇰🇭" if to_khmer else LANGS[code][0].split()[0]
-        text = (f"🗣️ {html.escape(res.get('heard', ''))}\n\n{flag} <b>{html.escape(res['translation'])}</b>")
-        bot.reply_to(message, text, reply_markup=stop_markup(), parse_mode="HTML")
-        try:
+        text = f"{flag} <b>{html.escape(res['translation'])}</b>"
+        if message.content_type == "text":          # ✍️ typed → translated text only, right away
+            bot.reply_to(message, text, reply_markup=stop_markup(), parse_mode="HTML")
+            return
+        try:                                         # 🎤 spoken → translated voice (the text rides along as caption)
             bot.send_chat_action(message.chat.id, "record_voice")
             wav = tts(res["translation"][:600])
             import voice_studio
             ogg = voice_studio.wav_to_ogg(wav)
             if ogg:
-                bot.send_voice(message.chat.id, ogg, duration=voice_studio.wav_seconds(wav))
+                bot.send_voice(message.chat.id, ogg, caption=text, parse_mode="HTML", reply_markup=stop_markup(),
+                               duration=voice_studio.wav_seconds(wav), reply_to_message_id=message.message_id)
             else:
-                bot.send_audio(message.chat.id, io.BytesIO(wav), title="Cooler Voice")
+                bot.send_audio(message.chat.id, io.BytesIO(wav), caption=text, parse_mode="HTML",
+                               reply_markup=stop_markup(), title="Cooler Voice")
         except Exception as exc:
-            logger.info("live translate voice skipped (%s)", type(exc).__name__)
+            logger.info("live translate voice failed (%s) — text only", type(exc).__name__)
+            bot.reply_to(message, text, reply_markup=stop_markup(), parse_mode="HTML")
 
     return {"sessions": sessions}

@@ -32,7 +32,18 @@ class LiveTests(unittest.TestCase):
         with patch("voice_studio.wav_to_ogg", return_value=b"OGG"), patch("voice_studio.wav_seconds", return_value=1):
             self.bot.process_new_messages([msg(5, "សួស្ដី")])
         self.assertIn("你好", self.bot.reply_to.call_args.args[1])
-        self.bot.send_voice.assert_called_once()
+        self.bot.send_voice.assert_not_called()          # typed → text only
+
+    def test_voice_turn_answers_with_voice(self):
+        self.api["sessions"][5] = ("zh", 10 ** 12)
+        m = msg(5, None, "voice")
+        m.voice = SimpleNamespace(file_id="F", mime_type="audio/ogg")
+        self.bot.get_file = MagicMock(return_value=SimpleNamespace(file_path="p"))
+        self.bot.download_file = MagicMock(return_value=b"OGGIN")
+        with patch("voice_studio.wav_to_ogg", return_value=b"OGG"), patch("voice_studio.wav_seconds", return_value=1):
+            self.bot.process_new_messages([m])
+        self.assertIn("你好", self.bot.send_voice.call_args.kwargs["caption"])
+        self.bot.reply_to.assert_not_called()
 
     def test_commands_pass_through(self):
         self.api["sessions"][5] = ("en", 10 ** 12)

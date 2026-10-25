@@ -1,4 +1,7 @@
-"""📰 TPNews live: every new post on the TPNews Telegram channel pops up in Cooler Bot and the Hub.
+"""📰 TPNews alerts (/tpnews). Posts now come ONLY from the TPNews Facebook Page via fb_pages.py;
+the Telegram-channel reader below is kept but no longer started.
+
+Old notes: every new post on the TPNews Telegram channel pops up in Cooler Bot and the Hub.
 
 Source: the channel's public page https://t.me/s/<TPNEWS_CHANNEL> (default TPNEWSREPORT), checked every
 TPNEWS_POLL_MIN (5) minutes — no admin rights needed. If the bot is added as an admin of the channel,
@@ -120,7 +123,7 @@ def register(bot, config, fetch=None):
 
     def post_markup(pid):
         m = InlineKeyboardMarkup()
-        m.row(InlineKeyboardButton("📖 អានពេញ", url=post_link(pid)),
+        m.row(InlineKeyboardButton("📖 អានពេញ", url=pid if str(pid).startswith("http") else post_link(pid)),
               InlineKeyboardButton("🔕 ឈប់ទទួល", callback_data="tpn:off"))
         return m
 
@@ -204,17 +207,6 @@ def register(bot, config, fetch=None):
             new = store_new(posts)
             return 0 if first_run else announce(new)    # first run: remember, don't flood
 
-    @bot.channel_post_handler(func=lambda m: (getattr(m.chat, "username", "") or "").lower() == channel().lower())
-    def on_channel_post(message):
-        """Instant path when the bot is an admin of the TPNews channel."""
-        photo = ""
-        if getattr(message, "photo", None):
-            photo = message.photo[-1].file_id
-        p = {"id": message.message_id, "text": message.text or message.caption or "", "photo": photo,
-             "ts": int(getattr(message, "date", time.time()))}
-        with lock:
-            announce(store_new([p]))
-
     def start_loop():
         def run():
             time.sleep(30)
@@ -227,4 +219,9 @@ def register(bot, config, fetch=None):
                 time.sleep(minutes * 60)
         threading.Thread(target=run, name="tpnews-loop", daemon=True).start()
 
-    return {"tick": tick, "start_loop": start_loop, "announce": announce, "store_new": store_new}
+    def announce_fb(post):
+        """A new post on the TPNews Facebook Page (from fb_pages) → /tpnews subscribers."""
+        return announce([{"id": post["link"], "text": post["text"], "photo": post.get("picture", ""), "ts": post["ts"]}])
+
+    return {"tick": tick, "start_loop": start_loop, "announce": announce, "store_new": store_new,
+            "announce_fb": announce_fb}

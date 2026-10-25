@@ -44,7 +44,7 @@ ALL_CONTENT = ["text", "photo", "voice", "audio", "video", "video_note", "docume
 FREE_COMMANDS = {
     "start", "help", "menu", "about", "pay", "subscribe", "member", "myplan", "plan", "addgroup",
     "follow", "social", "tiktok", "contact", "vidcooler", "sos", "hub", "app",
-    "work", "workin", "workout", "joinstaff", "staff", "setwork", "tpnews",   # 🕘 staff attendance (staff may not be members)
+    "work", "workin", "workout", "joinstaff", "staff", "setwork", "tpnews", "msgconnect",   # 🕘 staff attendance (staff may not be members)
 }
 FREE_CALLBACKS = ("hub:", "khqr:", "att:", "tpn:", "nav:main", "nav:about", "nav:cat:", "nav:team", "nav:events", "sub:", "follow:menu")
 GROUP_FREE_COMMANDS = {"pay", "subscribe", "member", "myplan", "plan", "leave", "groups", "group", "tpnews"}

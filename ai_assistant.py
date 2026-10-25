@@ -609,7 +609,9 @@ async def generate_gemini_image_response(
     raise GeminiEmptyResponseError("Gemini image request failed without a usable response")
 
 
-async def ask_ai(user_id: int, user_message: str, user_name: Optional[str] = None, db_path: Optional[str] = None) -> str:
+async def ask_ai(user_id: int, user_message: str, user_name: Optional[str] = None, db_path: Optional[str] = None,
+                 extra_instruction: Optional[str] = None) -> str:
+    """extra_instruction is appended to the system prompt (e.g. 'you are answering in Facebook Messenger')."""
     cleaned_prompt = normalize_text(user_message or "")
     if not cleaned_prompt:
         return "សូមវាយសំណួរ ឬប្រធានបទដែលអ្នកចង់ឱ្យខ្ញុំជួយ!"
@@ -656,7 +658,9 @@ async def ask_ai(user_id: int, user_message: str, user_name: Optional[str] = Non
             history=history,
             user_name=user_name,
             user_id=user_id,
-            db_path=db_path
+            db_path=db_path,
+            system_instruction=(get_system_instruction(user_name, user_id=user_id) + "\n\n" + extra_instruction)
+            if extra_instruction else None,
         )
 
         # Count quota only after a successful reply

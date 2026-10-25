@@ -103,6 +103,20 @@ def connect(config, short_token, client=None):
             c.close()
 
 
+def messenger_note(username="TeamSmosSneabot"):
+    """Tells the AI it is answering on a Facebook Page in Messenger: no Telegram /commands, real links instead."""
+    try:
+        import social_links
+        links = "\n".join(f"- {label}: {url}" for _k, label, url in social_links.links())
+    except Exception:
+        links = ""
+    return ("CHANNEL: You are answering inside Facebook Messenger on Vid Cooler's Facebook Page, not in Telegram. "
+            "Telegram /commands (like /contact, /follow, /hub, /pay) do NOT work here — never tell people to type them. "
+            "Messenger here supports text chat only. For images, games, the Khmer calendar, membership and all other "
+            f"features, invite them to open Cooler Bot on Telegram: https://t.me/{username} . "
+            "To contact or follow Vid Cooler, give these links directly:\n" + (links or f"- Telegram: https://t.me/{username}"))
+
+
 def register(bot, config, ask=None, client=None):
     """ask(user_id:int, text, name) -> reply text (defaults to ai_assistant.ask_ai)."""
     init_schema(config)
@@ -110,7 +124,8 @@ def register(bot, config, ask=None, client=None):
         def ask(uid, text, name):
             import ai_assistant
             import async_runner
-            return async_runner.run_sync(ai_assistant.ask_ai(user_id=uid, user_message=text, user_name=name), timeout=90)
+            return async_runner.run_sync(ai_assistant.ask_ai(user_id=uid, user_message=text, user_name=name,
+                                                             extra_instruction=messenger_note()), timeout=90)
 
     def owner(uid):
         return uid == getattr(config, "OWNER_ID", 0) or uid in getattr(config, "ADMIN_IDS", [])

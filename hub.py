@@ -32,7 +32,7 @@ GO = {   # hub tile key -> command it runs
     "myplan": "/myplan", "follow": "/follow", "contact": "/contact", "sos": "/sos", "menu": "/menu",
     "help": "/help", "stats": "/stats", "subgroups": "/subgroups", "status": "/status", "goodday": "/goodday",
     "summary": "/summary", "guard": "/guard", "invite": "/invite", "nearby": "/nearby", "icom": "/icom",
-    "live": "/live",
+    "live": "/live", "tpnews": "/tpnews",
     "addgroup": "/addgroup", "work": "/work", "sleep": "/sleep", "workin": "/workin", "workout": "/workout", "staff": "/staff",
 }
 
@@ -123,6 +123,14 @@ def personal_data(config, user, bot_username, now=None):
             day -= timedelta(days=1)
         if pts or streak or vip:
             data["p"] = [pts, cf._level(pts, vip), streak]
+    except Exception:
+        pass
+    try:   # 📰 TPNews latest headlines for the live strip (kept short: the URL must stay small)
+        import tpnews_feed
+        tp = tpnews_feed.latest(config, 2)
+        if tp:
+            data["tp"] = [[pid, title[:48], ts] for pid, title, ts in tp]
+            data["tc"] = tpnews_feed.channel()
     except Exception:
         pass
     if owner:

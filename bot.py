@@ -128,6 +128,9 @@ trip_places.register(bot, config)
 _follow_markup = social_links.register(bot, config)
 # Dollar/riel rate, gold price, news: /market /rate /gold /news
 market_info.register(bot, config)
+# 📰 TPNews live: new posts on the TPNews channel → subscribers (/tpnews) + the Hub
+import tpnews_feed
+_tpnews = tpnews_feed.register(bot, config)
 
 
 def _fan_ask_gemini(prompt):
@@ -1901,6 +1904,7 @@ if __name__ == '__main__':
 
     dailycare_scheduler = scheduler.start_scheduler(bot)
     _subscription.start_loop()
+    _tpnews["start_loop"]()
     _khqr.start_loop()
     _calendar.start_loop()
     _daily.start_loop()
@@ -1920,7 +1924,7 @@ if __name__ == '__main__':
             skip_pending=os.getenv("SKIP_PENDING_UPDATES", "false").strip().lower() in ("1", "true", "yes"),
             timeout=20, long_polling_timeout=20,
             # my_chat_member = bot added to / removed from a group (for /groups)
-            allowed_updates=["message", "edited_message", "callback_query", "my_chat_member"],
+            allowed_updates=["message", "edited_message", "callback_query", "my_chat_member", "channel_post"],
         )
     except (KeyboardInterrupt, SystemExit):
         logger.info("Bot process interrupted. Shutting down gracefully...")

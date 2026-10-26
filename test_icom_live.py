@@ -119,6 +119,8 @@ class MembersAndPrivateTest(unittest.TestCase):
             c.executemany("INSERT INTO subscriptions VALUES ('u',?,?,NULL)", [(10, now + 86400), (11, now - 10)])
             c.executemany("INSERT INTO users VALUES (?,?,?)", [(10, "Sokha", ""), (11, "Unpaid", "Guy"), (5, "Vid", "Cooler")])
         icom_live._rings.clear()
+        icom_live._presence.clear()
+        icom_live._calls.clear()
 
     def tearDown(self):
         os.unlink(self.tmp)
@@ -158,6 +160,41 @@ class MembersAndPrivateTest(unittest.TestCase):
             self.assertEqual(icom_live.ring_response(self.cfg, self.body(10, peer=5), bot)[0], 429)
         self.assertEqual(bot.send_message.call_count, 1)
         self.assertEqual(bot.send_message.call_args[0][0], 5)
+
+    def test_presence_across_rooms(self):
+        """Owner in Group, member in Private: each still sees the other as Online, with where they are."""
+        with mock.patch("subscription.is_active", side_effect=lambda c, k, i, n=None: i == 10):
+            icom_live.members_response(self.cfg, self.body(5, where="group"))
+            code, data = icom_live.members_response(self.cfg, self.body(10, where="private", peer=5))
+            owner = next(m for m in data["members"] if m["id"] == 5)
+            self.assertEqual((owner["online"], owner["where"]), (True, "group"))
+            code, data = icom_live.members_response(self.cfg, self.body(5, where="group"))
+            member = next(m for m in data["members"] if m["id"] == 10)
+            self.assertEqual((member["online"], member["where"]), (True, "private"))
+            # leaving ICOM → Offline
+            icom_live.members_response(self.cfg, self.body(10, where="off"))
+            data = icom_live.members_response(self.cfg, self.body(5, where="group"))[1]
+            self.assertFalse(next(m for m in data["members"] if m["id"] == 10)["online"])
+
+    def test_presence_expires(self):
+        t = time.time()
+        icom_live.note_presence(10, "group", now=t)
+        self.assertIsNotNone(icom_live.presence_of(10, t + 5))
+        self.assertIsNone(icom_live.presence_of(10, t + icom_live.ONLINE_TTL + 1))
+
+    def test_in_app_ring_when_callee_open(self):
+        bot = mock.Mock()
+        with mock.patch.dict(os.environ, {"ICOM_URL": "https://x.test/icom"}), \
+                mock.patch("subscription.is_active", side_effect=lambda c, k, i, n=None: i == 10):
+            icom_live.members_response(self.cfg, self.body(5, where="group"))      # owner has ICOM open
+            code, data = icom_live.ring_response(self.cfg, self.body(10, peer=5), bot)
+            self.assertEqual((code, data.get("inapp")), (200, True))
+            self.assertEqual(bot.send_message.call_count, 0)                      # no Telegram spam
+            inc = icom_live.members_response(self.cfg, self.body(5, where="group"))[1]["incoming"]
+            self.assertEqual(inc["from"], 10)
+            # answering (joining the private room with the caller) clears it
+            icom_live.members_response(self.cfg, self.body(5, where="private", peer=10))
+            self.assertIsNone(icom_live.members_response(self.cfg, self.body(5, where="private", peer=10))[1]["incoming"])
 
     def test_router(self):
         self.assertIsNone(icom_live.handle_post("/icom/other", self.cfg, b"{}"))

@@ -131,7 +131,7 @@ const $ = id => document.getElementById(id);
 const tg = window.Telegram && Telegram.WebApp;
 const LK = window.LivekitClient;
 const S = { room: null, mic: null, talking: false, mode: "group", peer: null, peerName: "", me: null, myName: "", myPhoto: "",
-  members: [], tab: "group", busy: false, gen: 0, ringFrom: null };
+  members: [], tab: "group", busy: false, gen: 0, ringFrom: null, ringAt: 0 };
 
 if (tg) { tg.ready(); tg.expand();
   try { tg.setHeaderColor("#0b1846"); tg.setBackgroundColor("#0b1846"); tg.disableVerticalSwipes && tg.disableVerticalSwipes(); } catch (e) {} }
@@ -195,7 +195,16 @@ function talkUI() {
 }
 
 function participants() { return S.room ? [S.room.localParticipant, ...S.room.remoteParticipants.values()] : []; }
-function onlineIds() { return new Set(S.mode === "group" ? participants().map(idOf) : []); }
+function onlineIds() {          // in my room right now + anyone whose ICOM page is open (server heartbeat)
+  const ids = new Set(S.mode === "group" ? participants().map(idOf) : []);
+  S.members.forEach(m => { if (m.online) ids.add(m.id); });
+  return ids;
+}
+function whereOf(m, on) {
+  if (!on.has(m.id)) return "Offline";
+  if (S.mode === "group" && participants().some(p => idOf(p) === m.id)) return "● Online · នៅ Group";
+  return m.where === "private" ? "● Online · កំពុងនិយាយ Private" : m.where === "group" ? "● Online · នៅ Group" : "● Online";
+}
 
 function render() {
   const all = participants();
@@ -229,7 +238,7 @@ function renderMembers() {
     .sort((a, b) => (on.has(b.id) - on.has(a.id)) || (b.seen - a.seen));
   $("mcount").textContent = S.members.length;
   $("mlist").innerHTML = list.map(m => `<li data-id="${m.id}">${av(m.name, m.photo, on.has(m.id))}
-    <div class="nm"><b>${esc(m.name)}${m.staff ? " ⭐" : ""}</b><small class="${on.has(m.id) ? "on" : ""}">${on.has(m.id) ? "● Online" : "Offline"}</small></div>
+    <div class="nm"><b>${esc(m.name)}${m.staff ? " ⭐" : ""}</b><small class="${on.has(m.id) ? "on" : ""}">${whereOf(m, on)}</small></div>
     <button class="btn gold" type="button" data-call="${m.id}">📻 ហៅ</button></li>`).join("")
     || `<li class="empty">${S.members.length ? "រកមិនឃើញ" : "មិនទាន់មានសមាជិកផ្សេងទៀតទេ"}</li>`;
 }
@@ -291,7 +300,7 @@ async function connect(peer) {
   if (gen !== S.gen) { room.disconnect(); return; }
   try { await room.startAudio(); } catch (e) {}
   $("tapsound").style.display = room.canPlaybackAudio ? "none" : "flex";
-  ui("on"); render(); haptic("medium");
+  ui("on"); render(); haptic("medium"); loadMembers();
   ensureMic().catch(() => {});      // asks for the microphone now, so the first tap talks right away
   try { navigator.wakeLock && navigator.wakeLock.request("screen"); } catch (e) {}
 }
@@ -304,26 +313,31 @@ async function disconnect(quiet) {
 async function call(peer) {      // tap a member → ring them, then open the private room
   const m = S.members.find(x => x.id === peer); if (!m) return;
   haptic("medium"); S.peerName = m.name;
-  const online = onlineIds().has(peer);
-  if (online && S.room) {
+  if (S.room && S.mode === "group" && participants().some(p => idOf(p) === peer)) {   // instant ring if we share the Group room
     try { await S.room.localParticipant.publishData(new TextEncoder().encode(JSON.stringify({ t: "ring", from: S.me, name: S.myName })),
       { reliable: true, destinationIdentities: ["tg" + peer] }); } catch (e) {}
-  } else {
-    api("/icom/ring", { peer }).then(r => { if (!r.ok && r.j.error && r.j.error !== "wait") alertMsg(ERR[r.j.error] || "ហៅតាម Telegram មិនបាន"); }).catch(() => {});
   }
+  // server ring: shows the "is calling" bar in their ICOM wherever they are, or a Telegram message if ICOM is closed
+  api("/icom/ring", { peer }).then(r => { if (!r.ok && r.j.error && r.j.error !== "wait") alertMsg(ERR[r.j.error] || "ហៅតាម Telegram មិនបាន"); }).catch(() => {});
   connect(peer);
 }
 function showRing(from, name) {
   if (!from || from === S.me) return;
+  if (S.mode === "private" && S.peer === from && S.state === "on") return;   // already talking with them
   S.ringFrom = { id: from, name: name || "Member" };
   $("ringTx").innerHTML = `📻 <b>${esc(S.ringFrom.name)}</b> កំពុងហៅអ្នក<br>Private ICOM`;
   $("ring").style.display = "flex"; blip(true); setTimeout(() => blip(false), 180); haptic("heavy");
   clearTimeout(showRing.t); showRing.t = setTimeout(() => { $("ring").style.display = "none"; }, 30000);
 }
 
-async function loadMembers() {
-  try { const r = await api("/icom/members"); if (r.ok) { S.members = r.j.members || []; S.me = r.j.me; renderMembers(); } } catch (e) {}
+async function loadMembers() {    // also the heartbeat: tells the server where I am, and picks up incoming calls
+  const where = S.room ? S.mode : "off";
+  try { const r = await api("/icom/members", { where, peer: S.mode === "private" ? S.peer : 0 });
+    if (r.ok) { S.members = r.j.members || []; S.me = r.j.me; renderMembers();
+      const c = r.j.incoming;
+      if (c && c.at !== S.ringAt) { S.ringAt = c.at; showRing(c.from, c.name); } } } catch (e) {}
 }
+setInterval(() => { if (!document.hidden) loadMembers(); }, 6000);
 
 // ---------- events ----------
 $("talk").addEventListener("click", () => setTalk(!S.talking));
@@ -341,7 +355,9 @@ $("ringNo").addEventListener("click", () => { $("ring").style.display = "none"; 
 $("tapsound").addEventListener("click", async () => { try { await S.room.startAudio(); } catch (e) {} $("tapsound").style.display = "none"; });
 $("back").addEventListener("click", () => { disconnect(true); if (history.length > 1) history.back(); else if (tg) tg.close(); });
 if (tg) { tg.BackButton.show(); tg.BackButton.onClick(() => $("back").click()); }
-window.addEventListener("pagehide", () => disconnect(true));
+window.addEventListener("pagehide", () => { disconnect(true);
+  try { fetch(API + "/icom/members", { method: "POST", keepalive: true, headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ initData: INIT, where: "off" }) }); } catch (e) {} });
 
 // Auto-join: group by default, or the private room from a "📻 ... is calling" button (?with=<id>)
 ui("off");

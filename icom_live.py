@@ -36,6 +36,39 @@ INIT_MAX_AGE = 24 * 3600
 TOKEN_TTL = 6 * 3600
 RING_GAP = 30          # seconds between two rings from the same caller to the same member
 _rings = {}
+ONLINE_TTL = 25        # a member counts as Online if their ICOM page pinged within this many seconds
+CALL_TTL = 40          # an incoming call stays visible in the callee's ICOM page this long
+_presence = {}         # uid -> {"t": last ping, "where": "group"|"private", "peer": uid|0}
+_calls = {}            # callee uid -> {"from": caller uid, "name": caller name, "at": time}
+
+
+def note_presence(uid, where, peer=0, now=None):
+    """Remember where a member's ICOM page is right now (group / private / off)."""
+    t = now or time.time()
+    if where not in ("group", "private"):
+        _presence.pop(uid, None)
+        return
+    _presence[uid] = {"t": t, "where": where, "peer": int(peer or 0) if where == "private" else 0}
+    call = _calls.get(uid)
+    if call and where == "private" and int(peer or 0) == call["from"]:
+        _calls.pop(uid, None)          # answered
+
+
+def presence_of(uid, now=None):
+    p = _presence.get(uid)
+    if not p or (now or time.time()) - p["t"] > ONLINE_TTL:
+        return None
+    return p
+
+
+def incoming_for(uid, now=None):
+    c = _calls.get(uid)
+    if not c:
+        return None
+    if (now or time.time()) - c["at"] > CALL_TTL:
+        _calls.pop(uid, None)
+        return None
+    return dict(c)
 
 
 def settings():
@@ -199,8 +232,12 @@ def members(config, now=None):
     except sqlite3.Error as exc:
         logger.info("icom members db (%s)", type(exc).__name__)
     staff = _staff(config)
-    out = [{"id": i, "name": (names.get(i) or "Member")[:30], "photo": photos.get(i, ""),
-            "staff": i in staff, "seen": seen.get(i, 0)} for i in ids]
+    out = []
+    for i in ids:
+        p = presence_of(i, now)
+        out.append({"id": i, "name": (names.get(i) or "Member")[:30], "photo": photos.get(i, ""),
+                    "staff": i in staff, "seen": seen.get(i, 0), "online": bool(p),
+                    "where": p["where"] if p else ""})
     out.sort(key=lambda m: (-m["seen"], m["name"]))
     return out
 
@@ -254,6 +291,7 @@ def token_response(config, body, now=None):
             return err
         room = dm_room(uid, peer)
         peer_name = next((m["name"] for m in members(config, now) if m["id"] == peer), "Member")
+    note_presence(uid, "private" if room != s["room"] else "group", data.get("peer") or 0, now)
     tok = livekit_token(s["key"], s["secret"], f"tg{uid}", user["_name"], room, now=now,
                         metadata=json.dumps({"p": user["_photo"]}, separators=(",", ":")))
     return 200, {"url": s["url"], "token": tok, "room": room, "me": uid, "name": user["_name"],
@@ -261,11 +299,20 @@ def token_response(config, body, now=None):
 
 
 def members_response(config, body, now=None):
-    user, _, err = _read(config, body, now)
+    """POST /icom/members {initData, where?, peer?} — also the page's heartbeat (every few seconds)."""
+    user, data, err = _read(config, body, now)
     if err:
         return err
-    remember(config, int(user["id"]), user["_name"], user["_photo"], now)
-    return 200, {"me": int(user["id"]), "members": members(config, now)}
+    uid = int(user["id"])
+    remember(config, uid, user["_name"], user["_photo"], now)
+    where = str(data.get("where") or "")
+    if where:
+        try:
+            peer = int(data.get("peer") or 0)
+        except (TypeError, ValueError):
+            peer = 0
+        note_presence(uid, where, peer, now)
+    return 200, {"me": uid, "members": members(config, now), "incoming": incoming_for(uid, now)}
 
 
 def ring_text(caller_name):
@@ -285,6 +332,10 @@ def ring_response(config, body, bot=None, now=None):
     if t - _rings.get((uid, peer), 0) < RING_GAP:
         return 429, {"error": "wait"}
     _rings[(uid, peer)] = t
+    # in-app ring: the callee's open ICOM page sees this on its next heartbeat, whichever room it's in
+    _calls[peer] = {"from": uid, "name": user["_name"], "at": t}
+    if presence_of(peer, t):
+        return 200, {"ok": True, "inapp": True}     # they have ICOM open — no Telegram message needed
     url = page_url()
     if bot is None or not url:
         return 503, {"error": "no_bot"}

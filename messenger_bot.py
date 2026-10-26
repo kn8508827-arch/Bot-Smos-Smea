@@ -253,6 +253,7 @@ def set_profile(page_token, hub, telegram, client=None):
 
 
 LINK_RE = re.compile(r"^\s*(?:link|ភ្ជាប់)\s*[:#-]?\s*(\d{6})\s*$", re.IGNORECASE)
+BARE_CODE_RE = re.compile(r"^\s*(\d{6})\s*$")
 LINK_TTL = 600
 LINK_MAX_TRIES = 5
 
@@ -289,6 +290,12 @@ def redeem_link_code(config, psid, code, now=None):
         c.execute("INSERT OR REPLACE INTO msg_links(psid, tg_user_id, linked_at) VALUES (?, ?, ?)",
                   (psid, row["tg_user_id"], now))
         return int(row["tg_user_id"])
+
+
+def code_pending(config, code, now=None):
+    with _db(config) as c:
+        return c.execute("SELECT 1 FROM msg_link_codes WHERE code=? AND expires>=?",
+                         (code, int(now or time.time()))).fetchone() is not None
 
 
 def linked_user(config, psid):
@@ -403,6 +410,9 @@ def register(bot, config, ask=None, client=None, observe=None):
         text = (msg.get("text") or "").strip()
         payload = (ev.get("postback") or {}).get("payload") or (msg.get("quick_reply") or {}).get("payload") or ""
         m_link = LINK_RE.match(text) if text and not payload else None
+        bare = None if m_link or payload else BARE_CODE_RE.match(text or "")
+        if bare and code_pending(config, bare.group(1)):
+            m_link = bare          # people often send just the 6 digits — accept them when such a code is waiting
         if m_link:
             uid = redeem_link_code(config, psid, m_link.group(1))
             if uid is None:
@@ -570,7 +580,7 @@ def register(bot, config, ask=None, client=None, observe=None):
             return
         bot.reply_to(message, "🔗 <b>ភ្ជាប់ Messenger ជាមួយ Telegram</b>\n\n"
                               f"1️⃣ បើក Messenger → Chat ជាមួយ Page <b>Cooler Bot</b>\n"
-                              f"2️⃣ ផ្ញើ៖ <code>LINK {code}</code>\n\n"
+                              f"2️⃣ ផ្ញើលេខ៖ <code>{code}</code>  (ឬ <code>LINK {code}</code>)\n\n"
                               "⏱️ លេខកូដប្រើបាន ១០ នាទី · ម្ដងគត់\n"
                               "✅ ក្រោយភ្ជាប់ Cooler Bot ស្គាល់អ្នក និងចាំរឿងរបស់អ្នកដូចគ្នាទាំង Telegram & Messenger\n"
                               "🔓 ផ្ដាច់៖ /msgunlink", parse_mode="HTML")

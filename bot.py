@@ -384,6 +384,7 @@ def setup_bot_commands():
             BotCommand("weather", "🌤️ ព្យាករណ៍អាកាសធាតុតាមខេត្ត"),
             BotCommand("studio", "🎨 កែរូបដោយ AI (Photo Studio)"),
             BotCommand("style", "💇 សាកម៉ូដសក់ & ស្ទាយថតរូប"),
+            BotCommand("money", "💵 ពិនិត្យក្រដាសប្រាក់"),
             BotCommand("community", "🌟 មឺនុយសហគមន៍"),
             BotCommand("profile", "⭐ ប្រវត្តិរូប និងពិន្ទុ"),
             BotCommand("checkin", "🎁 Check-in ប្រចាំថ្ងៃ"),

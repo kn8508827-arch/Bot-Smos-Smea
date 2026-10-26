@@ -1,6 +1,8 @@
 """Everyday helpers (Khmer UI).
 
   🚨 /scam  — reply to (or paste) a suspicious message/link/photo → AI says how risky it is and why
+  💵 /money — photo of a banknote → which note it is, warning signs visible in the photo, and how to check it by hand
+     (never says "100% real": watermark, thread, raised print and UV cannot be judged from a photo)
   🎤 /totext — reply to a voice message (or send /totext then a voice) → Khmer text to copy
   📷 /translate — reply to a photo or text → Khmer translation (or Khmer → English)
      /homework — reply to a photo of an exercise (or type it) → step-by-step explanation in Khmer
@@ -31,6 +33,22 @@ Line 1: one of "🔴 គ្រោះថ្នាក់ខ្ពស់", "🟠 �
 Then 2-4 bullet reasons (point at concrete signs: domain spelling, urgency, money/OTP requests).
 Then 1-2 bullets "ធ្វើអ្វី" (e.g. don't click, call the bank's official number, block & report).
 Never say something is 100% safe. Content:
+"""
+MONEY_PROMPT = """You help people in Cambodia check banknotes (mostly Cambodian riel and US dollars, also Thai baht etc.).
+Look at the photo. A photo can NOT prove a note is genuine: watermark, security thread, raised print, colour-shifting ink
+and UV features must be checked by hand. So never say a note is real or "100%". Reply in simple Khmer, short:
+Line 1: "💵 " + currency, value and series/design if visible (e.g. 100 ដុល្លារ ស៊េរីថ្មី មានខ្សែខៀវ 3D).
+Then "🔎 អ្វីដែលឃើញក្នុងរូប" with 1-3 bullets.
+Then one verdict line:
+  "⚠️ មានចំណុចសង្ស័យ" + bullets of concrete signs IF you see any: words like COPY, SPECIMEN, "FOR MOTION PICTURE USE",
+  "PROP", "PLAY MONEY", Chinese practice-note text, wrong colours or fonts, blurry/pixelated printing, missing
+  portrait or numbers, mismatched serial numbers on the two sides, or a design that does not exist;
+  otherwise "🟢 មិនឃើញចំណុចសង្ស័យក្នុងរូបទេ — ប៉ុន្តែត្រូវពិនិត្យដោយដៃជានិច្ច".
+Then "✋ ពិនិត្យដោយដៃ ៣ ជំហាន" — the real checks for THIS note (hold to light → watermark & thread; tilt → colour-shifting
+number or 3D ribbon where the note has them; feel the raised print; UV light if available). If you are not sure a
+feature exists on this exact note, give the general check instead of inventing one.
+End with: "🏦 សង្ស័យខ្លាំង → យកទៅធនាគារពិនិត្យ កុំចាយបន្ត". If the photo is not a banknote, say so in one line.
+Extra note from the user (may be empty):
 """
 TRANSLATE_PROMPT = ("Translate the text (or all text in the image) into natural Khmer. If it is already Khmer, translate "
                     "into English. Keep names, numbers, prices. Output only the translation, keep line breaks.")
@@ -169,6 +187,7 @@ def register(bot, config, ai=None, rate=None):
             except Exception:
                 return KHR_PER_USD_FALLBACK
     waiting_voice = {}   # user_id -> expires (monotonic)
+    waiting_money = {}   # user_id -> expires: /money then a photo
 
     def now_kh():
         return datetime.now(TZ_KH)
@@ -227,6 +246,34 @@ def register(bot, config, ai=None, rate=None):
                                    or getattr(src, "forward_from_chat", None))
         prompt = SCAM_PROMPT + content[:3000] + ("\n(This was forwarded from someone else.)" if fwd else "")
         run_ai(message, parts, prompt, "🚨 <b>លទ្ធផលឆែក Scam</b>\n\n", "")
+
+    # ---------- 💵 banknote check ----------
+    MONEY_USAGE = ("💵 <b>ពិនិត្យលុយ</b>\nថតរូបក្រដាសប្រាក់ (មុខ ឬក្រោយ ឲ្យច្បាស់ ពន្លឺល្អ) ផ្ញើមកឥឡូវ\n"
+                   "💡 ឬ Reply <code>/money</code> លើរូបលុយ · ឬដាក់ <code>/money</code> ជា Caption")
+
+    @bot.message_handler(commands=["money", "checkmoney", "luy"])
+    def money_cmd(message):
+        arg, src = arg_and_source(message)
+        target = src if src is not None else (message if getattr(message, "photo", None) else None)
+        try:
+            parts, _t = media_parts(target)
+        except Exception:
+            parts = []
+        if not parts:
+            waiting_money[message.from_user.id] = time.monotonic() + 300
+            bot.reply_to(message, MONEY_USAGE, parse_mode="HTML")
+            return
+        run_ai(message, parts, MONEY_PROMPT + arg[:300], "💵 <b>ពិនិត្យលុយ</b>\n\n", "")
+
+    def wants_money(message):
+        exp = waiting_money.get(getattr(getattr(message, "from_user", None), "id", None))
+        return exp is not None and exp > time.monotonic()
+
+    @bot.message_handler(func=wants_money, content_types=["photo", "document"])
+    def money_photo(message):
+        waiting_money.pop(message.from_user.id, None)
+        message.reply_to_message = message
+        money_cmd(message)
 
     # ---------- 🎤 voice → text ----------
     def transcribe(message, voice_msg):
@@ -295,7 +342,7 @@ def register(bot, config, ai=None, rate=None):
 
     def caption_cmd(message):
         cap = (getattr(message, "caption", None) or "").strip().lower()
-        return cap.split()[0].split("@")[0] in ("/translate", "/tr", "/homework", "/hw", "/scam") if cap else False
+        return cap.split()[0].split("@")[0] in ("/translate", "/tr", "/homework", "/hw", "/scam", "/money") if cap else False
 
     @bot.message_handler(func=caption_cmd, content_types=["photo", "document"])
     def caption_tools(message):
@@ -305,6 +352,8 @@ def register(bot, config, ai=None, rate=None):
             media_tool(message, TRANSLATE_PROMPT, "🌐 <b>បកប្រែ</b>\n\n", "")
         elif cmd == "/scam":
             scam_cmd(message)
+        elif cmd == "/money":
+            money_cmd(message)
         else:
             media_tool(message, HOMEWORK_PROMPT, "📚 <b>ពន្យល់លំហាត់</b>\n\n", "")
 

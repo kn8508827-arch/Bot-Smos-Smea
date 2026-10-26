@@ -243,15 +243,16 @@ def register(bot, config, ask=None, client=None):
             return self._send(200, "Cooler Bot is running")
 
         def do_POST(self):
-            if urlparse(self.path).path.rstrip("/") == "/icom/token":
+            if urlparse(self.path).path.startswith("/icom/"):    # 🎙️ ICOM: token / members / ring
                 import icom_live
                 body = self.rfile.read(min(int(self.headers.get("Content-Length") or 0), 20_000))
                 try:
-                    code, data = icom_live.token_response(config, body)
+                    out = icom_live.handle_post(urlparse(self.path).path, config, body, bot)
                 except Exception as exc:
-                    logger.warning("icom token error (%s)", type(exc).__name__)
-                    code, data = 500, {"error": "server"}
-                return self._send_bytes(code, json.dumps(data).encode(), "application/json")
+                    logger.warning("icom error (%s)", type(exc).__name__)
+                    out = (500, {"error": "server"})
+                code, data = out or (404, {"error": "not_found"})
+                return self._send_bytes(code, json.dumps(data, ensure_ascii=False).encode(), "application/json")
             if urlparse(self.path).path.rstrip("/") != "/messenger/webhook":
                 return self._send(404, "not found")
             body = self.rfile.read(min(int(self.headers.get("Content-Length") or 0), 1_000_000))

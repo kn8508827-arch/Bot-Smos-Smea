@@ -107,5 +107,62 @@ class ResponseTest(unittest.TestCase):
         self.assertIn(b"livekit-client", icom_live.page_html())
 
 
+class MembersAndPrivateTest(unittest.TestCase):
+    def setUp(self):
+        import tempfile, sqlite3
+        self.tmp = tempfile.NamedTemporaryFile(suffix=".db", delete=False).name
+        self.cfg = SimpleNamespace(BOT_TOKEN=BOT_TOKEN, OWNER_ID=5, ADMIN_IDS=[], BOT_DB_PATH=self.tmp)
+        now = time.time()
+        with sqlite3.connect(self.tmp) as c:
+            c.execute("CREATE TABLE subscriptions (kind TEXT, target_id INTEGER, paid_until INTEGER, reminded_for INTEGER)")
+            c.execute("CREATE TABLE users (user_id INTEGER, first_name TEXT, last_name TEXT)")
+            c.executemany("INSERT INTO subscriptions VALUES ('u',?,?,NULL)", [(10, now + 86400), (11, now - 10)])
+            c.executemany("INSERT INTO users VALUES (?,?,?)", [(10, "Sokha", ""), (11, "Unpaid", "Guy"), (5, "Vid", "Cooler")])
+        icom_live._rings.clear()
+
+    def tearDown(self):
+        os.unlink(self.tmp)
+
+    def body(self, uid, **extra):
+        d = {"initData": make_init({"id": uid, "first_name": "U%d" % uid, "photo_url": "https://t.me/p.jpg"})}
+        d.update(extra)
+        return json.dumps(d).encode()
+
+    def test_list_hides_unpaid(self):
+        with mock.patch("subscription.is_active", side_effect=lambda c, k, i, n=None: i == 10):
+            code, data = icom_live.members_response(self.cfg, self.body(10))
+        self.assertEqual(code, 200)
+        ids = {m["id"] for m in data["members"]}
+        self.assertEqual(ids, {5, 10})
+        self.assertNotIn(11, ids)
+
+    def test_unpaid_cannot_see_list(self):
+        with mock.patch("subscription.is_active", return_value=False):
+            self.assertEqual(icom_live.members_response(self.cfg, self.body(11))[0], 402)
+
+    def test_private_room_both_members(self):
+        with mock.patch.dict(os.environ, ENV), \
+                mock.patch("subscription.is_active", side_effect=lambda c, k, i, n=None: i == 10):
+            code, data = icom_live.token_response(self.cfg, self.body(10, peer=5))
+            self.assertEqual((code, data["room"], data["private"]), (200, "dm-5-10", True))
+            self.assertEqual(jwt_parts(data["token"])[1]["video"]["room"], "dm-5-10")
+            # an unpaid peer can't be called
+            self.assertEqual(icom_live.token_response(self.cfg, self.body(10, peer=11))[0], 404)
+            self.assertEqual(icom_live.token_response(self.cfg, self.body(10, peer=10))[0], 400)
+
+    def test_ring_sends_once(self):
+        bot = mock.Mock()
+        with mock.patch.dict(os.environ, {"ICOM_URL": "https://x.test/icom"}), \
+                mock.patch("subscription.is_active", side_effect=lambda c, k, i, n=None: i == 10):
+            self.assertEqual(icom_live.ring_response(self.cfg, self.body(10, peer=5), bot)[0], 200)
+            self.assertEqual(icom_live.ring_response(self.cfg, self.body(10, peer=5), bot)[0], 429)
+        self.assertEqual(bot.send_message.call_count, 1)
+        self.assertEqual(bot.send_message.call_args[0][0], 5)
+
+    def test_router(self):
+        self.assertIsNone(icom_live.handle_post("/icom/other", self.cfg, b"{}"))
+        self.assertEqual(icom_live.handle_post("/icom/members", self.cfg, b"{}")[0], 401)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -91,6 +91,12 @@ class MessengerTests(unittest.TestCase):
         time.sleep(0.2)
         self.assertNotIn("ចម្លើយ AI", [(m or {}).get("message", {}).get("text") for m in self.sent])
 
+    def test_join_guide(self):
+        self.post({"object": "page", "entry": [{"id": "P1", "messaging": [{"sender": {"id": "999"}, "message": {"text": "សមាជិក"}}]}]})
+        self.assertTrue(self.wait_for(lambda m: "ABA" in m.get("message", {}).get("attachment", {}).get("payload", {}).get("text", "")))
+        g = mb.join_guide("https://t.me/x")["attachment"]["payload"]
+        self.assertLessEqual(len(g["text"]), 640)
+
     def test_profile_body(self):
         b = mb.profile_body("https://kn8508827-arch.github.io/Blue-Gold-Rush/hub/", "https://t.me/TeamSmosSneabot")
         self.assertEqual(b["whitelisted_domains"], ["https://kn8508827-arch.github.io"])

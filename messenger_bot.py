@@ -115,10 +115,23 @@ def messenger_note(username="TeamSmosSneabot"):
         links = "\n".join(f"- {label}: {url}" for _k, label, url in social_links.links())
     except Exception:
         links = ""
-    return ("CHANNEL: You are answering inside Facebook Messenger on Vid Cooler's Facebook Page, not in Telegram. "
-            "Telegram /commands (like /contact, /follow, /hub, /pay) do NOT work here — never tell people to type them. "
-            "Messenger here supports text chat only. For images, games, the Khmer calendar, membership and all other "
-            f"features, invite them to open Cooler Bot on Telegram: https://t.me/{username} . "
+    return ("CHANNEL: You are answering inside Facebook Messenger on one of Vid Cooler's Facebook Pages "
+            "(Cooler Bot / Vid Cooler), not in Telegram. Telegram /commands (like /contact, /follow, /hub, /pay) do NOT "
+            "work here — never tell people to type them.\n"
+            "WHAT WORKS HERE: free text chat with you (with a daily limit). Everything else lives in Cooler Bot on "
+            f"Telegram: https://t.me/{username}\n"
+            "HOW TO ANSWER: always answer the person's actual question first, fully and warmly, in natural Khmer — "
+            "never curt one-liners. When they ask for something that only works in Telegram (drawing or editing "
+            "pictures, songs/rap with voice, voice notes, photos, games, ICOM voice talk, the Khmer calendar, adding the "
+            "bot to a group, membership) or ask how to get more, explain kindly and step by step, for example:\n"
+            "  1) install Telegram from App Store / Play Store if they don't have it (it's free),\n"
+            f"  2) open https://t.me/{username} and press Start,\n"
+            "  3) tap 🚀 Hub to see everything,\n"
+            "  4) to unlock all features become a member: 1$ per person per month (5$ per group), pay by ABA QR inside "
+            "the bot, send the receipt, and Vid Cooler approves it.\n"
+            "Say what they personally will gain (e.g. 'you can draw the picture you just described'). Be friendly and "
+            "encouraging, never pushy; don't repeat the Telegram invitation in every reply when the conversation is "
+            "just chatting. They can also type 'telegram' or 'សមាជិក' here for the full guide.\n"
             "To contact or follow Vid Cooler, give these links directly:\n" + (links or f"- Telegram: https://t.me/{username}"))
 
 
@@ -183,11 +196,29 @@ def profile_body(hub, telegram):
             {"question": q, "payload": k} for k, (q, _) in ICE.items()]}],
         "persistent_menu": [{"locale": "default", "composer_input_disabled": False, "call_to_actions": [
             {"type": "web_url", "title": "🚀 បើក Cooler Hub", "url": hub, "webview_height_ratio": "full"},
+            {"type": "postback", "title": "⭐ ចូលជាសមាជិក", "payload": "JOIN"},
             {"type": "postback", "title": "🎤 សរសេរ Rap", "payload": "ICE_RAP"},
             {"type": "web_url", "title": "📲 Cooler Bot ក្នុង Telegram", "url": telegram},
         ]}],
         "whitelisted_domains": [hub_origin],
     }
+
+
+JOIN_WORDS = ("telegram", "តេឡេក្រាម", "សមាជិក", "member", "join", "pay", "បង់", "របៀបចូល")
+
+
+def join_guide(telegram):
+    text = ("⭐ របៀបប្រើមុខងារពេញលេញរបស់ Cooler Bot\n\n"
+            "នៅ Messenger នេះ អ្នកអាច chat ជាមួយខ្ញុំជាអក្សរបានដោយឥតគិតថ្លៃ 💬 "
+            "តែមុខងារពិសេសៗ ដូចជា 🎨 គូររូប/កែរូប 🎤 ច្រៀង & Rap មានសំឡេង 🎮 ហ្គេម 📻 ICOM និយាយជាក្រុម "
+            "📅 ប្រតិទិនខ្មែរ និងដាក់ Bot ចូល Group — មាននៅក្នុង Telegram 🚀\n\n"
+            "១️⃣ ដំឡើង Telegram ពី App Store ឬ Play Store (ឥតគិតថ្លៃ)\n"
+            "២️⃣ ចុចប៊ូតុង 📲 ខាងក្រោម → ចុច Start\n"
+            "៣️⃣ ចុច 🚀 Hub ដើម្បីមើលមុខងារទាំងអស់\n"
+            "៤️⃣ ចូលជាសមាជិក៖ 1$/នាក់/ខែ (Group 5$) បង់តាម ABA QR ក្នុង Bot → ផ្ញើវិក្កយបត្រ → Vid Cooler អនុម័តភ្លាម ✅\n\n"
+            "មានសំណួរអ្វី សួរខ្ញុំនៅទីនេះបានគ្រប់ពេល 😎")
+    return {"attachment": {"type": "template", "payload": {"template_type": "button", "text": text[:640],
+            "buttons": [{"type": "web_url", "url": telegram, "title": "📲 បើក Cooler Bot (Telegram)"}]}}}
 
 
 def hub_card(hub, telegram):
@@ -297,10 +328,16 @@ def register(bot, config, ask=None, client=None):
             send(page_id, psid, hub_card(hub_link(), tg_link()))
         if payload in ICE:
             text = ICE[payload][1]
+        elif payload == "JOIN":
+            send(page_id, psid, join_guide(tg_link()))
+            return
         elif payload == "OPEN_HUB":
             send(page_id, psid, hub_card(hub_link(), tg_link()))
             return
         elif payload:
+            return
+        if text.lower().strip(" ?!។") in JOIN_WORDS:
+            send(page_id, psid, join_guide(tg_link()))
             return
         if text.lower() in ("hub", "/hub", "ហាប់", "menu", "ម៉ឺនុយ"):
             send(page_id, psid, hub_card(hub_link(), tg_link()))

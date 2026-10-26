@@ -277,6 +277,38 @@ def _mark_group_left(config, chat_id):
 
 # ---------------- module ----------------
 
+# ---------- 💬 understand plain questions about paying (no need to know /pay) ----------
+_QR_WORDS = ("qr", "khqr", "ស្កេន", "scan", "ឃ្យូអា", "គ្យូអា")
+_PAY_WORDS = ("បង់", "ទូទាត់", "pay", "payment", "aba", "លេខគណនី", "account", "ផ្ទេរលុយ", "ផ្ទេរប្រាក់", "transfer",
+              "wing", "acleda", "bakong")
+_MEMBER_WORDS = ("សមាជិក", "member", "vip", "subscribe", "join", "ចូលរួម", "ចុះឈ្មោះ")
+_PRICE_WORDS = ("តម្លៃ", "ថ្លៃ", "ប៉ុន្មាន", "price", "how much", "cost", "$", "ដុល្លារ", "លុយ")
+_RENEW_WORDS = ("បន្ត", "ផុតកំណត់", "ហួសកំណត់", "expire", "renew", "នៅសល់ប៉ុន្មានថ្ងៃ", "ដល់ថ្ងៃណា")
+_GROUP_WORDS = ("group", "ក្រុម", "គ្រុប", "ហ្គ្រុប")
+_BOT_WORDS = ("bot", "បូត", "cooler", "hub", "ហាប់", "1$", "១$", "5$", "៥$")
+_ASK_WORDS = ("?", "ម៉េច", "យ៉ាងម៉េច", "ណា", "អត់", "ទេ", "ចង់", "សុំ", "how", "where", "want", "need", "ផង", "ឲ្យ", "អោយ", "ខ្ញុំ")
+
+
+def pay_intent(text):
+    """'qr' | 'group' | 'renew' | 'info' | None for a plain message."""
+    t = (text or "").casefold()
+    if not t or t.startswith("/") or len(t) > 300:
+        return None
+    has = lambda words: any(w in t for w in words)
+    group = has(_GROUP_WORDS) and (has(("ដាក់", "add", "ចូល")) or has(_PAY_WORDS))
+    if has(_QR_WORDS):
+        return "group" if group and has(_PAY_WORDS + ("ដាក់", "add")) else "qr"
+    if has(_PAY_WORDS) and (has(_MEMBER_WORDS) or has(_BOT_WORDS) or has(_ASK_WORDS) or has(_PRICE_WORDS)):
+        if group:
+            return "group"
+        return "renew" if has(_RENEW_WORDS) else "qr"
+    if has(_RENEW_WORDS) and has(_MEMBER_WORDS + _BOT_WORDS):
+        return "renew"
+    if has(_MEMBER_WORDS) and (has(_PRICE_WORDS) or has(_ASK_WORDS)):
+        return "info"
+    return None
+
+
 def register(bot, config):
     """Register FIRST (before every other feature) so the gate runs before other handlers."""
     from telebot.types import InlineKeyboardButton, InlineKeyboardMarkup
@@ -1129,5 +1161,43 @@ def register(bot, config):
         t.start()
         return t
 
+    def text_intent(message):
+        """Answer payment questions straight away (QR, price, renew, group) — True when handled."""
+        kind = pay_intent(getattr(message, "text", None))
+        if not kind:
+            return False
+        chat, uid = message.chat, message.from_user.id
+        s = settings()
+        if is_group(chat):
+            bot.reply_to(message, "💳 <b>បង់ប្រាក់សម្រាប់ Group នេះ</b>\n"
+                                  f"{html.escape(s.group_price)} / {s.days} ថ្ងៃ — ចុចប៊ូតុងខាងក្រោម បង់ក្នុង Chat ផ្ទាល់ (មាន QR) 👇",
+                         reply_markup=group_pay_markup(chat.id), parse_mode="HTML")
+            return True
+        member = privileged(uid) or is_active(config, "u", uid)
+        if kind == "group":
+            if not member:
+                bot.reply_to(message, "👥 <b>ដាក់ Bot ចូល Group</b> — សម្រាប់សមាជិកប៉ុណ្ណោះ\n"
+                                      f"1️⃣ ចូលជាសមាជិកសិន {html.escape(s.user_price)} / {s.days} ថ្ងៃ (QR ខាងក្រោម 👇)\n"
+                                      f"2️⃣ បន្ទាប់មកបង់ {html.escape(s.group_price)} សម្រាប់ Group ១ → ចុច «ជ្រើស Group»",
+                             parse_mode="HTML")
+                send_payment(chat.id, uid, "u", uid)
+                return True
+            bot.reply_to(message, f"👥 <b>ដាក់ Bot ចូល Group</b> — {html.escape(s.group_price)} / {s.days} ថ្ងៃ\n"
+                                  "Scan QR ខាងក្រោម → បង់រួច Bot ផ្ញើប៊ូតុង «ជ្រើស Group» ឲ្យ ✅", parse_mode="HTML")
+            send_payment(chat.id, uid, "c", uid)
+            return True
+        if kind == "info":
+            bot.reply_to(message, "😊 នេះជាព័ត៌មានសមាជិកភាព — ចុច 💳 ដើម្បីឃើញ QR ភ្លាម 👇\n\n" + benefits(),
+                         reply_markup=paywall_markup(), parse_mode="HTML")
+            return True
+        intro = ("📅 " + plan_text(uid) + "\n\n🔄 ចង់បន្តមុន? Scan QR ខាងក្រោម 👇") if (kind == "renew" or member) and not privileged(uid) \
+            else f"😊 បាទ! នេះជា <b>QR</b> សម្រាប់ចូលជាសមាជិក Cooler Bot — {html.escape(s.user_price)} / {s.days} ថ្ងៃ 👇"
+        if privileged(uid):
+            intro = "👑 Papa ជា Owner — នេះជា QR ដូចដែលភ្ញៀវឃើញ 👇"
+        bot.reply_to(message, intro, parse_mode="HTML")
+        send_payment(chat.id, uid, "u", uid)
+        return True
+
     return SimpleNamespace(tick=tick, start_loop=start_loop, waiting=waiting, hooks=hooks, blocked_message=blocked_message,
-                           blocked_call=blocked_call, benefits=benefits, paywall_markup=paywall_markup)
+                           blocked_call=blocked_call, benefits=benefits, paywall_markup=paywall_markup,
+                           text_intent=text_intent, send_payment=send_payment)

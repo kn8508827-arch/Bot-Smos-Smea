@@ -1852,6 +1852,12 @@ def echo_all(message):
     user_text = message.text
     if not user_text:
         return
+    # 💳 "QR?", "បង់ម៉េច?", "សមាជិកប៉ុន្មាន?" → show the QR / prices right away (no need to know /pay)
+    try:
+        if _subscription.text_intent(message):
+            return
+    except Exception as exc:
+        logger.warning("pay intent failed (%s)", type(exc).__name__)
     # 🔒 non-members: plain AI chat only (set by the subscription gate) — no weather/location extras
     text_only = getattr(message, "_cooler_text_only", False)
     if not text_only and weather_service.has_weather_intent(user_text):

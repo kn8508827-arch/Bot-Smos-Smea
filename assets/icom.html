@@ -23,7 +23,19 @@ header img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;obj
 header::after{content:"";position:absolute;inset:0;background:linear-gradient(to bottom,rgba(11,24,70,.15),rgba(11,24,70,.55) 55%,var(--bg))}
 header .top{position:absolute;z-index:1;top:max(12px,env(safe-area-inset-top));left:16px;right:16px;display:flex;justify-content:space-between;align-items:center}
 .chip{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--border);background:rgba(11,24,70,.55);color:var(--fg);border-radius:99px;padding:7px 12px;font-family:inherit;font-weight:600;font-size:12.5px}
-.live{background:var(--red);border-color:transparent;font-weight:700;box-shadow:0 0 12px rgba(240,80,63,.6)}
+.live{position:relative;overflow:hidden;flex-shrink:0;white-space:nowrap;gap:7px;padding:7px 14px 7px 12px;letter-spacing:.06em;
+  background:linear-gradient(135deg,#ff5a4a,#e0263f);border-color:rgba(255,255,255,.25);font-weight:800;
+  box-shadow:0 0 12px rgba(240,80,63,.6);animation:liveGlow 1.6s ease-in-out infinite}
+.live::after{content:"";position:absolute;top:0;bottom:0;left:-60%;width:40%;transform:skewX(-20deg);
+  background:linear-gradient(90deg,transparent,rgba(255,255,255,.45),transparent);animation:liveShine 2.8s ease-in-out infinite}
+.live .dot{position:relative;width:8px;height:8px;border-radius:50%;background:#fff;box-shadow:0 0 6px #fff;animation:liveDot 1s ease-in-out infinite}
+.live .dot::before,.live .dot::after{content:"";position:absolute;inset:0;border-radius:50%;border:2px solid #fff;animation:liveRing 1.6s ease-out infinite}
+.live .dot::after{animation-delay:.8s}
+.live.air{animation-duration:.7s} .live.air .dot{animation-duration:.45s} .live.air .dot::before,.live.air .dot::after{animation-duration:.9s}
+@keyframes liveGlow{0%,100%{box-shadow:0 0 8px rgba(240,80,63,.5),0 0 0 0 rgba(240,80,63,.45)}50%{box-shadow:0 0 22px rgba(255,90,74,.95),0 0 0 6px rgba(240,80,63,0)}}
+@keyframes liveDot{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.55;transform:scale(.8)}}
+@keyframes liveRing{0%{transform:scale(1);opacity:.9}100%{transform:scale(3.2);opacity:0}}
+@keyframes liveShine{0%,55%{left:-60%}100%{left:130%}}
 header .ttl{position:absolute;z-index:1;left:16px;right:16px;bottom:14px}
 header h1{margin:0;font-size:22px;font-weight:800;line-height:1.2;text-shadow:0 2px 12px rgba(0,0,0,.5)}
 header p{margin:2px 0 0;font-size:12.5px;color:var(--muted)}
@@ -74,13 +86,13 @@ li .nm small{font-size:11.5px;color:var(--muted)} li .nm small.on{color:var(--ok
 #ring .tx{flex:1;font-size:13.5px;line-height:1.4} #ring .btn{padding:9px 13px}
 #tapsound{display:none;position:fixed;inset:0;z-index:8;background:rgba(0,0,0,.55);align-items:center;justify-content:center;text-align:center;padding:24px;font-size:16px;font-weight:700}
 [hidden]{display:none!important}
-@media (prefers-reduced-motion:reduce){#talk.on::after,.spin{animation:none}}
+@media (prefers-reduced-motion:reduce){#talk.on::after,.spin,.live,.live::after,.live .dot,.live .dot::before,.live .dot::after{animation:none}}
 </style>
 </head>
 <body>
 <header>
   <img src="https://team-smos-snea.lovable.app/assets/icom-angkor-banner-H4QpfUqr.jpg" alt="" width="1536" height="640" onerror="this.remove()">
-  <div class="top"><button class="chip" id="back" type="button">← Hub</button><span class="chip live" id="liveChip" hidden>● LIVE</span></div>
+  <div class="top"><button class="chip" id="back" type="button">← Hub</button><span class="chip live" id="liveChip" hidden><span class="dot"></span>LIVE</span></div>
   <div class="ttl"><h1 class="disp" id="title">Team ស្មោះស្នេហ៍ ICOM</h1><p id="sub">សម្រាប់សមាជិកដែលបានអនុម័ត · ចុចហើយនិយាយភ្លាម</p></div>
 </header>
 
@@ -211,6 +223,7 @@ function render() {
   const me = S.room && S.room.localParticipant;
   // speaking line
   const talkers = all.filter(p => p !== me && p.isSpeaking).map(p => p.name || "Member");
+  $("liveChip").classList.toggle("air", S.talking || talkers.length > 0);
   $("speak").textContent = S.talking ? "🔴 អ្នកកំពុងនិយាយ…" + (talkers.length ? " · 🔊 " + talkers.join(", ") : "")
     : talkers.length ? "🔊 " + talkers.join(", ") + " កំពុងនិយាយ" : "";
   if (S.mode === "private") {

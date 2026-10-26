@@ -105,8 +105,10 @@ def _as_wav(b64, mime):
     return pcm_to_wav(data, rate)
 
 
-def synthesize(api_key, text, voice=None, client=None, timeout=60.0):
-    """Return WAV bytes, trying the Interactions API then the older generateContent form."""
+def synthesize(api_key, text, voice=None, client=None, timeout=60.0, style=None):
+    """Return WAV bytes, trying the Interactions API then the older generateContent form.
+    style: how to speak (default: Cooler Bot's young-guy STYLE)."""
+    style = style or STYLE
     if not api_key:
         raise RuntimeError("no GEMINI_API_KEY")
     voice = voice or voice_name()
@@ -121,12 +123,12 @@ def synthesize(api_key, text, voice=None, client=None, timeout=60.0):
                     "model": model,
                     "input": [{"type": "user_input", "content": [{
                         "type": "text", "text": text,
-                        "annotations": [{"type": "speech_metadata", "style": STYLE}]}]}],
+                        "annotations": [{"type": "speech_metadata", "style": style}]}]}],
                     "response_format": {"type": "audio"},
                     "generation_config": {"speech_config": [{"voice": voice}]},
                 }),
                 (f"{API}/models/{model}:generateContent", {
-                    "contents": [{"parts": [{"text": f"Say in a {STYLE} voice:\n{text}"}]}],
+                    "contents": [{"parts": [{"text": f"Say in a {style} voice:\n{text}"}]}],
                     "generationConfig": {"responseModalities": ["AUDIO"], "speechConfig": {
                         "voiceConfig": {"prebuiltVoiceConfig": {"voiceName": voice}}}},
                 }),

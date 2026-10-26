@@ -43,6 +43,7 @@ import market_info
 import family_tips
 import subscription
 import voice_studio
+import record_studio
 import music_studio
 import khqr_pay
 import calendar_brief
@@ -202,6 +203,8 @@ fortune.register(bot, config, _fan_ask_gemini, _fortune_vision)
 game_center.register(bot, config)
 # Cooler Voice: /say /voice and the 🔊 button under voice answers
 _voice = voice_studio.register(bot, config)
+# 🎙️ /record: clean a voice note, add effects, or re-voice it with an AI voice (members 3×30 s a day)
+_record = record_studio.register(bot, config)
 # Cooler Music: /song /beat — Lyria sings & raps original Khmer lyrics over a beat
 _music = music_studio.register(bot, config)
 _fan.hooks["rap_markup"] = _music.rap_markup
@@ -385,6 +388,7 @@ def setup_bot_commands():
             BotCommand("studio", "🎨 កែរូបដោយ AI (Photo Studio)"),
             BotCommand("style", "💇 សាកម៉ូដសក់ & ស្ទាយថតរូប"),
             BotCommand("money", "💵 ពិនិត្យក្រដាសប្រាក់"),
+            BotCommand("record", "🎙️ ថតសំឡេង សម្អាត Effect & AI Voice"),
             BotCommand("community", "🌟 មឺនុយសហគមន៍"),
             BotCommand("profile", "⭐ ប្រវត្តិរូប និងពិន្ទុ"),
             BotCommand("checkin", "🎁 Check-in ប្រចាំថ្ងៃ"),

@@ -436,7 +436,12 @@ def register(bot, config, ask=None, client=None, observe=None):
             return
         elif payload:
             return
-        if text.lower().strip(" ?!។") in JOIN_WORDS:
+        try:
+            from subscription import pay_intent
+            wants_pay = bool(pay_intent(text))
+        except Exception:
+            wants_pay = False
+        if wants_pay or text.lower().strip(" ?!។") in JOIN_WORDS:
             send(page_id, psid, join_guide(tg_link()))
             return
         if text.lower() in ("hub", "/hub", "ហាប់", "menu", "ម៉ឺនុយ"):

@@ -1,0 +1,188 @@
+<!doctype html>
+<html lang="km">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<title>ICOM — Team ស្មោះស្នេហ៍</title>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/livekit-client@2.23.0/dist/livekit-client.umd.js"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Kantumruy+Pro:wght@400;600;700&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#070b1a;--card:#111a33cc;--line:#2a3b6b;--gold:#ffd27a;--hot:#ff3b5c;--ok:#36e39a;--txt:#eef3ff;--dim:#9fb0d8}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;height:100%;background:var(--bg);color:var(--txt);font-family:"Kantumruy Pro",system-ui,sans-serif;
+  -webkit-user-select:none;user-select:none;overscroll-behavior:none}
+body{background:radial-gradient(120% 70% at 50% 0%,#1d2c63 0%,#0b1230 45%,var(--bg) 100%);display:flex;flex-direction:column;
+  padding:max(14px,env(safe-area-inset-top)) 16px max(18px,env(safe-area-inset-bottom))}
+header{display:flex;align-items:center;gap:12px}
+header .logo{width:42px;height:42px;border-radius:12px;display:grid;place-items:center;font-size:22px;
+  background:linear-gradient(135deg,#ffb347,#ff3b5c);box-shadow:0 0 18px #ff3b5c66}
+header h1{font-size:18px;margin:0;line-height:1.2} header small{color:var(--dim);font-size:12.5px}
+#state{margin-left:auto;font-size:11.5px;font-weight:700;padding:6px 10px;border-radius:99px;background:#33405f;color:#cfd8ef;white-space:nowrap}
+#state.on{background:var(--ok);color:#03241a;box-shadow:0 0 12px #36e39a88}
+#state.bad{background:var(--hot);color:#fff}
+.people{margin:16px 0 0;padding:12px;border:1px solid var(--line);border-radius:18px;background:var(--card);min-height:96px}
+.people h2{margin:0 0 10px;font-size:13px;color:var(--dim);font-weight:600}
+#list{display:flex;flex-wrap:wrap;gap:12px}
+.p{width:64px;text-align:center;font-size:11.5px;color:var(--dim)}
+.p .av{position:relative;width:52px;height:52px;margin:0 auto 4px;border-radius:50%;display:grid;place-items:center;font-weight:700;font-size:18px;
+  color:#fff;background:linear-gradient(135deg,#3b5bdb,#7048e8);background-size:cover;background-position:center;border:2px solid transparent;transition:.15s}
+.p.talk .av{border-color:var(--gold);box-shadow:0 0 0 4px #ffd27a33,0 0 22px #ffd27aaa;transform:scale(1.06)}
+.p.talk{color:var(--gold)} .p .nm{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.empty{color:var(--dim);font-size:13px;padding:10px 2px}
+#who{text-align:center;min-height:26px;margin:18px 0 0;font-size:15px;color:var(--gold);font-weight:600}
+.stage{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;min-height:280px}
+#ptt{position:relative;width:min(62vw,240px);aspect-ratio:1;border-radius:50%;border:0;color:#fff;font-family:inherit;font-weight:700;font-size:18px;line-height:1.3;
+  background:radial-gradient(circle at 35% 30%,#ff8a5c,#ff3b5c 55%,#b3123a);box-shadow:0 18px 40px #ff3b5c55,inset 0 -8px 24px #0004;
+  touch-action:none;transition:transform .1s}
+#ptt .ic{display:block;font-size:56px;line-height:1;margin-bottom:6px}
+#ptt[disabled]{filter:grayscale(.8) brightness(.6)}
+#ptt.live{transform:scale(.95);background:radial-gradient(circle at 35% 30%,#7dffc4,#1fcf86 55%,#0b8a57);box-shadow:0 0 0 10px #36e39a22,0 0 60px #36e39acc}
+#ptt.live::after{content:"";position:absolute;inset:-14px;border-radius:50%;border:3px solid #36e39a;animation:pulse 1.2s ease-out infinite}
+@keyframes pulse{from{transform:scale(.95);opacity:1}to{transform:scale(1.25);opacity:0}}
+.row{display:flex;gap:10px;justify-content:center;flex-wrap:wrap}
+.btn{border:1px solid var(--line);background:var(--card);color:var(--txt);font-family:inherit;font-weight:600;font-size:14px;padding:11px 16px;border-radius:14px}
+.btn.on{border-color:var(--gold);color:var(--gold);box-shadow:0 0 14px #ffd27a44}
+.btn.main{background:linear-gradient(135deg,#ffb347,#ff3b5c);border:0;color:#fff;font-size:16px;padding:14px 26px}
+.hint{color:var(--dim);font-size:12.5px;text-align:center;line-height:1.6;max-width:340px}
+#msg{display:none;margin:16px 0 0;padding:14px;border-radius:14px;background:#3a1020;border:1px solid #ff3b5c66;font-size:14px;line-height:1.6}
+@media (prefers-reduced-motion:reduce){#ptt.live::after{animation:none}}
+</style>
+</head>
+<body>
+<header>
+  <div class="logo">🎙️</div>
+  <div><h1>ICOM</h1><small>Team ស្មោះស្នេហ៍ · Push-to-talk</small></div>
+  <span id="state">កំពុងរៀបចំ…</span>
+</header>
+
+<section class="people"><h2>👥 កំពុងនៅក្នុង ICOM</h2><div id="list"><div class="empty">មិនទាន់ចូល</div></div></section>
+<div id="who"></div>
+<div id="msg"></div>
+
+<section class="stage">
+  <button id="join" class="btn main" type="button">🔊 ចូល ICOM</button>
+  <button id="ptt" type="button" disabled hidden><span class="ic">🎤</span><span id="pttTxt">ចុចជាប់ ដើម្បីនិយាយ</span></button>
+  <div class="row" id="tools" hidden>
+    <button id="lock" class="btn" type="button">🔒 និយាយមិនបាច់ចុចជាប់</button>
+    <button id="leave" class="btn" type="button">🚪 ចាកចេញ</button>
+  </div>
+  <p class="hint" id="hint">ចុច "ចូល ICOM" → Telegram សុំសិទ្ធិ Microphone ម្ដង → ចុចជាប់ប៊ូតុងក្រហម ហើយនិយាយ 🔥</p>
+</section>
+
+<script>
+(() => {
+const $ = id => document.getElementById(id);
+const tg = window.Telegram && Telegram.WebApp;
+const LK = window.LivekitClient;
+let room = null, locked = false, talking = false, beepCtx = null;
+
+if (tg) { tg.ready(); tg.expand(); try { tg.setHeaderColor("#0b1230"); tg.setBackgroundColor("#070b1a"); } catch (e) {}
+  try { tg.disableVerticalSwipes && tg.disableVerticalSwipes(); } catch (e) {}
+  tg.BackButton.show(); tg.BackButton.onClick(() => { leave(); history.length > 1 ? history.back() : tg.close(); }); }
+
+// The Hub passes Telegram's signed initData in the hash when it opens this page (#tg=...)
+function initData() {
+  if (tg && tg.initData) return tg.initData;
+  const m = location.hash.match(/[#&]tg=([^&]+)/);
+  return m ? decodeURIComponent(m[1]) : "";
+}
+const haptic = s => { try { tg && tg.HapticFeedback.impactOccurred(s); } catch (e) {} };
+function state(t, cls) { const s = $("state"); s.textContent = t; s.className = cls || ""; }
+function fail(t) { const m = $("msg"); m.innerHTML = t; m.style.display = "block"; state("មិនបានចូល", "bad"); }
+
+function beep(up) {   // walkie-talkie chirp
+  try { beepCtx = beepCtx || new (window.AudioContext || window.webkitAudioContext)();
+    const o = beepCtx.createOscillator(), g = beepCtx.createGain(), t = beepCtx.currentTime;
+    o.frequency.setValueAtTime(up ? 880 : 1320, t); o.frequency.linearRampToValueAtTime(up ? 1320 : 660, t + .09);
+    g.gain.setValueAtTime(.12, t); g.gain.exponentialRampToValueAtTime(.001, t + .12);
+    o.connect(g).connect(beepCtx.destination); o.start(t); o.stop(t + .13); } catch (e) {}
+}
+
+const ERR = {
+  open_from_telegram: "សូមបើក ICOM ពីក្នុង <b>Cooler Hub</b> នៅ Telegram 🙏",
+  members_only: "🎟️ ICOM សម្រាប់សមាជិកប៉ុណ្ណោះ។ ផ្ញើ <b>/pay</b> ទៅ Bot ដើម្បីចុះឈ្មោះ ($1 / ខែ) រួចចូលម្ដងទៀត 💙",
+  not_configured: "⚙️ ICOM មិនទាន់ភ្ជាប់ LiveKit នៅ Server ទេ (Admin ត្រូវដាក់ LIVEKIT_* ក្នុង Railway Variables)",
+};
+
+function esc(s) { return String(s || "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c])); }
+function photoOf(p) { try { return JSON.parse(p.metadata || "{}").p || ""; } catch (e) { return ""; } }
+
+function render() {
+  const L = $("list");
+  if (!room) { L.innerHTML = '<div class="empty">មិនទាន់ចូល</div>'; return; }
+  const all = [room.localParticipant, ...room.remoteParticipants.values()];
+  L.innerHTML = all.map(p => {
+    const nm = (p.name || "Member") + (p === room.localParticipant ? " (ខ្ញុំ)" : "");
+    const ph = photoOf(p), ini = esc((p.name || "?").trim().charAt(0).toUpperCase());
+    return `<div class="p${p.isSpeaking ? " talk" : ""}"><div class="av" ${ph ? `style="background-image:url('${esc(ph)}')"` : ""}>${ph ? "" : ini}</div>
+      <div class="nm">${esc(nm)}</div></div>`;
+  }).join("");
+  const speak = all.filter(p => p.isSpeaking && p !== room.localParticipant).map(p => p.name || "Member");
+  $("who").textContent = speak.length ? "🔊 " + speak.join(", ") + " កំពុងនិយាយ…" : "";
+}
+
+async function setMic(on) {
+  if (!room || on === talking) return;
+  talking = on; $("ptt").classList.toggle("live", on);
+  $("pttTxt").textContent = on ? "កំពុងនិយាយ… 🔴" : (locked ? "ចុចម្ដង ដើម្បីនិយាយ" : "ចុចជាប់ ដើម្បីនិយាយ");
+  beep(on); haptic(on ? "heavy" : "light");
+  try { await room.localParticipant.setMicrophoneEnabled(on); }
+  catch (e) { talking = false; $("ptt").classList.remove("live");
+    fail("🎤 មិនអាចប្រើ Microphone បានទេ។ សូមអនុញ្ញាត Microphone ឱ្យ Telegram ក្នុង Settings របស់ទូរសព្ទ រួចសាកម្ដងទៀត។"); }
+}
+
+async function join() {
+  $("msg").style.display = "none";
+  if (!LK) return fail("មិនអាចផ្ទុក LiveKit បានទេ — ពិនិត្យ Internet ហើយបើកម្ដងទៀត");
+  const data = initData();
+  if (!data) return fail(ERR.open_from_telegram);
+  $("join").disabled = true; state("កំពុងភ្ជាប់…");
+  let res, j;
+  try { res = await fetch("/icom/token", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ initData: data }) });
+    j = await res.json(); } catch (e) { $("join").disabled = false; return fail("🌐 ភ្ជាប់ Server មិនបាន — សាកម្ដងទៀត"); }
+  if (!res.ok) { $("join").disabled = false; return fail(ERR[j.error] || "មានបញ្ហា (" + res.status + ")"); }
+
+  room = new LK.Room({ adaptiveStream: true, dynacast: true,
+    audioCaptureDefaults: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } });
+  room.on(LK.RoomEvent.TrackSubscribed, (track) => {
+    if (track.kind === "audio") { const el = track.attach(); el.style.display = "none"; document.body.appendChild(el); } })
+    .on(LK.RoomEvent.TrackUnsubscribed, (track) => track.detach().forEach(el => el.remove()))
+    .on(LK.RoomEvent.ParticipantConnected, render).on(LK.RoomEvent.ParticipantDisconnected, render)
+    .on(LK.RoomEvent.ActiveSpeakersChanged, render)
+    .on(LK.RoomEvent.Reconnecting, () => state("កំពុងភ្ជាប់ឡើងវិញ…"))
+    .on(LK.RoomEvent.Reconnected, () => state("● LIVE", "on"))
+    .on(LK.RoomEvent.Disconnected, () => { room = null; talking = false; render(); showJoin(); state("បានចាកចេញ"); });
+  try { await room.connect(j.url, j.token); await room.startAudio(); }
+  catch (e) { room = null; $("join").disabled = false; return fail("📡 ចូល ICOM មិនបាន — សាកម្ដងទៀតបន្តិចទៀត"); }
+  state("● LIVE", "on"); haptic("medium");
+  $("join").hidden = true; $("ptt").hidden = false; $("ptt").disabled = false; $("tools").hidden = false;
+  $("hint").textContent = "ចុចជាប់ប៊ូតុង ពេលនិយាយ · លែងដៃ ពេលនិយាយចប់ 🎧";
+  try { navigator.wakeLock && navigator.wakeLock.request("screen"); } catch (e) {}
+  render();
+}
+
+function showJoin() { $("join").hidden = false; $("join").disabled = false; $("ptt").hidden = true; $("tools").hidden = true;
+  $("ptt").classList.remove("live"); }
+function leave() { if (room) { room.disconnect(); room = null; } }
+
+// Push-to-talk: hold to talk. In lock mode a tap switches talking on/off.
+const ptt = $("ptt");
+ptt.addEventListener("pointerdown", e => { e.preventDefault(); try { ptt.setPointerCapture(e.pointerId); } catch (x) {}
+  locked ? setMic(!talking) : setMic(true); });
+["pointerup", "pointercancel"].forEach(ev => ptt.addEventListener(ev, () => { if (!locked) setMic(false); }));
+ptt.addEventListener("contextmenu", e => e.preventDefault());
+$("lock").addEventListener("click", () => { locked = !locked; $("lock").classList.toggle("on", locked);
+  $("lock").textContent = locked ? "✋ ត្រឡប់ទៅចុចជាប់" : "🔒 និយាយមិនបាច់ចុចជាប់";
+  if (!locked) setMic(false); else $("pttTxt").textContent = talking ? "កំពុងនិយាយ… 🔴" : "ចុចម្ដង ដើម្បីនិយាយ"; });
+$("join").addEventListener("click", join);
+$("leave").addEventListener("click", () => { haptic("light"); leave(); });
+document.addEventListener("visibilitychange", () => { if (document.hidden && !locked) setMic(false); });
+window.addEventListener("pagehide", leave);
+
+if (!LK) state("ផ្ទុកមិនបាន", "bad"); else state(initData() ? "រួចរាល់" : "បើកពី Telegram");
+})();
+</script>
+</body>
+</html>

@@ -150,6 +150,7 @@ async def transform_photo(
     style_key: str = DEFAULT_STYLE,
     custom_prompt: Optional[str] = None,
     client: Optional[httpx.AsyncClient] = None,
+    full_prompt: Optional[str] = None,
 ) -> bytes:
     """កែរូបដោយ Gemini ហើយត្រឡប់ JPEG bytes។ បោះ StudioError ពេលបរាជ័យ។"""
     api_key = getattr(config, "GEMINI_API_KEY", "")
@@ -162,7 +163,7 @@ async def transform_photo(
         "contents": [{
             "role": "user",
             "parts": [
-                {"text": build_prompt(style_key, custom_prompt)},
+                {"text": full_prompt or build_prompt(style_key, custom_prompt)},
                 {"inline_data": {"mime_type": "image/jpeg", "data": base64.b64encode(jpeg_bytes).decode("ascii")}},
             ],
         }],

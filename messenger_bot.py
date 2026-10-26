@@ -14,6 +14,7 @@ X-Hub-Signature-256 header (FB_APP_SECRET). Replies use ai_assistant.ask_ai, so 
 import hashlib
 import hmac
 import json
+import re
 import logging
 import os
 import sqlite3
@@ -53,6 +54,10 @@ def init_schema(config):
     with _db(config) as c:
         c.execute("CREATE TABLE IF NOT EXISTS msg_pages (page_id TEXT PRIMARY KEY, name TEXT, token TEXT, updated INTEGER)")
         c.execute("CREATE TABLE IF NOT EXISTS msg_seen (psid TEXT PRIMARY KEY, first INTEGER)")
+        # 🔗 Messenger ↔ Telegram: a linked person is the same person to the AI (Papa, memory, name)
+        c.execute("CREATE TABLE IF NOT EXISTS msg_links (psid TEXT PRIMARY KEY, tg_user_id INTEGER NOT NULL, linked_at INTEGER)")
+        c.execute("CREATE TABLE IF NOT EXISTS msg_link_codes (code TEXT PRIMARY KEY, tg_user_id INTEGER NOT NULL, expires INTEGER)")
+        c.execute("CREATE TABLE IF NOT EXISTS msg_link_tries (psid TEXT PRIMARY KEY, n INTEGER, since INTEGER)")
 
 
 def valid_signature(body, header, secret):
@@ -247,6 +252,51 @@ def set_profile(page_token, hub, telegram, client=None):
             c.close()
 
 
+LINK_RE = re.compile(r"^\s*(?:link|ភ្ជាប់)\s*[:#-]?\s*(\d{6})\s*$", re.IGNORECASE)
+LINK_TTL = 600
+LINK_MAX_TRIES = 5
+
+
+def new_link_code(config, tg_user_id, now=None):
+    import secrets
+    now = int(now or time.time())
+    with _db(config) as c:
+        c.execute("DELETE FROM msg_link_codes WHERE expires < ? OR tg_user_id = ?", (now, tg_user_id))
+        for _ in range(10):
+            code = f"{secrets.randbelow(10 ** 6):06d}"
+            if c.execute("INSERT OR IGNORE INTO msg_link_codes(code, tg_user_id, expires) VALUES (?, ?, ?)",
+                         (code, tg_user_id, now + LINK_TTL)).rowcount:
+                return code
+    raise RuntimeError("no code")
+
+
+def redeem_link_code(config, psid, code, now=None):
+    """→ telegram user id, or None (wrong/expired code, or too many tries in the last hour)."""
+    now = int(now or time.time())
+    with _db(config) as c:
+        t = c.execute("SELECT n, since FROM msg_link_tries WHERE psid=?", (psid,)).fetchone()
+        if t and now - t["since"] < 3600 and t["n"] >= LINK_MAX_TRIES:
+            return None
+        row = c.execute("SELECT tg_user_id FROM msg_link_codes WHERE code=? AND expires>=?", (code, now)).fetchone()
+        if not row:
+            if t and now - t["since"] < 3600:
+                c.execute("UPDATE msg_link_tries SET n=n+1 WHERE psid=?", (psid,))
+            else:
+                c.execute("INSERT OR REPLACE INTO msg_link_tries(psid, n, since) VALUES (?, 1, ?)", (psid, now))
+            return None
+        c.execute("DELETE FROM msg_link_codes WHERE code=?", (code,))
+        c.execute("DELETE FROM msg_link_tries WHERE psid=?", (psid,))
+        c.execute("INSERT OR REPLACE INTO msg_links(psid, tg_user_id, linked_at) VALUES (?, ?, ?)",
+                  (psid, row["tg_user_id"], now))
+        return int(row["tg_user_id"])
+
+
+def linked_user(config, psid):
+    with _db(config) as c:
+        r = c.execute("SELECT tg_user_id FROM msg_links WHERE psid=?", (psid,)).fetchone()
+    return int(r["tg_user_id"]) if r else None
+
+
 def register(bot, config, ask=None, client=None, observe=None):
     """ask(user_id:int, text, name) -> reply text (defaults to ai_assistant.ask_ai).
     observe(user_id, text) -> 🧠 the same long-term memory the Telegram chat uses (ai_extras)."""
@@ -352,6 +402,16 @@ def register(bot, config, ask=None, client=None, observe=None):
             return
         text = (msg.get("text") or "").strip()
         payload = (ev.get("postback") or {}).get("payload") or (msg.get("quick_reply") or {}).get("payload") or ""
+        m_link = LINK_RE.match(text) if text and not payload else None
+        if m_link:
+            uid = redeem_link_code(config, psid, m_link.group(1))
+            if uid is None:
+                send(page_id, psid, {"text": "❌ លេខកូដខុស ឬផុតកំណត់ — វាយ /msglink ក្នុង Telegram ដើម្បីយកលេខថ្មី"})
+            elif owner(uid):
+                send(page_id, psid, {"text": "✅ ភ្ជាប់រួច! សួស្ដី ប៉ា 👑 — ពីពេលនេះ Cooler Bot ស្គាល់ ប៉ា នៅ Messenger ដូច Telegram ❤️"})
+            else:
+                send(page_id, psid, {"text": "✅ ភ្ជាប់ Messenger ជាមួយ Telegram រួច! Cooler Bot ចាំអ្នកដូចគ្នាទាំងពីរកន្លែង 😎"})
+            return
         new = first_time(psid)
         if new or payload == "GET_STARTED":
             send(page_id, psid, telegram_button(WELCOME))
@@ -378,7 +438,8 @@ def register(bot, config, ask=None, client=None, observe=None):
             return
         send(page_id, psid, None, action="typing_on")
         try:
-            reply = ask(ai_user_id(psid), text[:2000], name_of(page_id, psid))
+            who = linked_user(config, psid) or ai_user_id(psid)     # linked → same person as on Telegram (Papa too)
+            reply = ask(who, text[:2000], name_of(page_id, psid))
         except Exception as exc:
             logger.warning("messenger AI failed (%s)", type(exc).__name__)
             reply = "😔 ខ្ញុំរវល់បន្តិច — សូមសាកម្ដងទៀតបន្តិចទៀត 🙏"
@@ -386,7 +447,7 @@ def register(bot, config, ask=None, client=None, observe=None):
             send(page_id, psid, {"text": part})
         if observe and not payload:
             try:
-                observe(ai_user_id(psid), text[:2000])     # 🧠 remembers harmless facts, like on Telegram
+                observe(linked_user(config, psid) or ai_user_id(psid), text[:2000])     # 🧠 same memory as Telegram
             except Exception as exc:
                 logger.info("messenger memory skipped (%s)", type(exc).__name__)
 
@@ -496,6 +557,29 @@ def register(bot, config, ask=None, client=None, observe=None):
             pages = c.execute("SELECT name, token FROM msg_pages").fetchall()
         lines = [f"{'✅' if set_profile(t, hub_link(), tg_link(), client) else '⚠️'} {n}" for n, t in pages] or ["(គ្មាន Page — /msgconnect សិន)"]
         bot.send_message(message.chat.id, "📱 Messenger Menu + Hub៖\n" + "\n".join(lines))
+
+    @bot.message_handler(commands=["msglink"])
+    def msglink_cmd(message):
+        if getattr(message.chat, "type", None) != "private":
+            bot.reply_to(message, "🔒 សូមវាយ /msglink ក្នុង Chat ផ្ទាល់ជាមួយ Bot")
+            return
+        try:
+            code = new_link_code(config, message.from_user.id)
+        except Exception:
+            bot.reply_to(message, "😔 សាកម្ដងទៀត")
+            return
+        bot.reply_to(message, "🔗 <b>ភ្ជាប់ Messenger ជាមួយ Telegram</b>\n\n"
+                              f"1️⃣ បើក Messenger → Chat ជាមួយ Page <b>Cooler Bot</b>\n"
+                              f"2️⃣ ផ្ញើ៖ <code>LINK {code}</code>\n\n"
+                              "⏱️ លេខកូដប្រើបាន ១០ នាទី · ម្ដងគត់\n"
+                              "✅ ក្រោយភ្ជាប់ Cooler Bot ស្គាល់អ្នក និងចាំរឿងរបស់អ្នកដូចគ្នាទាំង Telegram & Messenger\n"
+                              "🔓 ផ្ដាច់៖ /msgunlink", parse_mode="HTML")
+
+    @bot.message_handler(commands=["msgunlink"])
+    def msgunlink_cmd(message):
+        with _db(config) as c:
+            n = c.execute("DELETE FROM msg_links WHERE tg_user_id=?", (message.from_user.id,)).rowcount
+        bot.reply_to(message, "🔓 ផ្ដាច់ Messenger រួច" if n else "ℹ️ មិនទាន់បានភ្ជាប់ Messenger ទេ")
 
     @bot.message_handler(commands=["msgconnect"], func=lambda m: owner(getattr(m.from_user, "id", None)))
     def msgconnect_cmd(message):

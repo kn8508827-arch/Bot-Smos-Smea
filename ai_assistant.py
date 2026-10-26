@@ -220,6 +220,9 @@ def get_system_instruction(user_name: Optional[str] = None, user_id: Optional[in
         )
 
     style = (
+        "Copy-ready text (AI image/video/song prompts, captions, code, commands): put a short title line with an emoji "
+        "on its own line (e.g. «🎨 Prompt រូបភាព»), then the text inside ``` fences, ONE block per item, so each can be "
+        "copied with one tap; prompts in English with perfect spelling and capitalisation unless asked otherwise. "
         "How to answer: answer exactly what was asked, completely and clearly, like a patient expert friend. "
         "For «how / why / what is» questions give a full explanation: a one-line direct answer first, then numbered "
         "steps or short sections with concrete examples (real commands from the feature guide), then one practical tip. "

@@ -44,6 +44,12 @@ def icom_url():
     return os.getenv("ICOM_URL", "").strip() or ICOM_URL_DEFAULT
 
 
+def icom_in_hub():
+    """True when ICOM runs on the bot's own server (ICOM_URL points to .../icom and LiveKit keys are set)."""
+    import icom_live
+    return icom_live.configured() and "lovable" not in icom_url()
+
+
 def hub_url():
     return (os.getenv("HUB_URL", "").strip() or DEFAULT_URL)
 
@@ -67,6 +73,7 @@ def personal_data(config, user, bot_username, now=None):
     name = " ".join(x for x in (getattr(user, "first_name", None), getattr(user, "last_name", None)) if x)[:30]
     until = sub.paid_until(config, "u", uid)
     data = {"b": bot_username or "TeamSmosSneabot", "n": name or "Cooler Fan",
+            "i": icom_url() if icom_in_hub() else "",
             "m": {"a": bool(owner or until > now), "o": owner,
                   "u": "" if owner or until <= now else sub.fmt_date(until)[:10],
                   "l": 0 if owner or until <= now else int((until - now) // 86400) + 1, "t": sub.settings().days}}
@@ -176,19 +183,31 @@ def register(bot, config):
         return ("🚀 <b>Cooler Hub</b> — គ្រប់មុខងារក្នុងផ្ទាំងតែមួយ ✨\n"
                 "AI · គូររូប · ច្រៀង · ហ្គេម · ប្រតិទិន · លុយ · ឧបករណ៍ — ចុចដើម្បីបើក 👇")
 
-    def icom_markup():
+    def icom_markup(private=True):
         m = InlineKeyboardMarkup()
-        # A plain URL button opens the phone's browser, where the microphone and the saved login work.
-        m.row(InlineKeyboardButton("🎙️ ចូល ICOM ឥឡូវ", url=icom_url()))
+        if icom_in_hub() and private:
+            # ICOM on our own server (icom_live.py): opens inside Telegram, no Sign-in — Telegram tells us who it is.
+            m.row(InlineKeyboardButton("🎙️ ចូល ICOM ឥឡូវ", web_app=WebAppInfo(url=icom_url())))
+        elif icom_in_hub():
+            m.row(InlineKeyboardButton("🎙️ ចូល ICOM ឥឡូវ", url=f"https://t.me/{username()}?start=go_icom"))
+        else:
+            # Old Lovable ICOM: a plain URL button opens the phone's browser, where its login works.
+            m.row(InlineKeyboardButton("🎙️ ចូល ICOM ឥឡូវ", url=icom_url()))
         m.row(InlineKeyboardButton("🚀 Cooler Hub", callback_data="hub:open"))
         return m
 
     @bot.message_handler(commands=["icom", "talk"])
     def icom_cmd(message):
-        bot.reply_to(message, "🎙️ <b>ICOM — Team ស្មោះស្នេហ៍</b>\n"
-                              "ចុចប៊ូតុងខាងក្រោម ហើយ Login (ម្ដងគត់) → ចូលនិយាយជាមួយក្រុមភ្លាម 🔊\n"
-                              "💡 អនុញ្ញាត Microphone ពេល Browser សួរ",
-                     reply_markup=icom_markup(), parse_mode="HTML")
+        private = getattr(message.chat, "type", None) == "private"
+        if icom_in_hub():
+            text = ("🎙️ <b>ICOM — Team ស្មោះស្នេហ៍</b>\n"
+                    "ចុចប៊ូតុងខាងក្រោម → ចូលនិយាយជាមួយក្រុមភ្លាម 🔊 មិនបាច់ Sign in ទេ!\n"
+                    "💡 អនុញ្ញាត Microphone ពេល Telegram សួរ (ម្ដងគត់)")
+        else:
+            text = ("🎙️ <b>ICOM — Team ស្មោះស្នេហ៍</b>\n"
+                    "ចុចប៊ូតុងខាងក្រោម ហើយ Login (ម្ដងគត់) → ចូលនិយាយជាមួយក្រុមភ្លាម 🔊\n"
+                    "💡 អនុញ្ញាត Microphone ពេល Browser សួរ")
+        bot.reply_to(message, text, reply_markup=icom_markup(private), parse_mode="HTML")
 
     def personal_menu_button(user, chat_id):
         """The chat's menu button opens the hub *with* this person's card data (refreshed on /hub)."""

@@ -220,8 +220,19 @@ def register(bot, config, ask=None, client=None):
             self.end_headers()
             self.wfile.write(out)
 
+        def _send_bytes(self, code, out, ctype):
+            self.send_response(code)
+            self.send_header("Content-Type", ctype)
+            self.send_header("Content-Length", str(len(out)))
+            self.send_header("Cache-Control", "no-store")
+            self.end_headers()
+            self.wfile.write(out)
+
         def do_GET(self):
             u = urlparse(self.path)
+            if u.path.rstrip("/") == "/icom":          # 🎙️ ICOM page for the Cooler Hub (icom_live.py)
+                import icom_live
+                return self._send_bytes(200, icom_live.page_html(), "text/html; charset=utf-8")
             if u.path.rstrip("/") == "/messenger/webhook":
                 q = parse_qs(u.query)
                 want = os.getenv("MESSENGER_VERIFY_TOKEN", "").strip()
@@ -232,6 +243,16 @@ def register(bot, config, ask=None, client=None):
             return self._send(200, "Cooler Bot is running")
 
         def do_POST(self):
+            if urlparse(self.path).path.startswith("/icom/"):    # 🎙️ ICOM: token / members / ring
+                import icom_live
+                body = self.rfile.read(min(int(self.headers.get("Content-Length") or 0), 20_000))
+                try:
+                    out = icom_live.handle_post(urlparse(self.path).path, config, body, bot)
+                except Exception as exc:
+                    logger.warning("icom error (%s)", type(exc).__name__)
+                    out = (500, {"error": "server"})
+                code, data = out or (404, {"error": "not_found"})
+                return self._send_bytes(code, json.dumps(data, ensure_ascii=False).encode(), "application/json")
             if urlparse(self.path).path.rstrip("/") != "/messenger/webhook":
                 return self._send(404, "not found")
             body = self.rfile.read(min(int(self.headers.get("Content-Length") or 0), 1_000_000))

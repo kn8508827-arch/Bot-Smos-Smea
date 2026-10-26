@@ -117,6 +117,46 @@ def messenger_note(username="TeamSmosSneabot"):
             "To contact or follow Vid Cooler, give these links directly:\n" + (links or f"- Telegram: https://t.me/{username}"))
 
 
+CONTACT_EMAIL = os.getenv("CONTACT_EMAIL", "yescooler34@gmail.com")
+LEGAL = {
+    "privacy": ("Privacy Policy · គោលការណ៍ឯកជនភាព", """
+<p>Cooler Bot (Telegram bot and the Facebook Page "Cooler Bot") is run by Vid Cooler, Cambodia.</p>
+<h2>What we receive</h2><ul>
+<li>Your name and the ID Telegram or Messenger gives the bot for you.</li>
+<li>The messages, voice notes and photos you send the bot.</li>
+<li>For paying members: membership dates and payment receipts you send.</li></ul>
+<h2>How we use it</h2><ul>
+<li>To answer you. Your message is sent to Google Gemini (AI) to write the reply.</li>
+<li>To run membership, daily limits and the features you use. We never sell your data or use it for ads.</li></ul>
+<h2>How long</h2><p>Chat history is kept only as long as needed to keep the conversation going; you can ask us to delete everything at any time (see Data deletion).</p>
+<h2>ខ្មែរ</h2><p>Cooler Bot ទទួលបានតែឈ្មោះ លេខសម្គាល់ និងសារដែលអ្នកផ្ញើមក ដើម្បីឆ្លើយតបអ្នកប៉ុណ្ណោះ (AI របស់ Google Gemini ជួយសរសេរចម្លើយ)។ យើងមិនលក់ ឬចែកទិន្នន័យរបស់អ្នកដល់អ្នកផ្សេងទេ។ អ្នកអាចសុំលុបទិន្នន័យបានគ្រប់ពេល។</p>
+"""),
+    "data-deletion": ("Data deletion · ការលុបទិន្នន័យ", """
+<p>To delete everything Cooler Bot keeps about you, email <a href="mailto:{email}">{email}</a>
+with the subject <b>delete my data</b> and your Facebook or Telegram name.</p>
+<p>We delete your data within 7 days and reply to confirm.</p>
+<p>ដើម្បីលុបទិន្នន័យរបស់អ្នក សូម email ដាក់ចំណងជើង <b>delete my data</b> និងឈ្មោះ Facebook ឬ Telegram របស់អ្នក មក <a href="mailto:{email}">{email}</a>។ យើងនឹងលុបក្នុងរយៈពេល ៧ ថ្ងៃ។</p>
+"""),
+    "terms": ("Terms of Service · លក្ខខណ្ឌប្រើប្រាស់", """
+<ul><li>Cooler Bot is an AI assistant; answers can be wrong — check important information yourself.</li>
+<li>Do not use the bot for anything illegal, hateful or harmful. We may block accounts that do.</li>
+<li>Paid membership lasts 1 month from payment and is approved by the owner.</li></ul>
+<p>Cooler Bot ជាជំនួយការ AI ចម្លើយអាចខុសបាន។ ហាមប្រើសម្រាប់រឿងខុសច្បាប់។ សមាជិកភាពមានសុពលភាព ១ ខែ គិតពីថ្ងៃបង់។</p>
+"""),
+}
+
+
+def legal_page(name):
+    title, body = LEGAL[name]
+    body = body.replace("{email}", CONTACT_EMAIL)
+    return (f"""<!doctype html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1"><title>Cooler Bot — {title}</title>
+<style>body{{font-family:system-ui,'Kantumruy Pro',sans-serif;max-width:720px;margin:0 auto;padding:24px 16px;line-height:1.6;
+color:#1b2340;background:#f6f8ff}}h1{{font-size:24px}}h2{{font-size:18px;margin-top:22px}}a{{color:#2563eb}}</style></head>
+<body><h1>😎 Cooler Bot — {title}</h1>{body}<p style="color:#667;font-size:13px;margin-top:30px">
+Contact: <a href="mailto:{CONTACT_EMAIL}">{CONTACT_EMAIL}</a></p></body></html>""").encode("utf-8")
+
+
 def register(bot, config, ask=None, client=None):
     """ask(user_id:int, text, name) -> reply text (defaults to ai_assistant.ask_ai)."""
     init_schema(config)
@@ -236,6 +276,8 @@ def register(bot, config, ask=None, client=None):
             if u.path.rstrip("/") == "/icom":          # 🎙️ ICOM page for the Cooler Hub (icom_live.py)
                 import icom_live
                 return self._send_bytes(200, icom_live.page_html(), "text/html; charset=utf-8")
+            if u.path.rstrip("/") in ("/privacy", "/data-deletion", "/terms"):   # pages Meta asks for (App settings → Basic)
+                return self._send_bytes(200, legal_page(u.path.rstrip("/")[1:]), "text/html; charset=utf-8")
             if u.path.rstrip("/") == "/messenger/webhook":
                 q = parse_qs(u.query)
                 want = os.getenv("MESSENGER_VERIFY_TOKEN", "").strip()

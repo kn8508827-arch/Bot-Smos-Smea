@@ -225,6 +225,9 @@ def register(bot, config, ask=None, client=None):
             self.send_header("Content-Type", ctype)
             self.send_header("Content-Length", str(len(out)))
             self.send_header("Cache-Control", "no-store")
+            # ICOM page also lives on the Hub's site (GitHub Pages) and calls /icom/* from there.
+            # Safe to allow any origin: every call is authorised by Telegram's signed initData, no cookies.
+            self.send_header("Access-Control-Allow-Origin", "*")
             self.end_headers()
             self.wfile.write(out)
 
@@ -241,6 +244,14 @@ def register(bot, config, ask=None, client=None):
                     return self._send(200, q.get("hub.challenge", [""])[0])
                 return self._send(403, "forbidden")
             return self._send(200, "Cooler Bot is running")
+
+        def do_OPTIONS(self):                      # CORS preflight for /icom/* from the Hub site
+            self.send_response(204)
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.send_header("Access-Control-Allow-Methods", "POST, GET, OPTIONS")
+            self.send_header("Access-Control-Allow-Headers", "Content-Type")
+            self.send_header("Access-Control-Max-Age", "86400")
+            self.end_headers()
 
         def do_POST(self):
             if urlparse(self.path).path.startswith("/icom/"):    # 🎙️ ICOM: token / members / ring

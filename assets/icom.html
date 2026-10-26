@@ -139,7 +139,10 @@ if (tg) { tg.ready(); tg.expand();
 // Telegram's signed initData: from Telegram itself, or passed by the Hub in the hash (#tg=...)
 const INIT = (() => { if (tg && tg.initData) return tg.initData;
   const m = location.hash.match(/[#&]tg=([^&]+)/); return m ? decodeURIComponent(m[1]) : ""; })();
-const WITH = +(new URLSearchParams(location.search).get("with") || 0);
+const QS = new URLSearchParams(location.search);
+const WITH = +(QS.get("with") || 0);
+// API: same server when served by the bot; from the Hub site (GitHub Pages) call the bot's Railway server
+const API = (QS.get("api") || (location.hostname.endsWith("github.io") ? "https://bot-smos-smea-production.up.railway.app" : "")).replace(/\/$/, "");
 
 const haptic = s => { try { tg && tg.HapticFeedback.impactOccurred(s); } catch (e) {} };
 const esc = s => String(s || "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
@@ -153,7 +156,7 @@ function av(name, photo, online) {
 function alertMsg(html) { const a = $("alert"); a.innerHTML = html || ""; a.style.display = html ? "block" : "none"; }
 
 async function api(path, extra) {
-  const r = await fetch(path, { method: "POST", headers: { "Content-Type": "application/json" },
+  const r = await fetch(API + path, { method: "POST", headers: { "Content-Type": "application/json" },
     body: JSON.stringify(Object.assign({ initData: INIT }, extra || {})) });
   let j = {}; try { j = await r.json(); } catch (e) {}
   return { ok: r.ok, status: r.status, j };

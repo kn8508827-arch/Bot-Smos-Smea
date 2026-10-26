@@ -64,6 +64,8 @@ def icom_diagnose():
         f"{ok(s['secret'])} LIVEKIT_API_SECRET",
         f"{ok(os.getenv('PORT', '').strip())} PORT (Railway → Settings → Networking → Generate Domain)",
     ]
+    good, why = icom_live.check_livekit()
+    lines.append(f"{ok(good)} {why}")
     return "\n".join(lines)
 
 

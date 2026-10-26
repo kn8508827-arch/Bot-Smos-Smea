@@ -266,7 +266,7 @@ async function connect(peer) {
   ui("connecting"); alertMsg("");
   let r; try { r = await api("/icom/token", peer ? { peer } : {}); } catch (e) { r = { ok: false, j: {} }; }
   if (gen !== S.gen) return;
-  if (!r.ok) { ui("off"); return alertMsg(ERR[r.j.error] || "🌐 ភ្ជាប់ Server មិនបាន — ចុច Join ម្ដងទៀត"); }
+  if (!r.ok) { ui("off"); return alertMsg((ERR[r.j.error] || "🌐 ភ្ជាប់ Server មិនបាន — ចុច Join ម្ដងទៀត") + " <small style='opacity:.7'>(" + (r.status || "net") + ")</small>"); }
   S.me = r.j.me; S.myName = r.j.name; S.myPhoto = r.j.photo; if (r.j.peerName) S.peerName = r.j.peerName;
   const room = new LK.Room({ adaptiveStream: true, dynacast: true,
     audioCaptureDefaults: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } });
@@ -283,7 +283,8 @@ async function connect(peer) {
       if (m.t === "ring" && S.mode === "group") showRing(idOf(from) || m.from, m.name || (from && from.name)); } catch (e) {} })
     .on(LK.RoomEvent.Disconnected, () => { if (S.room === room) { S.room = null; S.mic = null; S.talking = false; ui("off"); render(); } });
   try { await room.connect(r.j.url, r.j.token); }
-  catch (e) { if (S.room === room) S.room = null; ui("off"); return alertMsg("📡 ចូល Voice មិនបាន — ពិនិត្យ Internet ហើយចុច Join ម្ដងទៀត"); }
+  catch (e) { if (S.room === room) S.room = null; ui("off");
+    return alertMsg("📡 ចូល Voice មិនបាន — ពិនិត្យ Internet ហើយចុច Join ម្ដងទៀត<br><small style='opacity:.7'>" + esc((e && e.message) || e).slice(0, 160) + "</small>"); }
   if (gen !== S.gen) { room.disconnect(); return; }
   try { await room.startAudio(); } catch (e) {}
   $("tapsound").style.display = room.canPlaybackAudio ? "none" : "flex";

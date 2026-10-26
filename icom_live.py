@@ -108,6 +108,34 @@ def dm_room(a, b):
     return f"dm-{lo}-{hi}"
 
 
+def check_livekit(timeout=8):
+    """Owner check: ask LiveKit to list rooms with our key — proves URL + key + secret belong together.
+    Returns (ok, short text)."""
+    if not configured():
+        return False, "LIVEKIT_* មិនទាន់គ្រប់"
+    s = settings()
+    if not s["url"].startswith("wss://"):
+        return False, "LIVEKIT_URL ត្រូវចាប់ផ្ដើមដោយ wss://"
+    now = int(time.time())
+    head = _b64(json.dumps({"alg": "HS256", "typ": "JWT"}).encode())
+    body = _b64(json.dumps({"iss": s["key"], "sub": "icom-check", "nbf": now - 10, "exp": now + 60,
+                            "video": {"roomList": True}}).encode())
+    sig = _b64(hmac.new(s["secret"].encode(), f"{head}.{body}".encode(), hashlib.sha256).digest())
+    try:
+        import httpx
+        r = httpx.post("https://" + s["url"][6:].rstrip("/") + "/twirp/livekit.RoomService/ListRooms",
+                       json={}, headers={"Authorization": f"Bearer {head}.{body}.{sig}"}, timeout=timeout)
+    except Exception as exc:
+        return False, f"ភ្ជាប់ LiveKit មិនបាន ({type(exc).__name__})"
+    if r.status_code == 200:
+        rooms = r.json().get("rooms", [])
+        live = sum(int(x.get("num_participants", 0) or 0) for x in rooms)
+        return True, f"LiveKit Key ត្រឹមត្រូវ · {live} នាក់កំពុងនៅក្នុង ICOM"
+    if r.status_code in (401, 403):
+        return False, "Key/Secret មិនត្រូវគ្នាជាមួយ LIVEKIT_URL (មកពី Project ផ្សេង ឬ Secret ខុស)"
+    return False, f"LiveKit ឆ្លើយ {r.status_code}"
+
+
 # ---------- who is an approved member ----------
 
 def _staff(config):

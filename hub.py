@@ -297,3 +297,20 @@ def register(bot, config):
     api.setup_menu_button = setup_menu_button
     api.personal_menu_button = personal_menu_button
     return api
+
+
+def member_response(config, body, now=None):
+    """POST /hub/me {initData} → {"member": bool, "owner": bool}. The Hub locks games/pages for non-members.
+    Telegram's signed initData proves who is asking (same check as ICOM)."""
+    import json as _json
+    import icom_live
+    try:
+        data = _json.loads(body.decode("utf-8") or "{}")
+    except (ValueError, AttributeError):
+        return 400, {"error": "bad_request"}
+    user = icom_live.verify_init_data((data or {}).get("initData", ""), getattr(config, "BOT_TOKEN", ""), now)
+    if not user:
+        return 200, {"member": False, "owner": False}
+    uid = int(user["id"])
+    owner = uid in icom_live._staff(config)
+    return 200, {"member": bool(owner or icom_live.is_allowed(config, uid, now)), "owner": owner}

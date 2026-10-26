@@ -76,11 +76,11 @@ class MessengerTests(unittest.TestCase):
         bot.get_me = MagicMock(return_value=SimpleNamespace(username="TeamSmosSneabot"))
         client = SimpleNamespace(post=lambda url, params=None, json=None: (self.sent.append(json), SimpleNamespace(status_code=200, text=""))[1])
         api = mb.register(bot, self.config, ask=lambda uid, t, n: (asked.append(t), "Rap!")[1], client=client)
-        api["handle_event"]("P1", {"sender": {"id": "777"}, "postback": {"payload": "ICE_RAP"}}) if "handle_event" in api else \
+        api["handle_event"]("P1", {"sender": {"id": "777"}, "postback": {"payload": "ICE_JOKE"}}) if "handle_event" in api else \
             api["handle_body"](json.dumps({"object": "page", "entry": [{"id": "P1", "messaging": [
-                {"sender": {"id": "777"}, "postback": {"payload": "ICE_RAP"}}]}]}).encode())
+                {"sender": {"id": "777"}, "postback": {"payload": "ICE_JOKE"}}]}]}).encode())
         self.assertTrue(self.wait_for(lambda m: m.get("message", {}).get("text") == "Rap!"))
-        self.assertEqual(asked, [mb.ICE["ICE_RAP"][1]])
+        self.assertEqual(asked, [mb.ICE["ICE_JOKE"][1]])
         # first contact also gets the Hub card
         self.assertTrue(any(m and m.get("message", {}).get("attachment", {}).get("payload", {}).get("template_type") == "generic"
                             for m in self.sent))
@@ -115,6 +115,11 @@ class MessengerTests(unittest.TestCase):
             time.sleep(0.05)
         self.assertEqual(names, ["Dara"])
         self.assertEqual(seen, [(mb.ai_user_id("4242"), "ខ្ញុំចូលចិត្ត Rap")])
+
+    def test_hub_me_route(self):
+        req = urllib.request.Request(self.url.replace("/messenger/webhook", "/hub/me"), data=b'{"initData":"x"}',
+                                     headers={"Content-Type": "application/json"})
+        self.assertEqual(json.loads(urllib.request.urlopen(req).read()), {"member": False, "owner": False})
 
     def test_profile_body(self):
         b = mb.profile_body("https://kn8508827-arch.github.io/Blue-Gold-Rush/hub/", "https://t.me/TeamSmosSneabot")

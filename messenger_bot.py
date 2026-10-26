@@ -118,8 +118,10 @@ def messenger_note(username="TeamSmosSneabot"):
     return ("CHANNEL: You are answering inside Facebook Messenger on one of Vid Cooler's Facebook Pages "
             "(Cooler Bot / Vid Cooler), not in Telegram. Telegram /commands (like /contact, /follow, /hub, /pay) do NOT "
             "work here — never tell people to type them.\n"
-            "WHAT WORKS HERE: free text chat with you (with a daily limit). Everything else lives in Cooler Bot on "
-            f"Telegram: https://t.me/{username}\n"
+            "WHAT WORKS HERE: free friendly text chat with you, any time — chatting, joking, encouragement, everyday "
+            "questions. That is ALL that is free. Every feature (drawing/editing pictures, songs or rap with voice, "
+            "voice-over, games, ICOM, the Khmer calendar, video prompts, adding the bot to a group) is for paying members "
+            f"in Cooler Bot on Telegram: https://t.me/{username}\n"
             "HOW TO ANSWER: always answer the person's actual question first, fully and warmly, in natural Khmer — "
             "never curt one-liners. When they ask for something that only works in Telegram (drawing or editing "
             "pictures, songs/rap with voice, voice notes, photos, games, ICOM voice talk, the Khmer calendar, adding the "
@@ -180,11 +182,11 @@ Contact: <a href="mailto:{CONTACT_EMAIL}">{CONTACT_EMAIL}</a></p></body></html>"
 
 
 # ---------- Messenger "app" look: Get Started, greeting, ice breakers, menu ----------
-ICE = {   # payload: (button text, what the bot is asked)
-    "ICE_HELLO": ("👋 Cooler Bot ធ្វើអ្វីបានខ្លះ?", "សួស្ដី Cooler Bot! ប្រាប់ខ្ញុំខ្លីៗថាអ្នកជួយអ្វីបានខ្លះ"),
-    "ICE_RAP": ("🎤 សរសេរ Rap ឱ្យខ្ញុំ", "សរសេរ Rap ខ្មែរខ្លីមួយ ៨ ឃ្លា ប្រធានបទ ជីវិត និងការតស៊ូ"),
-    "ICE_IDEA": ("💡 គំនិតរកលុយអនឡាញ", "ផ្ដល់គំនិតរកលុយអនឡាញ ៥ យ៉ាង ដែលធ្វើបាននៅកម្ពុជា"),
+ICE = {   # payload: (button text, what the bot is asked) — friendly chat only; features live in Telegram for members
+    "ICE_HELLO": ("👋 Cooler Bot ជានរណា?", "សួស្ដី Cooler Bot! ណែនាំខ្លួនឯងបន្តិចមក"),
     "ICE_JOKE": ("😂 និយាយលេងសើចមួយ", "និយាយរឿងកំប្លែងខ្មែរខ្លីមួយ ដែលសមរម្យសម្រាប់គ្រប់វ័យ"),
+    "ICE_CHAT": ("💬 ជជែកលេងជាមួយខ្ញុំ", "ខ្ញុំចង់ជជែកលេងជាមួយអ្នក សួរខ្ញុំអ្វីមួយមកមើល"),
+    "ICE_MOOD": ("🌤️ ខ្ញុំហត់ៗ លើកទឹកចិត្តខ្ញុំផង", "ថ្ងៃនេះខ្ញុំហត់បន្តិច និយាយលើកទឹកចិត្តខ្ញុំផង"),
 }
 GREETING = "សួស្ដី {{user_first_name}}! 👋 ខ្ញុំ Cooler Bot 😎 AI និយាយខ្មែរ ២៤ ម៉ោង · Rap · ហ្គេម · Cooler Hub"
 
@@ -199,9 +201,8 @@ def profile_body(hub, telegram):
         "ice_breakers": [{"locale": "default", "call_to_actions": [
             {"question": q, "payload": k} for k, (q, _) in ICE.items()]}],
         "persistent_menu": [{"locale": "default", "composer_input_disabled": False, "call_to_actions": [
-            {"type": "web_url", "title": "🚀 បើក Cooler Hub", "url": hub, "webview_height_ratio": "full"},
             {"type": "postback", "title": "⭐ ចូលជាសមាជិក", "payload": "JOIN"},
-            {"type": "postback", "title": "🎤 សរសេរ Rap", "payload": "ICE_RAP"},
+            {"type": "web_url", "title": "👀 មើល Cooler Hub", "url": hub, "webview_height_ratio": "full"},
             {"type": "web_url", "title": "📲 Cooler Bot ក្នុង Telegram", "url": telegram},
         ]}],
         "whitelisted_domains": [hub_origin],
@@ -228,9 +229,9 @@ def join_guide(telegram):
 def hub_card(hub, telegram):
     return {"attachment": {"type": "template", "payload": {"template_type": "generic", "elements": [{
         "title": "🚀 Cooler Hub — គ្រប់យ៉ាងក្នុងមួយ",
-        "subtitle": "ហ្គេម · ព័ត៌មាន · ដៃគូ · AI Studio — ចុចបើកបានភ្លាម",
+        "subtitle": "មើលមុខងារទាំងអស់ · ប្រើបានពេញលេញសម្រាប់សមាជិកក្នុង Telegram 🔒",
         "default_action": {"type": "web_url", "url": hub, "webview_height_ratio": "full"},
-        "buttons": [{"type": "web_url", "url": hub, "title": "🚀 បើក Hub", "webview_height_ratio": "full"},
+        "buttons": [{"type": "web_url", "url": hub, "title": "👀 មើល Hub", "webview_height_ratio": "full"},
                     {"type": "web_url", "url": telegram, "title": "📲 មុខងារពេញ (Telegram)"}]}]}}}
 
 
@@ -456,6 +457,15 @@ def register(bot, config, ask=None, client=None, observe=None):
                     out = (500, {"error": "server"})
                 code, data = out or (404, {"error": "not_found"})
                 return self._send_bytes(code, json.dumps(data, ensure_ascii=False).encode(), "application/json")
+            if urlparse(self.path).path.rstrip("/") == "/hub/me":       # 🔒 Hub asks: is this user a member?
+                import hub as _hub
+                body = self.rfile.read(min(int(self.headers.get("Content-Length") or 0), 20_000))
+                try:
+                    code, data = _hub.member_response(config, body)
+                except Exception as exc:
+                    logger.warning("hub/me error (%s)", type(exc).__name__)
+                    code, data = 200, {"member": False, "owner": False}
+                return self._send_bytes(code, json.dumps(data).encode(), "application/json")
             if urlparse(self.path).path.rstrip("/") != "/messenger/webhook":
                 return self._send(404, "not found")
             body = self.rfile.read(min(int(self.headers.get("Content-Length") or 0), 1_000_000))

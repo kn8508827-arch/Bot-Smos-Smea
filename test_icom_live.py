@@ -203,3 +203,15 @@ class MembersAndPrivateTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class HubMemberTest(unittest.TestCase):
+    def test_member_flag(self):
+        import hub
+        cfg = SimpleNamespace(BOT_TOKEN=BOT_TOKEN, OWNER_ID=5, ADMIN_IDS=[])
+        body = lambda uid: json.dumps({"initData": make_init({"id": uid, "first_name": "U"})}).encode()
+        with mock.patch("subscription.is_active", side_effect=lambda c, k, i, n=None: i == 10):
+            self.assertEqual(hub.member_response(cfg, body(10))[1], {"member": True, "owner": False})
+            self.assertEqual(hub.member_response(cfg, body(11))[1], {"member": False, "owner": False})
+            self.assertEqual(hub.member_response(cfg, body(5))[1], {"member": True, "owner": True})
+        self.assertEqual(hub.member_response(cfg, b'{"initData":"forged"}')[1]["member"], False)

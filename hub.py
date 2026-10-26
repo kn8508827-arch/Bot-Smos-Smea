@@ -32,7 +32,7 @@ GO = {   # hub tile key -> command it runs
     "myplan": "/myplan", "follow": "/follow", "contact": "/contact", "sos": "/sos", "menu": "/menu",
     "help": "/help", "stats": "/stats", "subgroups": "/subgroups", "status": "/status", "goodday": "/goodday",
     "summary": "/summary", "guard": "/guard", "invite": "/invite", "nearby": "/nearby", "icom": "/icom",
-    "live": "/live", "tpnews": "/tpnews",
+    "live": "/live", "tpnews": "/tpnews", "style": "/style",
     "addgroup": "/addgroup", "work": "/work", "sleep": "/sleep", "workin": "/workin", "workout": "/workout", "staff": "/staff",
 }
 
@@ -262,6 +262,8 @@ def register(bot, config):
             bot.reply_to(message, hub_text(), reply_markup=hub_markup(message.from_user, True), parse_mode="HTML")
             return
         cmd = GO.get(key[3:])
+        if not cmd and key.startswith("go_sty_"):
+            cmd = "/style " + key[7:]   # 💇 a style picked in the Hub → straight to "send a selfie"
         if not cmd:
             bot.reply_to(message, "🤔 មិនស្គាល់មុខងារនេះ — /menu")
             return

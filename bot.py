@@ -30,6 +30,7 @@ import scheduler
 import location_service
 import weather_service
 import photo_studio
+import style_studio
 import community_features
 import fan_features
 import group_manager
@@ -382,6 +383,7 @@ def setup_bot_commands():
             BotCommand("ev", "⚡ ស្វែងរកស្ថានីយសាក EV"),
             BotCommand("weather", "🌤️ ព្យាករណ៍អាកាសធាតុតាមខេត្ត"),
             BotCommand("studio", "🎨 កែរូបដោយ AI (Photo Studio)"),
+            BotCommand("style", "💇 សាកម៉ូដសក់ & ស្ទាយថតរូប"),
             BotCommand("community", "🌟 មឺនុយសហគមន៍"),
             BotCommand("profile", "⭐ ប្រវត្តិរូប និងពិន្ទុ"),
             BotCommand("checkin", "🎁 Check-in ប្រចាំថ្ងៃ"),
@@ -983,6 +985,14 @@ def _studio_error_text(exc, user_id) -> str:
     if code in ("blocked", "no_image"):
         return _STUDIO_BLOCKED_TEXT
     return _STUDIO_ERROR_TEXT
+
+
+# 💇 Style Studio: /style — try a haircut or a photo pose on your own selfie (shares the Studio daily limit)
+_style = style_studio.register(bot, config, {
+    "enabled": _studio_enabled, "remaining": _studio_remaining, "record": _studio_record_use,
+    "busy": _studio_busy, "error_text": _studio_error_text,
+    "run": lambda data, prompt: async_runner.run_sync(photo_studio.transform_photo(data, full_prompt=prompt), timeout=180),
+})
 
 
 def _studio_from_caption(message, user_id, file_id, prompt) -> None:

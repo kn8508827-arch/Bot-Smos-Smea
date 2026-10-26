@@ -23,6 +23,7 @@
 ## AI Studio
 - គូររូប៖ /imagine + ការពិពណ៌នា (ឧ. /imagine ឆ្មាពាក់វ៉ែនតា រាំនៅអង្គរវត្ត)
 - កែរូប៖ /studio រួចផ្ញើរូប ហើយវាយអ្វីដែលចង់កែ
+- សាកម៉ូដសក់ & ស្ទាយថតរូប៖ /style → ជ្រើស ប្រុស/ស្រី/ចាស់/ក្មេង → ម៉ូដសក់ ឬស្ទាយថតរូប → ជ្រើសម៉ូដ → ផ្ញើ Selfie (ឬ Hub → 💇 Style)
 - ច្រៀង & Rap មាន Beat៖ /song · Beat ៣០ វិនាទី៖ /beat · សរសេរ Rap៖ /rap · Voice-over៖ /say + អក្សរ
 - Prompt Studio៖ /prompt · ទស្សន៍ទាយ៖ /fortune /palm /dream /number
 

@@ -24,7 +24,7 @@ DEFAULT_URL = "https://kn8508827-arch.github.io/Blue-Gold-Rush/hub/"
 GO = {   # hub tile key -> command it runs
     "imagine": "/imagine", "song": "/song", "beat": "/beat", "say": "/say", "prompt": "/prompt",
     "studio": "/studio", "rap": "/rap", "fortune": "/fortune", "games": "/games", "play": "/play",
-    "quiz": "/quiz", "card": "/card", "checkin": "/checkin", "calendar": "/calendar", "morning": "/morning",
+    "quiz": "/quiz", "card": "/card", "checkin": "/checkin", "sila": "/sila", "anniv": "/anniv", "redeem": "/redeem", "top": "/top", "calendar": "/calendar", "morning": "/morning",
     "rate": "/rate", "gold": "/gold", "news": "/news", "weather": "/weather", "trip": "/trip",
     "health": "/health", "parent": "/parent", "pet": "/pet", "scam": "/scam", "totext": "/totext",
     "translate": "/translate", "homework": "/homework", "remind": "/remind", "reminders": "/reminders",
@@ -157,6 +157,15 @@ def personal_data(config, user, bot_username, now=None):
         if tp:
             data["tp"] = [[pid, title[:48], ts] for pid, title, ts in tp]
             data["tc"] = tpnews_feed.channel()
+    except Exception:
+        pass
+    try:   # 🏆 leaderboard for the hub: top 5 + my rank
+        import rewards
+        top, rank = rewards.leaderboard(config, uid, 5)
+        if top:
+            data["t"] = [[n, p] for n, p in top]
+            if rank:
+                data["r"] = rank
     except Exception:
         pass
     if owner:

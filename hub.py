@@ -45,9 +45,26 @@ def icom_url():
 
 
 def icom_in_hub():
-    """True when ICOM runs on the bot's own server (ICOM_URL points to .../icom and LiveKit keys are set)."""
+    """True when ICOM runs on the bot's own server (Railway ICOM_URL = https://<domain>/icom).
+    LiveKit keys are not required here: if they are missing the page itself says so (no silent Lovable)."""
+    url = os.getenv("ICOM_URL", "").strip()
+    return url.startswith("https://") and "lovable" not in url
+
+
+def icom_diagnose():
+    """Owner-only checklist shown under /icom, so a missing Railway variable is obvious."""
     import icom_live
-    return icom_live.configured() and "lovable" not in icom_url()
+    s = icom_live.settings()
+    url = os.getenv("ICOM_URL", "").strip()
+    ok = lambda v: "✅" if v else "❌"
+    lines = [
+        f"{ok(icom_in_hub())} ICOM_URL = {url or '(មិនទាន់ដាក់)'}",
+        f"{ok(s['url'].startswith('wss://'))} LIVEKIT_URL",
+        f"{ok(s['key'])} LIVEKIT_API_KEY",
+        f"{ok(s['secret'])} LIVEKIT_API_SECRET",
+        f"{ok(os.getenv('PORT', '').strip())} PORT (Railway → Settings → Networking → Generate Domain)",
+    ]
+    return "\n".join(lines)
 
 
 def hub_url():
@@ -207,6 +224,11 @@ def register(bot, config):
             text = ("🎙️ <b>ICOM — Team ស្មោះស្នេហ៍</b>\n"
                     "ចុចប៊ូតុងខាងក្រោម ហើយ Login (ម្ដងគត់) → ចូលនិយាយជាមួយក្រុមភ្លាម 🔊\n"
                     "💡 អនុញ្ញាត Microphone ពេល Browser សួរ")
+        uid = getattr(message.from_user, "id", 0)
+        if private and (uid == getattr(config, "OWNER_ID", 0) or uid in getattr(config, "ADMIN_IDS", [])):
+            text += "\n\n🛠 <b>Papa · ពិនិត្យ ICOM</b>\n" + icom_diagnose()
+        if private:
+            personal_menu_button(message.from_user, message.chat.id)   # refresh the 🚀 Hub button with the new ICOM link
         bot.reply_to(message, text, reply_markup=icom_markup(private), parse_mode="HTML")
 
     def personal_menu_button(user, chat_id):

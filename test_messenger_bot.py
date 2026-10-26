@@ -62,6 +62,45 @@ class MessengerTests(unittest.TestCase):
         self.assertIn("ចម្លើយ AI", texts)
         self.assertTrue(any("attachment" in (m or {}).get("message", {}) for m in self.sent))   # welcome + Telegram button
 
+    def wait_for(self, pred):
+        for _ in range(60):
+            if any(pred(m or {}) for m in self.sent):
+                return True
+            time.sleep(0.05)
+        return False
+
+    def test_ice_breaker_asks_ai(self):
+        asked = []
+        self.api  # register again with an ask that records the question
+        bot = telebot.TeleBot("1:T", threaded=False)
+        bot.get_me = MagicMock(return_value=SimpleNamespace(username="TeamSmosSneabot"))
+        client = SimpleNamespace(post=lambda url, params=None, json=None: (self.sent.append(json), SimpleNamespace(status_code=200, text=""))[1])
+        api = mb.register(bot, self.config, ask=lambda uid, t, n: (asked.append(t), "Rap!")[1], client=client)
+        api["handle_event"]("P1", {"sender": {"id": "777"}, "postback": {"payload": "ICE_RAP"}}) if "handle_event" in api else \
+            api["handle_body"](json.dumps({"object": "page", "entry": [{"id": "P1", "messaging": [
+                {"sender": {"id": "777"}, "postback": {"payload": "ICE_RAP"}}]}]}).encode())
+        self.assertTrue(self.wait_for(lambda m: m.get("message", {}).get("text") == "Rap!"))
+        self.assertEqual(asked, [mb.ICE["ICE_RAP"][1]])
+        # first contact also gets the Hub card
+        self.assertTrue(any(m and m.get("message", {}).get("attachment", {}).get("payload", {}).get("template_type") == "generic"
+                            for m in self.sent))
+
+    def test_hub_word_sends_card_not_ai(self):
+        self.post({"object": "page", "entry": [{"id": "P1", "messaging": [{"sender": {"id": "888"}, "message": {"text": "hub"}}]}]})
+        self.assertTrue(self.wait_for(lambda m: m.get("message", {}).get("attachment", {}).get("payload", {}).get("template_type") == "generic"))
+        time.sleep(0.2)
+        self.assertNotIn("ចម្លើយ AI", [(m or {}).get("message", {}).get("text") for m in self.sent])
+
+    def test_profile_body(self):
+        b = mb.profile_body("https://kn8508827-arch.github.io/Blue-Gold-Rush/hub/", "https://t.me/TeamSmosSneabot")
+        self.assertEqual(b["whitelisted_domains"], ["https://kn8508827-arch.github.io"])
+        self.assertEqual(len(b["ice_breakers"][0]["call_to_actions"]), len(mb.ICE))
+        for a in b["persistent_menu"][0]["call_to_actions"]:
+            self.assertLessEqual(len(a["title"]), 30)
+        for q in b["ice_breakers"][0]["call_to_actions"]:
+            self.assertLessEqual(len(q["question"]), 80)
+        self.assertLessEqual(len(b["greeting"][0]["text"]), 160)
+
     def test_bad_signature_rejected(self):
         with self.assertRaises(Exception):
             self.post({"object": "page", "entry": []}, secret="wrong")

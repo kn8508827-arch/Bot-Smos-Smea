@@ -96,6 +96,11 @@ def connect(config, short_token, client=None):
             with _db(config) as db:
                 db.execute("INSERT OR REPLACE INTO msg_pages(page_id, name, token, updated) VALUES (?, ?, ?, ?)",
                            (p["id"], p.get("name", ""), p["access_token"], int(time.time())))
+            try:
+                import hub as _hub
+                set_profile(p["access_token"], _hub.hub_url(), "https://t.me/" + os.getenv("BOT_USERNAME", "TeamSmosSneabot"), c)
+            except Exception as exc:
+                logger.info("messenger menu skipped (%s)", type(exc).__name__)
             done.append((p.get("name", p["id"]), ok))
         return done
     finally:
@@ -157,6 +162,55 @@ color:#1b2340;background:#f6f8ff}}h1{{font-size:24px}}h2{{font-size:18px;margin-
 Contact: <a href="mailto:{CONTACT_EMAIL}">{CONTACT_EMAIL}</a></p></body></html>""").encode("utf-8")
 
 
+# ---------- Messenger "app" look: Get Started, greeting, ice breakers, menu ----------
+ICE = {   # payload: (button text, what the bot is asked)
+    "ICE_HELLO": ("👋 Cooler Bot ធ្វើអ្វីបានខ្លះ?", "សួស្ដី Cooler Bot! ប្រាប់ខ្ញុំខ្លីៗថាអ្នកជួយអ្វីបានខ្លះ"),
+    "ICE_RAP": ("🎤 សរសេរ Rap ឱ្យខ្ញុំ", "សរសេរ Rap ខ្មែរខ្លីមួយ ៨ ឃ្លា ប្រធានបទ ជីវិត និងការតស៊ូ"),
+    "ICE_IDEA": ("💡 គំនិតរកលុយអនឡាញ", "ផ្ដល់គំនិតរកលុយអនឡាញ ៥ យ៉ាង ដែលធ្វើបាននៅកម្ពុជា"),
+    "ICE_JOKE": ("😂 និយាយលេងសើចមួយ", "និយាយរឿងកំប្លែងខ្មែរខ្លីមួយ ដែលសមរម្យសម្រាប់គ្រប់វ័យ"),
+}
+GREETING = "សួស្ដី {{user_first_name}}! 👋 ខ្ញុំ Cooler Bot 😎 AI និយាយខ្មែរ ២៤ ម៉ោង · Rap · ហ្គេម · Cooler Hub"
+
+
+def profile_body(hub, telegram):
+    """Body for POST /me/messenger_profile — makes the Page chat feel like an app."""
+    from urllib.parse import urlparse as _u
+    hub_origin = "{0.scheme}://{0.netloc}".format(_u(hub))
+    return {
+        "get_started": {"payload": "GET_STARTED"},
+        "greeting": [{"locale": "default", "text": GREETING[:160]}],
+        "ice_breakers": [{"locale": "default", "call_to_actions": [
+            {"question": q, "payload": k} for k, (q, _) in ICE.items()]}],
+        "persistent_menu": [{"locale": "default", "composer_input_disabled": False, "call_to_actions": [
+            {"type": "web_url", "title": "🚀 បើក Cooler Hub", "url": hub, "webview_height_ratio": "full"},
+            {"type": "postback", "title": "🎤 សរសេរ Rap", "payload": "ICE_RAP"},
+            {"type": "web_url", "title": "📲 Cooler Bot ក្នុង Telegram", "url": telegram},
+        ]}],
+        "whitelisted_domains": [hub_origin],
+    }
+
+
+def hub_card(hub, telegram):
+    return {"attachment": {"type": "template", "payload": {"template_type": "generic", "elements": [{
+        "title": "🚀 Cooler Hub — គ្រប់យ៉ាងក្នុងមួយ",
+        "subtitle": "ហ្គេម · ព័ត៌មាន · ដៃគូ · AI Studio — ចុចបើកបានភ្លាម",
+        "default_action": {"type": "web_url", "url": hub, "webview_height_ratio": "full"},
+        "buttons": [{"type": "web_url", "url": hub, "title": "🚀 បើក Hub", "webview_height_ratio": "full"},
+                    {"type": "web_url", "url": telegram, "title": "📲 មុខងារពេញ (Telegram)"}]}]}}}
+
+
+def set_profile(page_token, hub, telegram, client=None):
+    c = client or httpx.Client(timeout=15)
+    try:
+        r = c.post(graph("me/messenger_profile"), params={"access_token": page_token}, json=profile_body(hub, telegram))
+        if r.status_code >= 400:
+            logger.warning("messenger_profile failed: %s", r.text[:300])
+        return r.status_code < 400
+    finally:
+        if client is None:
+            c.close()
+
+
 def register(bot, config, ask=None, client=None):
     """ask(user_id:int, text, name) -> reply text (defaults to ai_assistant.ask_ai)."""
     init_schema(config)
@@ -207,6 +261,21 @@ def register(bot, config, ask=None, client=None):
         return {"attachment": {"type": "template", "payload": {"template_type": "button", "text": text[:640],
                 "buttons": [{"type": "web_url", "url": f"https://t.me/{username}", "title": "🚀 Cooler Bot (Telegram)"}]}}}
 
+    def tg_link():
+        username = "TeamSmosSneabot"
+        try:
+            username = bot.get_me().username or username
+        except Exception:
+            pass
+        return f"https://t.me/{username}"
+
+    def hub_link():
+        try:
+            import hub as _hub
+            return _hub.hub_url()
+        except Exception:
+            return "https://kn8508827-arch.github.io/Blue-Gold-Rush/hub/"
+
     def first_time(psid):
         with _db(config) as c:
             return c.execute("INSERT OR IGNORE INTO msg_seen(psid, first) VALUES (?, ?)",
@@ -221,13 +290,23 @@ def register(bot, config, ask=None, client=None):
         if msg.get("is_echo"):
             return
         text = (msg.get("text") or "").strip()
-        if ev.get("postback") and not text:
-            text = ""          # Get Started button → welcome only
+        payload = (ev.get("postback") or {}).get("payload") or (msg.get("quick_reply") or {}).get("payload") or ""
         new = first_time(psid)
-        if new:
+        if new or payload == "GET_STARTED":
             send(page_id, psid, telegram_button(WELCOME))
+            send(page_id, psid, hub_card(hub_link(), tg_link()))
+        if payload in ICE:
+            text = ICE[payload][1]
+        elif payload == "OPEN_HUB":
+            send(page_id, psid, hub_card(hub_link(), tg_link()))
+            return
+        elif payload:
+            return
+        if text.lower() in ("hub", "/hub", "ហាប់", "menu", "ម៉ឺនុយ"):
+            send(page_id, psid, hub_card(hub_link(), tg_link()))
+            return
         if not text:
-            if not new and (msg.get("attachments") or ev.get("postback")):
+            if not new and msg.get("attachments"):
                 send(page_id, psid, {"text": "🙂 ពេលនេះខ្ញុំអានបានតែអក្សរនៅ Messenger — សូមវាយសំណួរមក ✍️"})
             return
         send(page_id, psid, None, action="typing_on")
@@ -327,6 +406,15 @@ def register(bot, config, ask=None, client=None):
         threading.Thread(target=srv.serve_forever, name="messenger-webhook", daemon=True).start()
         logger.info("messenger webhook listening on :%s", port)
         return srv
+
+    @bot.message_handler(commands=["msgmenu"])
+    def msgmenu_cmd(message):
+        if getattr(message.chat, "type", None) != "private" or not owner(message.from_user.id):
+            return
+        with _db(config) as c:
+            pages = c.execute("SELECT name, token FROM msg_pages").fetchall()
+        lines = [f"{'✅' if set_profile(t, hub_link(), tg_link(), client) else '⚠️'} {n}" for n, t in pages] or ["(គ្មាន Page — /msgconnect សិន)"]
+        bot.send_message(message.chat.id, "📱 Messenger Menu + Hub៖\n" + "\n".join(lines))
 
     @bot.message_handler(commands=["msgconnect"], func=lambda m: owner(getattr(m.from_user, "id", None)))
     def msgconnect_cmd(message):

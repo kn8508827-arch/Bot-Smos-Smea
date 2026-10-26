@@ -97,6 +97,25 @@ class MessengerTests(unittest.TestCase):
         g = mb.join_guide("https://t.me/x")["attachment"]["payload"]
         self.assertLessEqual(len(g["text"]), 640)
 
+    def test_name_and_memory(self):
+        seen, names = [], []
+        bot = telebot.TeleBot("1:T", threaded=False)
+        bot.get_me = MagicMock(return_value=SimpleNamespace(username="TeamSmosSneabot"))
+        client = SimpleNamespace(
+            post=lambda url, params=None, json=None: (self.sent.append(json), SimpleNamespace(status_code=200, text=""))[1],
+            get=lambda url, params=None: SimpleNamespace(status_code=200, json=lambda: {"first_name": "Dara"}))
+        api = mb.register(bot, self.config, ask=lambda uid, t, n: (names.append(n), "ok")[1], client=client,
+                          observe=lambda uid, t: seen.append((uid, t)))
+        api["handle_body"](json.dumps({"object": "page", "entry": [{"id": "P1", "messaging": [
+            {"sender": {"id": "4242"}, "message": {"text": "ខ្ញុំចូលចិត្ត Rap"}}]}]}).encode())
+        self.assertTrue(self.wait_for(lambda m: m.get("message", {}).get("text") == "ok"))
+        for _ in range(40):
+            if seen:
+                break
+            time.sleep(0.05)
+        self.assertEqual(names, ["Dara"])
+        self.assertEqual(seen, [(mb.ai_user_id("4242"), "ខ្ញុំចូលចិត្ត Rap")])
+
     def test_profile_body(self):
         b = mb.profile_body("https://kn8508827-arch.github.io/Blue-Gold-Rush/hub/", "https://t.me/TeamSmosSneabot")
         self.assertEqual(b["whitelisted_domains"], ["https://kn8508827-arch.github.io"])

@@ -132,6 +132,10 @@ def messenger_note(username="TeamSmosSneabot"):
             "Say what they personally will gain (e.g. 'you can draw the picture you just described'). Be friendly and "
             "encouraging, never pushy; don't repeat the Telegram invitation in every reply when the conversation is "
             "just chatting. They can also type 'telegram' or 'សមាជិក' here for the full guide.\n"
+            "PERSONALITY HERE (same Cooler Bot as on Telegram): talk like a close, caring friend — warm, natural "
+            "everyday Khmer, playful and funny with light, kind jokes and emoji that make people smile 😄; notice their "
+            "mood and care for them (cheer them up when tired or sad, celebrate good news); use their name now and then "
+            "and naturally bring back things they told you before. Keep jokes respectful — never mock anyone.\n"
             "To contact or follow Vid Cooler, give these links directly:\n" + (links or f"- Telegram: https://t.me/{username}"))
 
 
@@ -242,8 +246,9 @@ def set_profile(page_token, hub, telegram, client=None):
             c.close()
 
 
-def register(bot, config, ask=None, client=None):
-    """ask(user_id:int, text, name) -> reply text (defaults to ai_assistant.ask_ai)."""
+def register(bot, config, ask=None, client=None, observe=None):
+    """ask(user_id:int, text, name) -> reply text (defaults to ai_assistant.ask_ai).
+    observe(user_id, text) -> 🧠 the same long-term memory the Telegram chat uses (ai_extras)."""
     init_schema(config)
     if ask is None:
         def ask(uid, text, name):
@@ -307,6 +312,30 @@ def register(bot, config, ask=None, client=None):
         except Exception:
             return "https://kn8508827-arch.github.io/Blue-Gold-Rush/hub/"
 
+    def name_of(page_id, psid):
+        """Messenger first name (cached), so the AI can call people by name like on Telegram."""
+        with _db(config) as c:
+            c.execute("CREATE TABLE IF NOT EXISTS msg_names (psid TEXT PRIMARY KEY, name TEXT, at INTEGER)")
+            row = c.execute("SELECT name, at FROM msg_names WHERE psid=?", (psid,)).fetchone()
+        if row and (row["name"] or time.time() - (row["at"] or 0) < 86400):
+            return row["name"] or None
+        name, token = "", page_token(page_id)
+        getter = getattr(client, "get", None) if client else None
+        if token:
+            try:
+                if getter:
+                    r = getter(graph(psid), params={"fields": "first_name", "access_token": token})
+                else:
+                    with httpx.Client(timeout=8) as hc:
+                        r = hc.get(graph(psid), params={"fields": "first_name", "access_token": token})
+                if r.status_code < 400:
+                    name = (r.json().get("first_name") or "")[:30]
+            except Exception as exc:
+                logger.info("messenger name lookup skipped (%s)", type(exc).__name__)
+        with _db(config) as c:
+            c.execute("INSERT OR REPLACE INTO msg_names(psid, name, at) VALUES (?, ?, ?)", (psid, name, int(time.time())))
+        return name or None
+
     def first_time(psid):
         with _db(config) as c:
             return c.execute("INSERT OR IGNORE INTO msg_seen(psid, first) VALUES (?, ?)",
@@ -348,12 +377,17 @@ def register(bot, config, ask=None, client=None):
             return
         send(page_id, psid, None, action="typing_on")
         try:
-            reply = ask(ai_user_id(psid), text[:2000], None)
+            reply = ask(ai_user_id(psid), text[:2000], name_of(page_id, psid))
         except Exception as exc:
             logger.warning("messenger AI failed (%s)", type(exc).__name__)
             reply = "😔 ខ្ញុំរវល់បន្តិច — សូមសាកម្ដងទៀតបន្តិចទៀត 🙏"
         for part in split_text(reply):
             send(page_id, psid, {"text": part})
+        if observe and not payload:
+            try:
+                observe(ai_user_id(psid), text[:2000])     # 🧠 remembers harmless facts, like on Telegram
+            except Exception as exc:
+                logger.info("messenger memory skipped (%s)", type(exc).__name__)
 
     def handle_body(body):
         data = json.loads(body.decode("utf-8") or "{}")

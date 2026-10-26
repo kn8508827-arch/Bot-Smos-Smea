@@ -133,7 +133,7 @@ import tpnews_feed
 _tpnews = tpnews_feed.register(bot, config)
 # 💬 Cooler Bot in Facebook Messenger (webhook server on $PORT) · /msgconnect (owner)
 import messenger_bot
-_messenger = messenger_bot.register(bot, config)
+_messenger = messenger_bot.register(bot, config, observe=getattr(_extras, "observe", None))
 
 
 def _fan_ask_gemini(prompt):

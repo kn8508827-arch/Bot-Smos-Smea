@@ -52,6 +52,8 @@ import ai_extras
 import daily_tools
 import hub
 import friend_map
+import buddhist_days
+import rewards
 import knowledge_base
 import ops_monitor
 import backup_tools
@@ -115,6 +117,10 @@ _daily = daily_tools.register(bot, config)
 _hub = hub.register(bot, config)
 # 📍 Friend Map: opt-in, time-limited location sharing between members of the same group
 _friend_map = friend_map.register(bot, config)
+# 🙏 /sila reminders · 🕯️ /anniv personal anniversaries (solar or Khmer lunar)
+_buddhist = buddhist_days.register(bot, config)
+# 🎁 /redeem: points → VIP days
+rewards.register(bot, config)
 # Owner: /backup and a daily database copy to OWNER_ID (members and payments).
 _start_daily_backup = backup_tools.register(bot, config)
 
@@ -437,6 +443,9 @@ def setup_bot_commands():
             BotCommand("live", "🎙️ បកប្រែ Live ជាសំឡេង"),
             BotCommand("report", "📊 របាយការណ៍លុយខែនេះ"),
             BotCommand("calendar", "📅 ប្រតិទិនខ្មែរ ថ្ងៃសីល ថ្ងៃឈប់"),
+            BotCommand("sila", "🙏 រំលឹកថ្ងៃសីល"),
+            BotCommand("anniv", "🕯️ ខួប & បុណ្យផ្ទាល់ខ្លួន"),
+            BotCommand("redeem", "🎁 ប្ដូរពិន្ទុ → ថ្ងៃ VIP"),
             BotCommand("morning", "☀️ ព័ត៌មានពេលព្រឹក ម៉ោង ៧"),
             BotCommand("guard", "🛡️ ការពារ Group (Admin)"),
             BotCommand("summary", "📝 សង្ខេបសារក្នុង Group"),
@@ -1926,6 +1935,7 @@ if __name__ == '__main__':
     _messenger["start_server"]()
     _khqr.start_loop()
     _calendar.start_loop()
+    _buddhist.start_loop()
     _daily.start_loop()
     _hub.setup_menu_button()
     try:  # warn the owner once per start if the database would be wiped by the next deploy

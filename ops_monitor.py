@@ -212,6 +212,8 @@ def _checks(bot, config):
         return f"{len(items)} items"
 
     def maps():
+        """OpenStreetMap's free servers often rate-limit cloud hosts — when they all time out, /ev still
+        answers with Google Maps or the 🌐 Google Maps button, so say that instead of a bare error."""
         import location_service
         data = location_service.location_service._overpass(
             '[out:json][timeout:15];node(around:300,11.5564,104.9282)["amenity"="fuel"];out 1;')
@@ -263,7 +265,10 @@ def run_selftest(bot, config, timeout=70):
             out = fut.result(timeout=max(1, timeout - (time.monotonic() - started)))
             results.append((name, True, str(out)))
         except Exception as exc:
-            results.append((name, False, f"{type(exc).__name__}: {str(exc)[:120]}"))
+            msg = f"{type(exc).__name__}: {str(exc)[:120]}"
+            if "Maps" in name and "Timeout" in msg:
+                msg += " · ឥឡូវយឺត — /ev នៅមានប៊ូតុង 🌐 Google Maps"
+            results.append((name, False, msg))
     pool.shutdown(wait=False, cancel_futures=True)
     return results
 

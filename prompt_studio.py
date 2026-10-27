@@ -219,6 +219,14 @@ def _close_bold(s):
     return s + "</b>" * (s.count("<b>") - s.count("</b>"))
 
 
+def _vip_cap(user_id, limit):
+    try:
+        import vip
+        return vip.cap(user_id, limit)
+    except Exception:
+        return limit
+
+
 class _DailyLimit:
     def __init__(self, limit):
         self.limit, self.used, self.lock = limit, {}, threading.Lock()
@@ -231,13 +239,13 @@ class _DailyLimit:
             for k in [k for k in self.used if k[1] != today]:
                 self.used.pop(k, None)
             n = self.used.get((user_id, today), 0)
-            if n >= self.limit:
+            if n >= _vip_cap(user_id, self.limit):
                 return False
             self.used[(user_id, today)] = n + 1
             return True
 
     def left(self, user_id):
-        return max(0, self.limit - self.used.get((user_id, time.strftime("%Y-%m-%d")), 0))
+        return max(0, _vip_cap(user_id, self.limit) - self.used.get((user_id, time.strftime("%Y-%m-%d")), 0))
 
 
 def register(bot, config, ask_ai):
@@ -297,7 +305,7 @@ def register(bot, config, ask_ai):
             bot.send_message(chat_id, "AI មិនទាន់បើកដំណើរការនៅឡើយទេ។")
             return
         if not limits.take(uid, privileged(uid)):
-            bot.send_message(chat_id, f"អ្នកប្រើ Prompt Studio អស់ {DAILY_LIMIT} ដងសម្រាប់ថ្ងៃនេះហើយ។ ត្រឡប់មកថ្ងៃស្អែក 🙏")
+            bot.send_message(chat_id, f"អ្នកប្រើ Prompt Studio អស់ {_vip_cap(uid, DAILY_LIMIT)} ដងសម្រាប់ថ្ងៃនេះហើយ។ ត្រឡប់មកថ្ងៃស្អែក 🙏")
             return
         try:
             bot.send_chat_action(chat_id, "typing")

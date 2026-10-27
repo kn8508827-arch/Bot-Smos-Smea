@@ -137,12 +137,14 @@ def take_image(config, uid, unlimited=False):
     """Count one /imagine picture (shared by the bot and the Hub's AI Studio); False when over today's limit."""
     if unlimited or image_limit() <= 0:
         return True
+    import vip
+    lim = vip.cap(uid, image_limit(), config)
     day = _kh_day()
     conn = _db(config)
     try:
         with conn:
             row = conn.execute("SELECT n FROM image_usage WHERE user_id=? AND day=?", (uid, day)).fetchone()
-            if row and row["n"] >= image_limit():
+            if row and row["n"] >= lim:
                 return False
             conn.execute("INSERT INTO image_usage(user_id, day, n) VALUES (?, ?, 1) ON CONFLICT(user_id, day) "
                          "DO UPDATE SET n=n+1", (uid, day))

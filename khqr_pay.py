@@ -253,6 +253,7 @@ def register(bot, config):
         md5 = md5_of(qr)
         what = (f"👥 Group <b>{html.escape(title or str(target_id))}</b>" if kind == "g"
                 else "➕ សិទ្ធិដាក់ Bot ចូល Group ១" if kind == "c"
+                else "👑 VIP" if kind == "v"
                 else "🧪 តេស្ត KHQR" if test else "👤 សមាជិកម្នាក់")
         m = InlineKeyboardMarkup()
         m.row(InlineKeyboardButton("✅ ខ្ញុំបង់រួចហើយ — ពិនិត្យឥឡូវ", callback_data=f"khqr:chk:{md5[:16]}"))
@@ -439,7 +440,7 @@ def register(bot, config):
             kind = parts[2] if len(parts) > 2 else "u"
             sub_waiting = getattr(bot, "_cooler_sub_waiting", None)
             if sub_waiting is not None:
-                sub_waiting[call.from_user.id] = (kind if kind in ("u", "g", "c") else "u", call.from_user.id,
+                sub_waiting[call.from_user.id] = (kind if kind in ("u", "g", "c", "v") else "u", call.from_user.id,
                                                   time.monotonic() + 3600)
             bot.send_message(call.message.chat.id, "🧾 ថតរូប / Screenshot បង្កាន់ដៃ ហើយផ្ញើមកទីនេះ — Owner នឹង Approve 🙏")
             return

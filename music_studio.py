@@ -240,8 +240,10 @@ def register(bot, config, make=None, lyrics=None):
         if uid in busy:
             bot.send_message(chat_id, "⏳ បទមុនរបស់អ្នកកំពុងផលិតនៅឡើយ — រង់ចាំបន្តិចណា")
             return False
-        if not privileged(uid) and used_today(config, uid) >= limit():
-            bot.send_message(chat_id, f"🎧 ថ្ងៃនេះអ្នកធ្វើបទអស់ {limit()} ហើយ — ស្អែកមកម្ដងទៀតណា 🙏")
+        import vip
+        lim = vip.cap(uid, limit(), config, expensive=True)
+        if not privileged(uid) and used_today(config, uid) >= lim:
+            bot.send_message(chat_id, f"🎧 ថ្ងៃនេះអ្នកធ្វើបទអស់ {lim} ហើយ — ស្អែកមកម្ដងទៀតណា 🙏")
             return False
         busy.add(uid)
         if not privileged(uid):

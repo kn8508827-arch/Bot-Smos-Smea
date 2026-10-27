@@ -321,8 +321,10 @@ def health_ask(config, uid, q, owner):
     studio_web.init_schema(config)
     if not owner:
         import tools_web
-        if studio_web.text_used(config, uid, "tools") >= tools_web.ai_limit():
-            raise Refused(f"⏳ ថ្ងៃនេះប្រើ AI អស់ {tools_web.ai_limit()} ដងហើយ — ស្អែកមកម្ដងទៀតណា 🙏")
+        import vip
+        lim = vip.cap(uid, tools_web.ai_limit(), config)
+        if studio_web.text_used(config, uid, "tools") >= lim:
+            raise Refused(f"⏳ ថ្ងៃនេះប្រើ AI អស់ {lim} ដងហើយ — ស្អែកមកម្ដងទៀតណា 🙏")
         studio_web.text_add(config, uid, "tools", 1)
     try:
         ask = HOOKS.get("ask")

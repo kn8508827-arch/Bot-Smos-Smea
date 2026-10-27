@@ -209,8 +209,10 @@ def register(bot, config, ask_gemini=None):
         key = (user_id, datetime.now(TZ).strftime("%Y-%m-%d"))
         unlimited = user_id == getattr(config, "OWNER_ID", 0) or user_id in getattr(config, "ADMIN_IDS", [])
         with ai_lock:
-            if not unlimited and ai_used.get(key, 0) >= ai_limit:
-                reply(message, f"អ្នកសួរអស់ {ai_limit} ដងសម្រាប់ថ្ងៃនេះហើយ។ មើល /health ឬត្រឡប់មកថ្ងៃស្អែក 🙏")
+            import vip
+            lim = vip.cap(user_id, ai_limit, config)
+            if not unlimited and ai_used.get(key, 0) >= lim:
+                reply(message, f"អ្នកសួរអស់ {lim} ដងសម្រាប់ថ្ងៃនេះហើយ។ មើល /health ឬត្រឡប់មកថ្ងៃស្អែក 🙏")
                 return
             ai_used[key] = ai_used.get(key, 0) + 1
         try:

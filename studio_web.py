@@ -160,16 +160,17 @@ def left(config, uid):
         return {k: None for k in ("image", "photo", "music", "prompt", "rap", "fortune")}
     import ai_extras
     import music_studio
-    out = {"image": max(0, ai_extras.image_limit() - ai_extras.images_used(config, uid))}
+    import vip
+    out = {"image": max(0, vip.cap(uid, ai_extras.image_limit(), config) - ai_extras.images_used(config, uid))}
     rem = HOOKS.get("photo_remaining")
     out["photo"] = max(0, int(rem(uid))) if rem else 0
     try:
         song_limit = int(os.getenv("SONG_DAILY_LIMIT", "2"))
     except ValueError:
         song_limit = 2
-    out["music"] = max(0, song_limit - music_studio.used_today(config, uid))
+    out["music"] = max(0, vip.cap(uid, song_limit, config, expensive=True) - music_studio.used_today(config, uid))
     for t in ("prompt", "rap", "fortune"):
-        out[t] = max(0, text_limit(t) - text_used(config, uid, t))
+        out[t] = max(0, vip.cap(uid, text_limit(t), config) - text_used(config, uid, t))
     return out
 
 
@@ -197,8 +198,10 @@ def _take(config, uid, lane):
             raise Refused("🎧 ថ្ងៃនេះធ្វើបទ/Beat អស់ហើយ — ស្អែកមកម្ដងទៀតណា 🙏")
         music_studio.add_use(config, uid)
         return lambda: music_studio.add_use(config, uid, -1)
-    if text_used(config, uid, lane) >= text_limit(lane):
-        raise Refused(f"⏳ ថ្ងៃនេះប្រើអស់ {text_limit(lane)} ដងហើយ — ស្អែកមកម្ដងទៀតណា 🙏")
+    import vip
+    lim = vip.cap(uid, text_limit(lane), config)
+    if text_used(config, uid, lane) >= lim:
+        raise Refused(f"⏳ ថ្ងៃនេះប្រើអស់ {lim} ដងហើយ — ស្អែកមកម្ដងទៀតណា 🙏")
     text_add(config, uid, lane, 1)
     return lambda: text_add(config, uid, lane, -1)
 

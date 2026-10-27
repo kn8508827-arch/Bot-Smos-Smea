@@ -480,13 +480,16 @@ def handle_post(path, config, body, bot=None, now=None):
     import daily_tools
     daily_tools.init_schema(config)
 
+    import vip
+    lim = vip.cap(uid, ai_limit(), config)
+
     def left():
-        return None if owner else max(0, ai_limit() - studio_web.text_used(config, uid, "tools"))
+        return None if owner else max(0, lim - studio_web.text_used(config, uid, "tools"))
 
     if path == "/tools/me":
         import knowledge_base as kb
         kb.init_schema(config)
-        return _json(200, {"member": member, "owner": owner, "left": left() if member else 0, "limit": ai_limit(),
+        return _json(200, {"member": member, "owner": owner, "left": left() if member else 0, "limit": lim,
                            "categories": categories(), "langs": [[k, v[0]] for k, v in LANGS.items()],
                            "docs": len(kb.docs(config, uid)) if member else 0})
     if not member:
@@ -496,8 +499,8 @@ def handle_post(path, config, body, bot=None, now=None):
         if uses_ai and not getattr(config, "GEMINI_API_KEY", "") and not HOOKS.get("ai"):
             raise Refused("AI មិនទាន់បើកដំណើរការទេ")
         if uses_ai and not owner:
-            if studio_web.text_used(config, uid, "tools") >= ai_limit():
-                raise Refused(f"⏳ ថ្ងៃនេះប្រើ AI អស់ {ai_limit()} ដងហើយ — ស្អែកមកម្ដងទៀតណា 🙏")
+            if studio_web.text_used(config, uid, "tools") >= lim:
+                raise Refused(f"⏳ ថ្ងៃនេះប្រើ AI អស់ {lim} ដងហើយ — ស្អែកមកម្ដងទៀតណា 🙏")
             studio_web.text_add(config, uid, "tools", 1)
         try:
             if path == "/tools/ai":

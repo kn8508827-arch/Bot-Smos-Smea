@@ -103,6 +103,14 @@ def tip_of_day(groups, today=None):
     return tips[day % len(tips)]
 
 
+def _vip_cap(user_id, limit):
+    try:
+        import vip
+        return vip.cap(user_id, limit)
+    except Exception:
+        return limit
+
+
 class _DailyLimit:
     def __init__(self, limit):
         self.limit, self.used, self.lock = limit, {}, threading.Lock()
@@ -115,7 +123,7 @@ class _DailyLimit:
             for k in [k for k in self.used if k[1] != today]:
                 self.used.pop(k, None)
             n = self.used.get((uid, today), 0)
-            if n >= self.limit:
+            if n >= _vip_cap(uid, self.limit):
                 return False
             self.used[(uid, today)] = n + 1
             return True
@@ -194,7 +202,7 @@ def register(bot, config, ask_gemini=None):
             bot.reply_to(message, "AI មិនទាន់បើកដំណើរការនៅឡើយទេ។ សាកមើលគន្លឹះក្នុង /parent ឬ /pet សិន 🙏")
             return
         if not limits.take(uid, privileged(uid)):
-            bot.reply_to(message, f"អ្នកសួរ AI អស់ {AI_DAILY_LIMIT} ដងសម្រាប់ថ្ងៃនេះហើយ។ ត្រឡប់មកថ្ងៃស្អែក 🙏")
+            bot.reply_to(message, f"អ្នកសួរ AI អស់ {_vip_cap(uid, AI_DAILY_LIMIT)} ដងសម្រាប់ថ្ងៃនេះហើយ។ ត្រឡប់មកថ្ងៃស្អែក 🙏")
             return
         try:
             bot.send_chat_action(message.chat.id, "typing")

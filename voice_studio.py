@@ -394,8 +394,10 @@ def register(bot, config, synth=None):
         if not text:
             bot.send_message(chat_id, "✍️ គ្មានពាក្យសម្រាប់អានទេ។ ឧ. <code>/say សួស្ដីបងប្អូន!</code>", parse_mode="HTML")
             return False
-        if not privileged(uid) and not take_quota(config, uid, limit()):
-            bot.send_message(chat_id, f"⏳ ថ្ងៃនេះប្រើសំឡេងអស់ {limit()} ដងហើយ — ស្អែកមកម្ដងទៀតណា 🙏")
+        import vip
+        lim = vip.cap(uid, limit(), config)
+        if not privileged(uid) and not take_quota(config, uid, lim):
+            bot.send_message(chat_id, f"⏳ ថ្ងៃនេះប្រើសំឡេងអស់ {lim} ដងហើយ — ស្អែកមកម្ដងទៀតណា 🙏")
             return False
         try:
             bot.send_chat_action(chat_id, "record_voice")

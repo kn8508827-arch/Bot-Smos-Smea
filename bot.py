@@ -1012,6 +1012,15 @@ _style = style_studio.register(bot, config, {
 })
 
 
+# ✨ AI Studio web app in the Hub (hub/ai.html): same engines and daily limits as the commands above
+import studio_web  # noqa: E402
+studio_web.register(bot, config, {
+    "photo_remaining": _studio_remaining, "photo_record": _studio_record_use, "photo_busy": _studio_busy,
+    "photo_run": lambda data, prompt: async_runner.run_sync(photo_studio.transform_photo(data, full_prompt=prompt), timeout=180),
+    "prompt_ask": _prompt_ask, "ask": _fan_ask_gemini,
+})
+
+
 def _studio_from_caption(message, user_id, file_id, prompt) -> None:
     """Photo + prompt caption → edit the photo with that prompt right away (keeps the person's face)."""
     if _studio_remaining(user_id) <= 0:

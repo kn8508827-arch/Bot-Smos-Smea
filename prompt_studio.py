@@ -35,6 +35,10 @@ the prompt text
   directors or living people as a style reference (describe the style instead); never make prompts that
   show a real, identifiable person, sexual content, minors in unsafe situations, or graphic gore.
 - Fill in smart creative details the user did not give, but stay faithful to their idea.
+- Put each section title on its OWN line right above its prompt (e.g. "🎨 Midjourney"), then the <<< >>> block.
+- Inside prompts: perfect English spelling and grammar, proper capitalisation (Sentence case, proper nouns
+  capitalised, parameters lower-case like --ar 9:16 --v 7), no typos, no Khmer inside English prompts
+  (except song lyrics), no trailing explanations inside the block — the block must be paste-ready.
 """
 
 SYSTEMS = {
@@ -124,33 +128,65 @@ MODES = {
 }
 COMMANDS = {"videoprompt": "video", "songprompt": "song", "imageprompt": "image", "story": "story"}
 
-_PROMPT_RE = re.compile(r"<<<\s*\n?(.*?)\n?\s*>>>", re.S)
+_PROMPT_RE = re.compile(r"<<<\s*\n?(.*?)\n?\s*>>>|```[ \t]*([\w+.-]*)[ \t]*\n(.*?)```", re.S)
 _BOLD_RE = re.compile(r"\*\*(.+?)\*\*")
+_EMOJI_START = re.compile(r"^\s*(?:[^\w\s<>\"'(\[]|\d+[.)]|[①-⑳])", re.U)
+
+
+def _label(header):
+    """Telegram shows the code-block language as a header with a copy button: use the section name."""
+    latin = re.findall(r"[A-Za-z][A-Za-z0-9+./-]*", header or "")
+    words = [w.strip("./-") for w in latin if w.lower() not in ("one", "the", "and")][:3]
+    lab = "-".join(w for w in words if w)
+    return lab[:28] or "Prompt"
 
 
 def render_chunks(text, limit=MSG_LIMIT):
-    """Turn AI text into Telegram-HTML messages: prompts → <pre>, never split inside a prompt."""
-    pieces = []
+    """AI text → Telegram-HTML messages.
+    Every copy-ready prompt (<<< >>> or ``` fences) becomes its own message: bold section title + a code block
+    labelled with the tool name (Telegram adds a one-tap 📋 Copy button). Explanations stay together."""
+    pieces = []          # ("text", html) | ("prompt", html)
     pos = 0
     for m in _PROMPT_RE.finditer(text):
         plain = text[pos:m.start()]
         if plain.strip():
-            pieces.extend(_plain_pieces(plain))
-        body = m.group(1).strip()
+            pieces.extend(("text", p) for p in _plain_pieces(plain))
+        body = (m.group(1) if m.group(1) is not None else (m.group(3) or "")).strip()
         if body:
-            pieces.append("<pre>" + html.escape(body[: limit - 20]) + "</pre>")
+            pieces.append(("prompt", body))
         pos = m.end()
-    tail = text[pos:].replace("<<<", "").replace(">>>", "")
+    tail = text[pos:].replace("<<<", "").replace(">>>", "").replace("```", "")
     if tail.strip():
-        pieces.extend(_plain_pieces(tail))
-    chunks, cur = [], ""
-    for p in pieces:
-        if cur and len(cur) + len(p) + 1 > limit:
+        pieces.extend(("text", p) for p in _plain_pieces(tail))
+    chunks, cur, count = [], "", 0
+
+    def flush():
+        nonlocal cur
+        if cur.strip():
             chunks.append(cur)
-            cur = ""
-        cur = (cur + "\n" + p) if cur else p
-    if cur:
-        chunks.append(cur)
+        cur = ""
+
+    for i, (kind, p) in enumerate(pieces):
+        if kind == "text":
+            if cur and len(cur) + len(p) + 2 > limit:
+                flush()
+            cur = (cur + "\n\n" + p) if cur else p
+            continue
+        # a short paragraph right before the prompt is its title: move it into the prompt's own message
+        header = ""
+        if cur:
+            last = cur.rsplit("\n\n", 1)
+            if len(last[-1]) <= 160:
+                header = last[-1]
+                cur = last[0] if len(last) == 2 else ""
+        flush()
+        count += 1
+        plain_header = re.sub(r"<[^>]+>", "", header)
+        lab = _label(plain_header)
+        title = header if header.startswith("<b>") else (f"<b>{header}</b>" if header else f"<b>📋 Prompt {count}</b>")
+        code = html.escape(p[: limit - 300])
+        chunks.append(f"{title}\n<pre><code class=\"language-{lab}\">{code}</code></pre>")
+    flush()
     return chunks
 
 
@@ -162,6 +198,14 @@ def _plain_pieces(text, limit=MSG_LIMIT - 200):
         if not para.strip():
             continue
         esc = _BOLD_RE.sub(r"<b>\1</b>", html.escape(para)).replace("**", "")
+        # short lines that start with an emoji / number are section titles → bold
+        lines = []
+        for line in esc.split("\n"):
+            raw = line.strip()
+            if raw and len(raw) <= 70 and "<b>" not in raw and _EMOJI_START.match(raw) and not raw.startswith(("•", "-")):
+                line = f"<b>{raw}</b>"
+            lines.append(line)
+        esc = "\n".join(lines)
         while len(esc) > limit:  # very long paragraph: cut on a line break
             cut = esc.rfind("\n", 0, limit)
             cut = cut if cut > 0 else limit
@@ -295,7 +339,7 @@ def register(bot, config, ask_ai):
                                  disable_web_page_preview=True)
             except Exception as exc:  # broken HTML from odd AI output → send as plain text
                 logger.warning("prompt studio send failed (%s)", type(exc).__name__)
-                bot.send_message(chat_id, re.sub(r"</?(b|pre|i)>", "", text), reply_markup=markup)
+                bot.send_message(chat_id, html.unescape(re.sub(r"<[^>]+>", "", text)), reply_markup=markup)
 
     @bot.message_handler(commands=["prompt", "prompts"])
     def prompt_menu(message):

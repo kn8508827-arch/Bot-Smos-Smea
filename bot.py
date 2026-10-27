@@ -1087,7 +1087,25 @@ def _split_text(text, limit=_TELEGRAM_MAX_CHARS):
 
 
 def send_long_reply(message, text, reply_markup=None):
-    """Reply with text, splitting into several messages when it is over the limit."""
+    """Reply with text, splitting into several messages when it is over the limit.
+    Answers that contain copy-ready prompts/code (``` fences) go out as separate, labelled code blocks
+    with Telegram's one-tap Copy button (same look as Prompt Studio)."""
+    if text and ("```" in text or "<<<" in text):
+        try:
+            import prompt_studio
+            rich = prompt_studio.render_chunks(text)
+            for index, chunk in enumerate(rich):
+                kwargs = {"parse_mode": "HTML", "disable_web_page_preview": True}
+                if reply_markup is not None and index == len(rich) - 1:
+                    kwargs["reply_markup"] = reply_markup
+                if index == 0:
+                    bot.reply_to(message, chunk, **kwargs)
+                else:
+                    bot.send_message(message.chat.id, chunk, **kwargs)
+            if rich:
+                return
+        except Exception as exc:
+            logger.info("rich reply fell back to plain (%s)", type(exc).__name__)
     chunks = _split_text(text)
     for index, chunk in enumerate(chunks):
         def _send(**kwargs):

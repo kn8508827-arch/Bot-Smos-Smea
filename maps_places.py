@@ -140,9 +140,14 @@ def parse(text, chunks, kind, lat=None, lon=None):
     return out
 
 
-def search(api_key, kind, lat=None, lon=None, place="", client=None, timeout=45):
+def search(api_key, kind, lat=None, lon=None, place="", client=None, timeout=None):
     """List of station dicts (may be empty). Raises RuntimeError when Gemini can't be reached."""
     kind = kind or "fuel"
+    if timeout is None:
+        try:
+            timeout = float(os.getenv("MAPS_TIMEOUT", "30") or 30)
+        except ValueError:
+            timeout = 30.0
     key = (kind, round(lat, 2), round(lon, 2)) if lat is not None else (kind, _norm(place))
     ttl = 60 * int(os.getenv("MAPS_CACHE_MINUTES", "30") or 30)
     hit = _cache.get(key)
@@ -165,6 +170,9 @@ def search(api_key, kind, lat=None, lon=None, place="", client=None, timeout=45)
                 continue
             try:
                 r = client.post(f"{API}/models/{model}:generateContent", json=payload, headers=headers)
+            except httpx.TimeoutException as exc:
+                errors.append(f"{model}: {type(exc).__name__}")
+                break          # Google is slow right now — don't make the user wait for every model; OSM takes over
             except httpx.HTTPError as exc:
                 errors.append(f"{model}: {type(exc).__name__}")
                 continue

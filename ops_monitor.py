@@ -221,7 +221,7 @@ def _checks(bot, config):
         import maps_places
         if not maps_places.enabled(key):
             return "off (MAPS_GROUNDING=false)"
-        found = maps_places.search(key, "ev", lat=11.5564, lon=104.9282)
+        found = maps_places.search(key, "ev", lat=11.5564, lon=104.9282, timeout=55)
         if not found:
             raise RuntimeError("no places")
         return f"Google Maps ✅ ({len(found)} EV) · ប្រើ {maps_places.used_this_month()}/{maps_places.monthly_limit()} ខែនេះ (ឥតគិតថ្លៃ)"
@@ -252,7 +252,7 @@ def _checks(bot, config):
             ("💳 KHQR / Bakong", bakong)]
 
 
-def run_selftest(bot, config, timeout=45):
+def run_selftest(bot, config, timeout=70):
     from concurrent.futures import ThreadPoolExecutor
     checks = _checks(bot, config)
     results = []
@@ -274,7 +274,7 @@ def register_selftest(bot, config):
 
     @bot.message_handler(commands=["selftest", "check"], func=lambda m: privileged(getattr(m.from_user, "id", None)))
     def selftest_cmd(message):
-        wait = bot.reply_to(message, "🧪 កំពុងសាកគ្រប់សេវា ... (≈ ៣០ វិនាទី)")
+        wait = bot.reply_to(message, "🧪 កំពុងសាកគ្រប់សេវា ... (≈ ៣០–៧០ វិនាទី)")
         results = run_selftest(bot, config)
         good = sum(1 for _n, ok, _t in results if ok)
         lines = [f"🧪 <b>សាកគ្រប់សេវា — {good}/{len(results)} ✅</b>", ""]

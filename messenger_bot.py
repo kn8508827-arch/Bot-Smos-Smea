@@ -589,6 +589,15 @@ def register(bot, config, ask=None, client=None, observe=None):
                     logger.warning("voice studio error (%s)", type(exc).__name__)
                     out = (500, b'{"error":"server"}', "application/json", {})
                 return self._send_voice(out)
+            if urlparse(self.path).path.rstrip("/") == "/hub/chat":     # 💬 chat with Cooler Bot inside the Hub
+                import hub as _hub
+                body = self.rfile.read(min(int(self.headers.get("Content-Length") or 0), 20_000))
+                try:
+                    code, data = _hub.chat_response(config, body)
+                except Exception as exc:
+                    logger.warning("hub/chat error (%s)", type(exc).__name__)
+                    code, data = 500, {"error": "server"}
+                return self._send_bytes(code, json.dumps(data, ensure_ascii=False).encode(), "application/json")
             if urlparse(self.path).path.rstrip("/") == "/hub/me":       # 🔒 Hub asks: is this user a member?
                 import hub as _hub
                 body = self.rfile.read(min(int(self.headers.get("Content-Length") or 0), 20_000))

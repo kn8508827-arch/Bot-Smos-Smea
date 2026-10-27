@@ -1016,6 +1016,8 @@ _style = style_studio.register(bot, config, {
 import studio_web  # noqa: E402
 import tools_web  # noqa: E402  🧰 Daily Tools web app (hub/tools.html): same tables as /cash /remind /kb
 tools_web.register(bot, config)
+import today_web  # noqa: E402  ☀️ Cooler Today web app (hub/today.html): calendar, weather, dollar, gold, news, sila, trips, health
+today_web.register(bot, config, {"ask": _fan_ask_gemini})
 studio_web.register(bot, config, {
     "photo_remaining": _studio_remaining, "photo_record": _studio_record_use, "photo_busy": _studio_busy,
     "photo_run": lambda data, prompt: async_runner.run_sync(photo_studio.transform_photo(data, full_prompt=prompt), timeout=180),

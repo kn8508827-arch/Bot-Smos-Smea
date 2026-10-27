@@ -553,6 +553,15 @@ def register(bot, config, ask=None, client=None, observe=None):
                     out = (500, {"error": "server"})
                 code, data = out or (404, {"error": "not_found"})
                 return self._send_bytes(code, json.dumps(data, ensure_ascii=False).encode(), "application/json")
+            if urlparse(self.path).path.startswith("/today/"):   # ☀️ Cooler Today (today_web.py)
+                import today_web
+                body = self.rfile.read(min(int(self.headers.get("Content-Length") or 0), 60_000))
+                try:
+                    out = today_web.handle_post(urlparse(self.path).path, config, body, bot)
+                except Exception as exc:
+                    logger.warning("today error (%s)", type(exc).__name__)
+                    out = (500, b'{"error":"server"}', "application/json", {})
+                return self._send_voice(out)
             if urlparse(self.path).path.startswith("/tools/"):   # 🧰 Daily Tools (tools_web.py) — photos, voice, PDFs
                 import tools_web
                 body = self.rfile.read(min(int(self.headers.get("Content-Length") or 0), 22_000_000))

@@ -325,3 +325,46 @@ def member_response(config, body, now=None):
     uid = int(user["id"])
     owner = uid in icom_live._staff(config)
     return 200, {"member": bool(owner or icom_live.is_allowed(config, uid, now)), "owner": owner}
+
+
+HUB_CHAT_NOTE = (
+    "You are answering inside the chat window that opens when the user taps your floating face in the "
+    "Cooler Hub mini app (not the Telegram chat). Reply in plain text: no Markdown tables, no HTML, "
+    "short paragraphs, emojis are fine. Keep the same personality and memory as in Telegram."
+)
+HUB_CHAT_MAX = 1500
+
+
+def chat_response(config, body, now=None, ask=None):
+    """POST /hub/chat {initData, text} → {"reply": str}. Chat with Cooler Bot right inside the Hub.
+
+    Same brain as the Telegram chat (ai_assistant.ask_ai: memory, rate limit and daily quota per user).
+    Text chat is open to everyone the bot already lets chat; Telegram's signed initData proves who asks."""
+    import json as _json
+    import icom_live
+    try:
+        data = _json.loads(body.decode("utf-8") or "{}")
+        if not isinstance(data, dict):
+            raise ValueError
+    except (ValueError, AttributeError):
+        return 400, {"error": "bad_request"}
+    user = icom_live.verify_init_data(data.get("initData", ""), getattr(config, "BOT_TOKEN", ""), now)
+    if not user:
+        return 401, {"error": "open_in_telegram", "msg": "សូមបើកពី Cooler Hub ក្នុង Telegram"}
+    text = str(data.get("text") or "").strip()[:HUB_CHAT_MAX]
+    if not text:
+        return 400, {"error": "empty", "msg": "សរសេរអ្វីមួយមកខ្ញុំសិន 😊"}
+    uid = int(user["id"])
+    name = str(user.get("first_name") or "")[:64] or None
+    if ask is None:
+        def ask(u, t, n):
+            import ai_assistant
+            import async_runner
+            return async_runner.run_sync(ai_assistant.ask_ai(user_id=u, user_message=t, user_name=n,
+                                                             extra_instruction=HUB_CHAT_NOTE), timeout=90)
+    try:
+        reply = ask(uid, text, name)
+    except Exception as exc:
+        logger.warning("hub chat error (%s)", type(exc).__name__)
+        return 200, {"reply": "😅 ខ្ញុំរវល់បន្តិច — សាកម្ដងទៀតណា"}
+    return 200, {"reply": str(reply or "").strip()[:4000] or "🤔"}

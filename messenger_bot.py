@@ -553,6 +553,15 @@ def register(bot, config, ask=None, client=None, observe=None):
                     out = (500, {"error": "server"})
                 code, data = out or (404, {"error": "not_found"})
                 return self._send_bytes(code, json.dumps(data, ensure_ascii=False).encode(), "application/json")
+            if urlparse(self.path).path.startswith("/tools/"):   # 🧰 Daily Tools (tools_web.py) — photos, voice, PDFs
+                import tools_web
+                body = self.rfile.read(min(int(self.headers.get("Content-Length") or 0), 22_000_000))
+                try:
+                    out = tools_web.handle_post(urlparse(self.path).path, config, body, bot)
+                except Exception as exc:
+                    logger.warning("daily tools error (%s)", type(exc).__name__)
+                    out = (500, b'{"error":"server"}', "application/json", {})
+                return self._send_voice(out)
             if urlparse(self.path).path.startswith("/studio/"):  # ✨ AI Studio (studio_web.py) — photos up to ~6 MB
                 import studio_web
                 body = self.rfile.read(min(int(self.headers.get("Content-Length") or 0), 9_000_000))

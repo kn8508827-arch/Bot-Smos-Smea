@@ -6,6 +6,9 @@
   /anniv ១៥កើត មាឃ ខួបលោកតា            → yearly reminder on that lunar day (Khmer or Arabic digits)
   /anniv                                 → list with 🗑️ delete buttons
   Anniversaries are reminded the evening before (18:00) and on the morning of the day.
+  🔊 Sila reminders also come as a short Khmer voice message (Gemini TTS, warm voice SILA_VOICE, default
+     Sulafat). Made once per reminder and re-sent by file_id, so 1,000 members cost one TTS call.
+     SILA_VOICE=off → text only.
 """
 import html
 import logging
@@ -108,9 +111,57 @@ def next_date(row, start, horizon=400):
 
 # ---------------- bot wiring ----------------
 
-def register(bot, config):
+def voice_on():
+    return os.getenv("SILA_VOICE", "Sulafat").strip().lower() not in ("0", "off", "false", "no", "")
+
+
+def spoken_eve(d):
+    return (f"សួស្ដីបងប្អូន! ខ្ញុំ Cooler Bot សូមរំលឹកថា ស្អែកនេះ {kc.format_khmer(d).split(' ឆ្នាំ')[0]} "
+            "ជាថ្ងៃសីល។ សូមត្រៀមខ្លួន ទៅវត្ត ឬរក្សាសីលប្រាំនៅផ្ទះ។ សូមឲ្យបងប្អូនមានសេចក្ដីសុខ ចម្រើន។")
+
+
+def spoken_morning(d):
+    return (f"អរុណសួស្ដីបងប្អូន! ថ្ងៃនេះ {kc.format_khmer(d).split(' ឆ្នាំ')[0]} ជាថ្ងៃសីល។ "
+            "សីលប្រាំ៖ មិនសម្លាប់សត្វ មិនលួច មិនប្រព្រឹត្តខុសក្នុងកាម មិនកុហក និងមិនផឹកស្រា។ "
+            "សូមឲ្យថ្ងៃនេះ ពោរពេញដោយសេចក្ដីសុខ និងបុណ្យកុសល។")
+
+
+def register(bot, config, speak=None):
+    """speak(text) -> OGG/Opus bytes for a voice message (None = text only). Injectable for tests."""
     from telebot.types import InlineKeyboardButton, InlineKeyboardMarkup
     init_schema(config)
+    if speak is None:
+        def speak(text):
+            import voice_studio
+            wav = voice_studio.synthesize(getattr(config, "GEMINI_API_KEY", ""), text,
+                                          os.getenv("SILA_VOICE", "Sulafat").strip() or "Sulafat",
+                                          style="calm, warm and respectful, gentle pace, like a kind temple announcer")
+            return voice_studio.wav_to_ogg(wav) or wav
+    voice_cache = {}      # (kind, date) -> bytes or Telegram file_id once uploaded
+
+    def _voice(chat_id, kind, d, script):
+        """Send the spoken reminder; first chat uploads it, the rest reuse Telegram's file_id."""
+        if not voice_on():
+            return
+        key = (kind, d.isoformat())
+        if key not in voice_cache:
+            try:
+                voice_cache[key] = speak(script)
+            except Exception as exc:
+                logger.warning("sila voice failed (%s)", type(exc).__name__)
+                voice_cache[key] = None
+            for k in [k for k in voice_cache if k[1] < (d - timedelta(days=2)).isoformat()]:
+                voice_cache.pop(k, None)
+        audio = voice_cache.get(key)
+        if not audio:
+            return
+        try:
+            msg = bot.send_voice(chat_id, audio, caption="🔊 រំលឹកថ្ងៃសីល")
+            fid = getattr(getattr(msg, "voice", None), "file_id", None) or getattr(getattr(msg, "audio", None), "file_id", None)
+            if fid and isinstance(audio, (bytes, bytearray)):
+                voice_cache[key] = fid
+        except Exception as exc:
+            logger.info("sila voice send failed (%s)", type(exc).__name__)
 
     def sila_on(chat_id):
         conn = _db(config)
@@ -133,7 +184,7 @@ def register(bot, config):
             when = "ថ្ងៃនេះ" if i == 0 else "ស្អែក" if i == 1 else f"{kc.kh_num(i)} ថ្ងៃទៀត"
             lines.append(f"ថ្ងៃសីលបន្ទាប់៖ <b>{kc.format_khmer(d).split(' ឆ្នាំ')[0]}</b> ({when})")
         lines.append(f"\nបើកការរំលឹក → Bot ផ្ញើសារ ម៉ោង {kc.kh_num(EVE_HOUR)}:០០ ល្ងាចមុនថ្ងៃសីល "
-                     f"និងម៉ោង {kc.kh_num(hour)}:០០ ព្រឹកថ្ងៃសីល")
+                     f"និងម៉ោង {kc.kh_num(hour)}:០០ ព្រឹកថ្ងៃសីល" + (" — ជាអក្សរ និង 🔊 សំឡេង" if voice_on() else ""))
         lines.append("\nស្ថានភាព៖ " + ("✅ បើក" if sila_on(chat_id) else "⛔ បិទ"))
         return "\n".join(lines)
 
@@ -293,12 +344,14 @@ def register(bot, config):
                     "សូមឲ្យមានសេចក្ដីសុខ ចម្រើន 🙏 · /calendar")
             for cid in subs:
                 if _claim("sila_subs", "chat_id", cid, "last_morning", stamp) and _send(cid, text):
+                    _voice(cid, "morning", today, spoken_morning(today))
                     sent += 1
                     time.sleep(0.05)
         if now.hour >= EVE_HOUR and kc.is_sila_day(tomorrow):
             text = f"🌙 <b>ស្អែកជាថ្ងៃសីល</b> 🙏\n{kc.format_khmer(tomorrow)}"
             for cid in subs:
                 if _claim("sila_subs", "chat_id", cid, "last_eve", stamp) and _send(cid, text):
+                    _voice(cid, "eve", tomorrow, spoken_eve(tomorrow))
                     sent += 1
                     time.sleep(0.05)
         for r in annivs:

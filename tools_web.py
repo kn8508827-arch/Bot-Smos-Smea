@@ -19,7 +19,7 @@ import logging
 import os
 import re
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
 
 logger = logging.getLogger(__name__)
 HOOKS = {}
@@ -195,9 +195,18 @@ def del_row(config, table, uid, rid, owner_col="chat_id"):
 
 # ---------------- cash book ----------------
 
+INCOME_CATS = ["💼 ប្រាក់ខែ", "🛒 លក់ដូរ", "🎁 កាដូ / ផ្សេងៗ", "💰 ចំណូល"]
+TIPS_PROMPT = """You are a kind Cambodian money coach. Here is one person's money for {month} (USD; 1$ = {khr:,.0f} riel):
+income {income}, spent {spent}, left {balance}, monthly budget {budget}, last month spent {prev_spent}.
+Spending by category: {cats}. Biggest single expenses: {top}.
+In simple, warm modern Khmer give: one short line on how the month looks, then exactly 3 practical saving tips that
+fit THESE numbers (concrete, e.g. "កាហ្វេ ៥ ដង/សប្ដាហ៍ → ៣ ដង សន្សំបាន ~$X/ខែ"), then one encouraging line.
+Max 9 short lines, emoji ok, no markdown, no investment or loan advice."""
+
+
 def categories():
     import daily_tools as dt
-    return list(dt.CATEGORIES) + ["📦 ផ្សេងៗ", "💰 ចំណូល"]
+    return list(dt.CATEGORIES) + ["📦 ផ្សេងៗ"] + INCOME_CATS
 
 
 def add_cash(config, uid, data):
@@ -216,8 +225,10 @@ def add_cash(config, uid, data):
         kind = "in" if data.get("kind") == "in" else "out"
         currency = "USD" if data.get("currency") == "USD" else "KHR"
         cat = str(data.get("category") or "")
-        if cat not in categories():
-            cat = "💰 ចំណូល" if kind == "in" else "📦 ផ្សេងៗ"
+        if kind == "in" and cat not in INCOME_CATS:
+            cat = "💰 ចំណូល"
+        elif kind == "out" and (cat not in categories() or cat in INCOME_CATS):
+            cat = "📦 ផ្សេងៗ"
         entry = {"kind": kind, "amount": amount, "currency": currency, "category": cat,
                  "note": " ".join(str(data.get("note") or "").split())[:60]}
     conn = _db(config)
@@ -254,26 +265,142 @@ def cash_rows(config, uid, month=None, limit=None):
         conn.close()
 
 
+def _usd(r, khr):
+    return r["amount"] if r["currency"] == "USD" else r["amount"] / khr
+
+
+def budget(config, uid):
+    conn = _db(config)
+    try:
+        conn.execute("CREATE TABLE IF NOT EXISTS cash_budget (user_id INTEGER PRIMARY KEY, usd REAL NOT NULL)")
+        row = conn.execute("SELECT usd FROM cash_budget WHERE user_id=?", (uid,)).fetchone()
+        return float(row["usd"]) if row else None
+    finally:
+        conn.close()
+
+
+def set_budget(config, uid, usd):
+    try:
+        usd = float(str(usd or "0").replace(",", ""))
+    except ValueError:
+        raise Refused("💵 វាយថវិកាជាដុល្លារ ឧ. 300")
+    conn = _db(config)
+    try:
+        with conn:
+            conn.execute("CREATE TABLE IF NOT EXISTS cash_budget (user_id INTEGER PRIMARY KEY, usd REAL NOT NULL)")
+            if usd > 0:
+                conn.execute("INSERT OR REPLACE INTO cash_budget(user_id, usd) VALUES (?, ?)", (uid, min(usd, 1e9)))
+            else:
+                conn.execute("DELETE FROM cash_budget WHERE user_id=?", (uid,))
+    finally:
+        conn.close()
+    return budget(config, uid)
+
+
+def _prev_month(start):
+    return (start - timedelta(days=1)).strftime("%Y-%m")
+
+
 def report(config, uid, month=None):
-    start, _end = month_bounds(month)
-    rows = cash_rows(config, uid, month)
+    import calendar as _cal
+    import daily_tools as dt
+    start, end = month_bounds(month)
+    rows = cash_rows(config, uid, start.strftime("%Y-%m"))
     khr = khr_rate()
-    usd = lambda r: r["amount"] if r["currency"] == "USD" else r["amount"] / khr
+    usd = lambda r: _usd(r, khr)
     income = sum(usd(r) for r in rows if r["kind"] == "in")
     spent = sum(usd(r) for r in rows if r["kind"] == "out")
-    cats = {}
+    cats, icats, days = {}, {}, {}
     for r in rows:
         if r["kind"] == "out":
             cats[r["category"]] = cats.get(r["category"], 0) + usd(r)
-    days = {}
-    for r in rows:
-        if r["kind"] == "out":
             d = datetime.fromtimestamp(r["at"], start.tzinfo).day
             days[d] = days.get(d, 0) + usd(r)
+        else:
+            icats[r["category"] or "💰 ចំណូល"] = icats.get(r["category"] or "💰 ចំណូល", 0) + usd(r)
+    prev = cash_rows(config, uid, _prev_month(start))
+    prev_spent = sum(usd(r) for r in prev if r["kind"] == "out")
+    prev_income = sum(usd(r) for r in prev if r["kind"] == "in")
+    now = datetime.now(dt.TZ_KH)
+    month_days = _cal.monthrange(start.year, start.month)[1]
+    current = start.year == now.year and start.month == now.month
+    elapsed = now.day if current else month_days
+    avg = spent / elapsed if elapsed else 0
+    bud = budget(config, uid)
+    top = sorted((r for r in rows if r["kind"] == "out"), key=lambda r: -usd(r))[:5]
+    pct = lambda a, b: None if not b else round(100 * (a - b) / b)
     return {"month": start.strftime("%Y-%m"), "income": round(income, 2), "spent": round(spent, 2),
             "balance": round(income - spent, 2), "khr": khr, "count": len(rows),
             "cats": [[c, round(v, 2), round(100 * v / spent) if spent else 0] for c, v in sorted(cats.items(), key=lambda kv: -kv[1])],
-            "days": [[d, round(v, 2)] for d, v in sorted(days.items())]}
+            "incomeCats": [[c, round(v, 2), round(100 * v / income) if income else 0] for c, v in sorted(icats.items(), key=lambda kv: -kv[1])],
+            "days": [[d, round(v, 2)] for d, v in sorted(days.items())],
+            "prev": {"month": _prev_month(start), "spent": round(prev_spent, 2), "income": round(prev_income, 2),
+                     "spentPct": pct(spent, prev_spent), "incomePct": pct(income, prev_income)},
+            "avgDay": round(avg, 2), "current": current, "elapsed": elapsed, "monthDays": month_days,
+            "projected": round(avg * month_days, 2) if current else round(spent, 2),
+            "budget": bud, "budgetPct": round(100 * spent / bud) if bud else None,
+            "savingRate": round(100 * (income - spent) / income) if income else None,
+            "top": [{"note": r["note"] or (r["category"] or "").split(" ", 1)[-1], "cat": r["category"], "usd": round(usd(r), 2),
+                     "amount": r["amount"], "currency": r["currency"], "at": r["at"]} for r in top]}
+
+
+def year_report(config, uid, year=None):
+    import daily_tools as dt
+    try:
+        year = int(year)
+    except (TypeError, ValueError):
+        year = datetime.now(dt.TZ_KH).year
+    khr = khr_rate()
+    months = []
+    for m in range(1, 13):
+        rows = cash_rows(config, uid, f"{year}-{m:02d}")
+        months.append([m, round(sum(_usd(r, khr) for r in rows if r["kind"] == "in"), 2),
+                       round(sum(_usd(r, khr) for r in rows if r["kind"] == "out"), 2)])
+    inc, sp = sum(x[1] for x in months), sum(x[2] for x in months)
+    return {"year": year, "months": months, "income": round(inc, 2), "spent": round(sp, 2), "balance": round(inc - sp, 2), "khr": khr}
+
+
+def report_tips(config, uid, month=None):
+    r = report(config, uid, month)
+    if not r["count"]:
+        raise Refused("📊 ខែនេះមិនទាន់មានកំណត់ត្រា — កត់លុយជាមុនសិន")
+    prompt = TIPS_PROMPT.format(month=r["month"], khr=r["khr"], income=r["income"], spent=r["spent"], balance=r["balance"],
+                                budget=r["budget"] or "not set", prev_spent=r["prev"]["spent"],
+                                cats=", ".join(f"{c} ${v}" for c, v, _p in r["cats"][:6]) or "none",
+                                top=", ".join(f"{t['note']} ${t['usd']}" for t in r["top"][:3]) or "none")
+    out = (_ask(config, [], prompt) or "").strip()
+    if not out:
+        raise RuntimeError("empty answer")
+    return {"text": out[:2500]}
+
+
+def report_send(config, uid, bot, month=None):
+    """📤 The report as a picture card + the month's records as a CSV file (opens in Excel / Google Sheets)."""
+    import csv
+    import io
+    import card_render
+    r = report(config, uid, month)
+    if not r["count"]:
+        raise Refused("📊 ខែនេះមិនទាន់មានកំណត់ត្រា")
+    caption = (f"📊 របាយការណ៍ខែ {r['month']}\n➕ ចំណូល ${r['income']:,.2f} · ➖ ចំណាយ ${r['spent']:,.2f} · "
+               f"សល់ ${r['balance']:,.2f}")
+    try:
+        png = card_render.report_card(r["month"], r["income"], r["spent"], [(c, v) for c, v, _p in r["cats"]], r["khr"])
+        bot.send_photo(uid, png, caption=caption)
+    except Exception as exc:
+        logger.info("report card failed (%s)", type(exc).__name__)
+        bot.send_message(uid, caption)
+    buf = io.StringIO()
+    w = csv.writer(buf)
+    w.writerow(["date", "type", "category", "note", "amount", "currency", "usd"])
+    for row in reversed(cash_rows(config, uid, r["month"])):
+        w.writerow([datetime.fromtimestamp(row["at"], __import__("daily_tools").TZ_KH).strftime("%Y-%m-%d %H:%M"),
+                    "income" if row["kind"] == "in" else "expense", row["category"], row["note"], row["amount"],
+                    row["currency"], round(_usd(row, r["khr"]), 2)])
+    f = io.BytesIO(("\ufeff" + buf.getvalue()).encode("utf-8"))
+    f.name = f"cooler-cash-{r['month']}.csv"
+    bot.send_document(uid, f, caption="📄 កំណត់ត្រាទាំងអស់ — បើកក្នុង Excel / Google Sheets")
+    return {"ok": True}
 
 
 # ---------------- documents (AI answers from your own files) ----------------
@@ -364,7 +491,7 @@ def handle_post(path, config, body, bot=None, now=None):
                            "docs": len(kb.docs(config, uid)) if member else 0})
     if not member:
         return _json(403, {"error": "members_only", "msg": "🔒 សម្រាប់សមាជិក — វាយ /pay ក្នុង Bot"})
-    uses_ai = path in ("/tools/ai", "/tools/remind/add", "/tools/kb/ask") or (path == "/tools/kb/add" and data.get("file"))
+    uses_ai = path in ("/tools/ai", "/tools/remind/add", "/tools/kb/ask", "/tools/report/tips") or (path == "/tools/kb/add" and data.get("file"))
     try:
         if uses_ai and not getattr(config, "GEMINI_API_KEY", "") and not HOOKS.get("ai"):
             raise Refused("AI មិនទាន់បើកដំណើរការទេ")
@@ -385,12 +512,22 @@ def handle_post(path, config, body, bot=None, now=None):
             elif path == "/tools/cash/add":
                 out = {"item": add_cash(config, uid, data), "items": cash_rows(config, uid, limit=30)}
             elif path == "/tools/cash/list":
-                out = {"items": cash_rows(config, uid, data.get("month"), limit=60)}
+                out = {"items": cash_rows(config, uid, data.get("month"), limit=max(1, min(int(data.get("limit") or 60), 2000)))}
             elif path == "/tools/cash/del":
                 del_row(config, "cashbook", uid, data.get("id") or 0)
                 out = {"items": cash_rows(config, uid, limit=30)}
             elif path == "/tools/report":
                 out = report(config, uid, data.get("month"))
+            elif path == "/tools/report/year":
+                out = year_report(config, uid, data.get("year"))
+            elif path == "/tools/report/tips":
+                out = report_tips(config, uid, data.get("month"))
+            elif path == "/tools/report/send":
+                if bot is None:
+                    raise RuntimeError("no bot")
+                out = report_send(config, uid, bot, data.get("month"))
+            elif path == "/tools/budget/set":
+                out = {"budget": set_budget(config, uid, data.get("usd"))}
             elif path == "/tools/kb/list":
                 out = {"items": kb_list(config, uid)}
             elif path == "/tools/kb/add":

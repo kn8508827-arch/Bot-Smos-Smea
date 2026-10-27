@@ -188,7 +188,8 @@ def register(bot, config, hear=None, speak=None):
         return uid == getattr(config, "OWNER_ID", 0) or uid in getattr(config, "ADMIN_IDS", [])
 
     def left(uid):
-        return 10 ** 6 if privileged(uid) or daily_limit() <= 0 else max(0, daily_limit() - used_today(config, uid))
+        import vip
+        return 10 ** 6 if privileged(uid) or daily_limit() <= 0 else max(0, vip.cap(uid, daily_limit(), config) - used_today(config, uid))
 
     def menu(page="fx"):
         m = InlineKeyboardMarkup()

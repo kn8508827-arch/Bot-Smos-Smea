@@ -1,6 +1,8 @@
 """Paid membership for Cooler Bot (Khmer UI).
 
   • Person: SUB_USER_PRICE (1$) → every feature for SUB_DAYS (30) days, counted from approval.
+  • VIP:    SUB_VIP_PRICE (10$) → member + much higher daily limits (vip.py) for SUB_DAYS days.
+            Not admin; groups not included.
   • Group:  SUB_GROUP_PRICE (5$) → the bot works in that group for SUB_DAYS days,
             whoever pays (group owner or anyone who added the bot).
   • Payment: ABA KHQR / pay link → the payer sends the receipt photo to the bot →
@@ -49,7 +51,7 @@ FREE_COMMANDS = {
 FREE_CALLBACKS = ("hub:", "khqr:", "att:", "tpn:", "nav:main", "nav:about", "nav:cat:", "nav:team", "nav:events", "sub:", "follow:menu")
 GROUP_FREE_COMMANDS = {"pay", "subscribe", "member", "myplan", "plan", "leave", "groups", "group", "tpnews",
                        "work", "workin", "workout"}   # 🕘 staff get the check-in buttons in any group
-KINDS = ("u", "g", "c")   # person · group · group pass (credit to add the bot to one new group)
+KINDS = ("u", "g", "c", "v")   # person · group · group pass (credit to add the bot to one new group) · VIP
 
 
 def settings():
@@ -58,6 +60,7 @@ def settings():
         enabled=e("SUBSCRIPTION_ENABLED", "true").strip().lower() in ("1", "true", "yes", "on"),
         user_price=e("SUB_USER_PRICE", "1$").strip() or "1$",
         group_price=e("SUB_GROUP_PRICE", "5$").strip() or "5$",
+        vip_price=e("SUB_VIP_PRICE", "10$").strip() or "10$",
         days=max(1, int(e("SUB_DAYS", "30") or 30)),
         grace_hours=max(1, int(e("SUB_GROUP_GRACE_HOURS", "24") or 24)),
         pay_link=e("PAYMENT_LINK", "https://pay.ababank.com/oRF8/0so1ducp").strip(),
@@ -158,7 +161,8 @@ def stats(config, now=None):
     """Numbers for the owner dashboard and the daily report."""
     s = settings()
     now = int(now or time.time())
-    price = {"u": price_value(s.user_price), "g": price_value(s.group_price), "c": price_value(s.group_price)}
+    price = {"u": price_value(s.user_price), "g": price_value(s.group_price), "c": price_value(s.group_price),
+             "v": price_value(s.vip_price)}
     this_m, last_m = month_start(now), month_start(now, 1)
     day0 = int(datetime.fromtimestamp(now, TZ_KH).replace(hour=0, minute=0, second=0, microsecond=0).timestamp())
     with _connect(config) as conn:
@@ -209,7 +213,8 @@ def is_active(config, kind, target_id, now=None):
 
 def extend(config, kind, target_id, days, now=None):
     """Switch a paid period on. For kind "c" (group pass) target_id is the payer: one credit is
-    added and the new credit total is returned instead of a date."""
+    added and the new credit total is returned instead of a date. Kind "v" (VIP) also makes the
+    person a member ("u") until at least the same date."""
     if kind == "c":
         return add_credit(config, target_id, 1)
     now = int(now or time.time())
@@ -221,12 +226,28 @@ def extend(config, kind, target_id, days, now=None):
                      (kind, target_id, until))
         if kind == "g":
             conn.execute("DELETE FROM sub_group_notices WHERE chat_id=?", (target_id,))
+        if kind == "v":
+            conn.execute("""INSERT INTO subscriptions(kind, target_id, paid_until, reminded_for) VALUES ('u', ?, ?, NULL)
+                ON CONFLICT(kind, target_id) DO UPDATE SET paid_until=max(paid_until, excluded.paid_until), reminded_for=NULL""",
+                         (target_id, until))
+    if kind == "v":
+        try:
+            import vip
+            vip.forget(target_id)
+        except Exception:
+            pass
     return until
 
 
 def revoke(config, kind, target_id):
     with _connect(config) as conn:
         conn.execute("DELETE FROM subscriptions WHERE kind=? AND target_id=?", (kind, target_id))
+    if kind == "v":
+        try:
+            import vip
+            vip.forget(target_id)
+        except Exception:
+            pass
 
 
 def fmt_date(ts):
@@ -362,6 +383,8 @@ def register(bot, config):
                 "🆓 <b>មិនទាន់ជាសមាជិក៖</b> ជជែកអក្សរជាមួយ Bot បានតែប៉ុណ្ណោះ\n"
                 f"👤 <b>សមាជិក៖ {html.escape(s.user_price)} / {s.days} ថ្ងៃ</b> — ប្រើគ្រប់មុខងារ (កែរូប AI "
                 f"Prompt Studio ហ្គេម Quiz Fan Card ព័ត៌មាន មាស ដុល្លារ ...)\n"
+                f"👑 <b>VIP៖ {html.escape(s.vip_price)} / {s.days} ថ្ងៃ</b> — គ្រប់មុខងារ ស្ទើរគ្មានដែនកំណត់ "
+                f"(AI ជជែក កែរូប គូររូប សំឡេង ... ច្រើនជាងសមាជិក {vip_x()} ដង/ថ្ងៃ)\n"
                 f"👥 <b>ដាក់ Bot ចូល Group៖ {html.escape(s.group_price)} / {s.days} ថ្ងៃ</b> — សម្រាប់សមាជិកប៉ុណ្ណោះ "
                 "បង់មុន ទើប Add បាន (/addgroup)\n\n"
                 f"📅 គិត {s.days} ថ្ងៃ ចាប់ពីថ្ងៃ Approve\n"
@@ -371,6 +394,7 @@ def register(bot, config):
         m = InlineKeyboardMarkup()
         s = settings()
         m.row(InlineKeyboardButton(f"💳 បង់ {s.user_price} ប្រើ {s.days} ថ្ងៃ", callback_data="sub:pay:u"))
+        m.row(InlineKeyboardButton(f"👑 VIP {s.vip_price} — ស្ទើរគ្មានដែនកំណត់", callback_data="sub:pay:v"))
         m.row(InlineKeyboardButton("🆓 មុខងារឥតគិតថ្លៃ", callback_data="sub:free"),
               InlineKeyboardButton("📅 ស្ថានភាពខ្ញុំ", callback_data="sub:plan"))
         return m
@@ -382,10 +406,19 @@ def register(bot, config):
                 "📲 /follow — តាមដាន Vid Cooler\n\n"
                 "🔒 មុខងារផ្សេងទាំងអស់ និងការដាក់ Bot ចូល Group សម្រាប់សមាជិក — /pay")
 
+    def vip_x():
+        import vip
+        return vip.multiplier()
+
     def plan_text(uid):
         until = paid_until(config, "u", uid)
         if privileged(uid):
             return "👑 អ្នកជា Owner/Admin — ប្រើគ្រប់មុខងារដោយមិនកំណត់"
+        vuntil = paid_until(config, "v", uid)
+        if vuntil > time.time():
+            left = int((vuntil - time.time()) // DAY)
+            return (f"👑 <b>អ្នកជា VIP</b> — គ្រប់មុខងារ ស្ទើរគ្មានដែនកំណត់\n"
+                    f"📅 ផុតកំណត់៖ <b>{fmt_date(vuntil)}</b> (នៅសល់ {left} ថ្ងៃ)")
         if until > time.time():
             left = int((until - time.time()) // DAY)
             return f"✅ អ្នកជាសមាជិក\n📅 ផុតកំណត់៖ <b>{fmt_date(until)}</b> (នៅសល់ {left} ថ្ងៃ)"
@@ -403,7 +436,7 @@ def register(bot, config):
         if hook is not None:
             # ⚡ automatic KHQR (Bakong); the receipt photo still works as a fallback
             try:
-                price = price_value(s.group_price if kind in ("g", "c") else s.user_price)
+                price = price_value(s.group_price if kind in ("g", "c") else s.vip_price if kind == "v" else s.user_price)
                 if price > 0 and hook(chat_id, uid, kind, target_id, price, title):
                     return
             except Exception as exc:
@@ -411,6 +444,7 @@ def register(bot, config):
         what = (f"👥 Group <b>{html.escape(title or str(target_id))}</b> — {html.escape(s.group_price)} / {s.days} ថ្ងៃ"
                 if kind == "g" else
                 f"➕ សិទ្ធិដាក់ Bot ចូល Group ១ — {html.escape(s.group_price)} / {s.days} ថ្ងៃ" if kind == "c"
+                else f"👑 VIP — {html.escape(s.vip_price)} / {s.days} ថ្ងៃ" if kind == "v"
                 else f"👤 សមាជិកម្នាក់ — {html.escape(s.user_price)} / {s.days} ថ្ងៃ")
         caption = (f"💳 <b>បង់ប្រាក់</b>\n{what}\n\n"
                    f"1️⃣ Scan KHQR ឬចុច «បង់តាម ABA»\n🏦 {html.escape(s.account)}\n"
@@ -613,7 +647,8 @@ def register(bot, config):
             return
         s = settings()
         plan = (f"👥 Group {s.group_price} — {html.escape(str(target_id))}" if kind == "g"
-                else f"➕ សិទ្ធិដាក់ Bot ចូល Group {s.group_price}" if kind == "c" else f"👤 សមាជិក {s.user_price}")
+                else f"➕ សិទ្ធិដាក់ Bot ចូល Group {s.group_price}" if kind == "c"
+                else f"👑 VIP {s.vip_price}" if kind == "v" else f"👤 សមាជិក {s.user_price}")
         if kind == "g":
             title = next((g["title"] for g in _active_groups(config) if g["chat_id"] == target_id), None)
             if title:
@@ -660,6 +695,10 @@ def register(bot, config):
                     bot.send_message(payer, f"🎉 អរគុណ! Group បានបើកដំណើរការរហូតដល់ <b>{fmt_date(until)}</b> ✅", parse_mode="HTML")
                     bot.send_message(target, f"🎉 Group នេះបានបង់រួចហើយ! Cooler Bot ធ្វើការរហូតដល់ <b>{fmt_date(until)}</b> 🙏❤️",
                                      parse_mode="HTML")
+                elif kind == "v":
+                    bot.send_message(payer, f"👑 <b>សូមស្វាគមន៍ VIP!</b> អរគុណដែលគាំទ្រ Vid Cooler ❤️\n"
+                                     f"✅ គ្រប់មុខងារ ស្ទើរគ្មានដែនកំណត់ រហូតដល់ <b>{fmt_date(until)}</b>\n"
+                                     "វាយ /menu ដើម្បីចាប់ផ្ដើម 🚀", parse_mode="HTML")
                 else:
                     bot.send_message(payer, f"🎉 អរគុណដែលគាំទ្រ Vid Cooler!\n✅ អ្នកជាសមាជិករហូតដល់ <b>{fmt_date(until)}</b>\n"
                                      "វាយ /menu ដើម្បីចាប់ផ្ដើម 🚀", parse_mode="HTML")
@@ -734,7 +773,7 @@ def register(bot, config):
             return
         bot.answer_callback_query(call.id)
         if action == "pay":
-            kind = parts[2] if len(parts) > 2 and parts[2] in ("u", "c") else "u"
+            kind = parts[2] if len(parts) > 2 and parts[2] in ("u", "c", "v") else "u"
             if kind == "c" and not (privileged(uid) or is_active(config, "u", uid)):
                 send_paywall(chat_id, "🔒 <b>ត្រូវចូលជាសមាជិកសិន</b> ទើបអាចដាក់ Bot ចូល Group បាន\n\n")
                 return
@@ -972,12 +1011,13 @@ def register(bot, config):
         parts = (message.text or "").split()
         cmd = parts[0][1:].split("@")[0].lower()
         try:
-            kind = {"u": "u", "user": "u", "g": "g", "group": "g", "c": "c", "pass": "c"}[parts[1].lower()]
+            kind = {"u": "u", "user": "u", "g": "g", "group": "g", "c": "c", "pass": "c", "v": "v", "vip": "v"}[parts[1].lower()]
             target = int(parts[2])
             days = int(parts[3]) if len(parts) > 3 else settings().days
         except (IndexError, KeyError, ValueError):
             bot.reply_to(message, "របៀបប្រើ៖ <code>/grant u USER_ID 30</code> · <code>/grant g -100GROUP_ID</code> · "
-                         "<code>/grant c USER_ID 1</code> (សិទ្ធិដាក់ចូល Group) · <code>/revoke u USER_ID</code>", parse_mode="HTML")
+                         "<code>/grant c USER_ID 1</code> (សិទ្ធិដាក់ចូល Group) · <code>/grant vip USER_ID 30</code> · "
+                         "<code>/revoke u USER_ID</code>", parse_mode="HTML")
             return
         if kind == "c":   # /grant c USER_ID [n] → n group passes · /revoke c USER_ID → all removed
             n = int(parts[3]) if len(parts) > 3 else 1
@@ -991,7 +1031,7 @@ def register(bot, config):
             bot.reply_to(message, f"🗑️ បានដកសមាជិកភាព {target}")
             return
         until = extend(config, kind, target, days)
-        bot.reply_to(message, f"✅ {target} ជាសមាជិករហូតដល់ {fmt_date(until)}")
+        bot.reply_to(message, f"✅ {target} ជា{'VIP 👑' if kind == 'v' else 'សមាជិក'}រហូតដល់ {fmt_date(until)}")
 
     # ---------- background: group notices, auto-leave, reminders ----------
 

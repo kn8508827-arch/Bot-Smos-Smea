@@ -133,7 +133,8 @@ def register(bot, config, ai=None, tts=None):
         if privileged(uid):
             return True
         key = (uid, datetime.now(TZ_KH).strftime("%Y-%m-%d"))
-        if used.get(key, 0) >= daily_limit():
+        import vip
+        if used.get(key, 0) >= vip.cap(uid, daily_limit()):
             return False
         used[key] = used.get(key, 0) + 1
         if len(used) > 5000:
@@ -147,7 +148,8 @@ def register(bot, config, ai=None, tts=None):
         code = sessions[uid][0]
         sessions[uid] = (code, time.monotonic() + minutes() * 60)      # keep it open while talking
         if not take_turn(uid):
-            bot.reply_to(message, f"⏳ ថ្ងៃនេះបកប្រែ Live អស់ {daily_limit()} ដងហើយ — ស្អែកមកម្ដងទៀត 🙏")
+            import vip
+            bot.reply_to(message, f"⏳ ថ្ងៃនេះបកប្រែ Live អស់ {vip.cap(uid, daily_limit())} ដងហើយ — ស្អែកមកម្ដងទៀត 🙏")
             return
         other = LANGS[code][1]
         try:

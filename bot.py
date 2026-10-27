@@ -851,6 +851,11 @@ def _studio_remaining(user_id) -> int:
     if _studio_is_privileged(user_id):
         return 10**6
     limit = max(0, int(getattr(config, "STUDIO_DAILY_LIMIT", 3)))
+    try:
+        import vip
+        limit = vip.cap(user_id, limit)   # 👑 VIP: much higher daily cap
+    except Exception:
+        pass
     return max(0, limit - _studio_usage.get((user_id, _studio_today()), 0))
 
 

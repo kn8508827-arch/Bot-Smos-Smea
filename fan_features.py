@@ -70,6 +70,14 @@ MOVIE_PROMPT = (
 )
 
 
+def _vip_cap(user_id, limit):
+    try:
+        import vip
+        return vip.cap(user_id, limit)
+    except Exception:
+        return limit
+
+
 class _DailyLimit:
     def __init__(self, limit):
         self.limit = limit
@@ -84,7 +92,7 @@ class _DailyLimit:
             for key in [k for k in self.used if k[1] != today]:
                 self.used.pop(key, None)
             n = self.used.get((user_id, today), 0)
-            if n >= self.limit:
+            if n >= _vip_cap(user_id, self.limit):
                 return False
             self.used[(user_id, today)] = n + 1
             return True
@@ -174,7 +182,7 @@ def register(bot, config, ask_gemini):
             bot.reply_to(message, "AI មិនទាន់បើកដំណើរការនៅឡើយទេ។")
             return
         if not limits.take(user_id, privileged(user_id)):
-            bot.reply_to(message, f"អ្នកប្រើ /rap /movie /myname អស់ {AI_DAILY_LIMIT} ដងសម្រាប់ថ្ងៃនេះហើយ។ ត្រឡប់មកថ្ងៃស្អែក 🙏")
+            bot.reply_to(message, f"អ្នកប្រើ /rap /movie /myname អស់ {_vip_cap(user_id, AI_DAILY_LIMIT)} ដងសម្រាប់ថ្ងៃនេះហើយ។ ត្រឡប់មកថ្ងៃស្អែក 🙏")
             return
         try:
             bot.send_chat_action(message.chat.id, "typing")

@@ -628,6 +628,11 @@ async def ask_ai(user_id: int, user_message: str, user_name: Optional[str] = Non
         return getattr(messages, "AI_COOLDOWN", "សូមរង់ចាំ {seconds} វិនាទីសិន!").format(seconds=seconds_left)
 
     daily_limit = getattr(config, "AI_DAILY_LIMIT_PER_USER", 50)
+    try:
+        import vip
+        daily_limit = vip.cap(user_id, daily_limit)   # 👑 VIP: much higher daily cap
+    except Exception:
+        pass
     # Check quota before the call; usage is incremented only after a successful reply
     current_count = database.get_daily_usage(user_id, db_path)
     if daily_limit > 0 and current_count >= daily_limit:
@@ -723,6 +728,11 @@ async def ask_ai_with_image(
         return getattr(messages, "AI_COOLDOWN", "សូមរង់ចាំ {seconds} វិនាទីសិន!").format(seconds=seconds_left)
 
     daily_limit = getattr(config, "AI_DAILY_LIMIT_PER_USER", 50)
+    try:
+        import vip
+        daily_limit = vip.cap(user_id, daily_limit)   # 👑 VIP: much higher daily cap
+    except Exception:
+        pass
     try:
         current_count = database.get_daily_usage(user_id, db_path)
     except Exception as exc:
@@ -840,6 +850,11 @@ async def ask_ai_with_audio(user_id: int, audio_bytes: bytes, mime_type: str = "
         return getattr(messages, "AI_COOLDOWN", "សូមរង់ចាំ {seconds} វិនាទីសិន!").format(seconds=seconds_left)
 
     daily_limit = getattr(config, "AI_DAILY_LIMIT_PER_USER", 50)
+    try:
+        import vip
+        daily_limit = vip.cap(user_id, daily_limit)   # 👑 VIP: much higher daily cap
+    except Exception:
+        pass
     current_count = database.get_daily_usage(user_id, db_path)
     if daily_limit > 0 and current_count >= daily_limit:
         return getattr(messages, "AI_DAILY_LIMIT_REACHED", "អ្នកប្រើអស់កូតាថ្ងៃនេះហើយ ({current_usage}/{max_limit})។").format(

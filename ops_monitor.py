@@ -185,6 +185,14 @@ def _checks(bot, config):
         ogg = voice_studio.wav_to_ogg(wav)
         return f"{len(wav) // 1024} KB" + (" · voice bubble ✅" if ogg else " · ffmpeg ❌ (audio file)")
 
+    def voice_studio_check():
+        """🎙️ Voice Studio: the HD model with 2 speakers (what the Hub's dialogue mode uses)."""
+        import voice_studio
+        wav = voice_studio.synthesize_turns(key, [{"text": "សួស្ដី", "speaker": 0}, {"text": "បាទ សួស្ដី", "speaker": 1}],
+                                            ["Puck", "Kore"], style="friendly", timeout=50,
+                                            models=["gemini-3.8-flash-tts"])
+        return f"HD · 2 voices · {len(wav) // 1024} KB"
+
     def weather():
         import weather_service
         d = weather_service.weather_service.fetch("phnom_penh")["days"][0]
@@ -249,6 +257,7 @@ def _checks(bot, config):
         return f"{s['account']} · token set — test with /khqrtest"
 
     return [("📡 Telegram", telegram), ("🤖 AI (Gemini)", ai_text), ("🎙️ Voice (TTS)", ai_voice),
+            ("🎛️ Voice Studio (HD · 2 នាក់)", voice_studio_check),
             ("🌤️ Weather", weather), ("💵 Dollar", rates), ("🪙 Gold", gold), ("📰 News", news),
             ("⛽ Maps (/fuel /ev)", maps), ("📍 Google Maps (/ev)", gmaps), ("🎨 Picture cards", cards), ("💾 Database", storage),
             ("💳 KHQR / Bakong", bakong)]

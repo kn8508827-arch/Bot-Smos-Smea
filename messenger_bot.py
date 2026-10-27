@@ -498,8 +498,25 @@ def register(bot, config, ask=None, client=None, observe=None):
             self.end_headers()
             self.wfile.write(out)
 
+        def _send_voice(self, out):
+            code, data, ctype, extra = out
+            self.send_response(code)
+            self.send_header("Content-Type", ctype)
+            self.send_header("Content-Length", str(len(data)))
+            if "Cache-Control" not in extra:
+                self.send_header("Cache-Control", "no-store")
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.send_header("Access-Control-Expose-Headers", "X-Clip, X-Left, X-Seconds")
+            for k, v in extra.items():
+                self.send_header(k, v)
+            self.end_headers()
+            self.wfile.write(data)
+
         def do_GET(self):
             u = urlparse(self.path)
+            if u.path.startswith("/voice/file/"):     # 🎙️ Voice Studio download (voice_web.py)
+                import voice_web
+                return self._send_voice(voice_web.handle_get(u.path))
             if u.path.rstrip("/") == "/icom":          # 🎙️ ICOM page for the Cooler Hub (icom_live.py)
                 import icom_live
                 return self._send_bytes(200, icom_live.page_html(), "text/html; charset=utf-8")
@@ -533,6 +550,15 @@ def register(bot, config, ask=None, client=None, observe=None):
                     out = (500, {"error": "server"})
                 code, data = out or (404, {"error": "not_found"})
                 return self._send_bytes(code, json.dumps(data, ensure_ascii=False).encode(), "application/json")
+            if urlparse(self.path).path.startswith("/voice/"):   # 🎙️ Voice Studio (voice_web.py)
+                import voice_web
+                body = self.rfile.read(min(int(self.headers.get("Content-Length") or 0), 60_000))
+                try:
+                    out = voice_web.handle_post(urlparse(self.path).path, config, body, bot)
+                except Exception as exc:
+                    logger.warning("voice studio error (%s)", type(exc).__name__)
+                    out = (500, b'{"error":"server"}', "application/json", {})
+                return self._send_voice(out)
             if urlparse(self.path).path.rstrip("/") == "/hub/me":       # 🔒 Hub asks: is this user a member?
                 import hub as _hub
                 body = self.rfile.read(min(int(self.headers.get("Content-Length") or 0), 20_000))

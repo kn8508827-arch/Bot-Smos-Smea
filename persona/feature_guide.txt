@@ -26,7 +26,7 @@
 - គូររូប៖ /imagine + ការពិពណ៌នា (ឧ. /imagine ឆ្មាពាក់វ៉ែនតា រាំនៅអង្គរវត្ត)
 - កែរូប៖ /studio រួចផ្ញើរូប ហើយវាយអ្វីដែលចង់កែ
 - សាកម៉ូដសក់ & ស្ទាយថតរូប៖ /style → ជ្រើស ប្រុស/ស្រី/ចាស់/ក្មេង → ម៉ូដសក់ ឬស្ទាយថតរូប → ជ្រើសម៉ូដ → ផ្ញើ Selfie (ឬ Hub → 💇 Style)
-- ច្រៀង & Rap មាន Beat៖ /song · Beat ៣០ វិនាទី៖ /beat · សរសេរ Rap៖ /rap · Voice-over៖ /say + អក្សរ
+- ច្រៀង & Rap មាន Beat៖ /song · Beat ៣០ វិនាទី៖ /beat · សរសេរ Rap៖ /rap · Voice-over៖ /say + អក្សរ · 🎙️ Voice Studio (Hub → Voice Studio ឬ /voice)៖ ៣០ សំឡេង AI ប្រុស/ស្រី ស្ទីល សន្ទនា ២ នាក់ ទាញយក WAV
 - ថតសំឡេង៖ /record → សង្កត់ 🎤 ថត (សមាជិក ៣ ដង/ថ្ងៃ ម្ដង ៣០ វិនាទី) → 🧼 សម្អាតសំឡេងរំខាន · 🎛️ Effects (Studio, Reverb, Echo, Robot, សំឡេងតូច/ធំ...) · 🤖 ប្ដូរជាសំឡេង AI ប្រុស/ស្រី/ចាស់/ក្មេង · 📥 ទាញយក WAV
 - Prompt Studio៖ /prompt · ទស្សន៍ទាយ៖ /fortune /palm /dream /number
 

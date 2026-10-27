@@ -105,34 +105,67 @@ def _as_wav(b64, mime):
     return pcm_to_wav(data, rate)
 
 
-def synthesize(api_key, text, voice=None, client=None, timeout=60.0, style=None):
+def synthesize(api_key, text, voice=None, client=None, timeout=60.0, style=None, models=None):
     """Return WAV bytes, trying the Interactions API then the older generateContent form.
     style: how to speak (default: Cooler Bot's young-guy STYLE)."""
+    return synthesize_turns(api_key, [{"text": text}], [voice or voice_name()], style=style or STYLE,
+                            client=client, timeout=timeout, models=models)
+
+
+def _requests(model, turns, voices, style):
+    """(url, payload) pairs for one model: Interactions API first, then generateContent."""
+    if len(voices) == 1:
+        text = turns[0]["text"]
+        return (
+            (f"{API}/interactions", {
+                "model": model,
+                "input": [{"type": "user_input", "content": [{
+                    "type": "text", "text": text,
+                    "annotations": [{"type": "speech_metadata", "style": style}]}]}],
+                "response_format": {"type": "audio"},
+                "generation_config": {"speech_config": [{"voice": voices[0]}]},
+            }),
+            (f"{API}/models/{model}:generateContent", {
+                "contents": [{"parts": [{"text": f"Say in a {style} voice:\n{text}"}]}],
+                "generationConfig": {"responseModalities": ["AUDIO"], "speechConfig": {
+                    "voiceConfig": {"prebuiltVoiceConfig": {"voiceName": voices[0]}}}},
+            }),
+        )
+    names = ["A", "B"]          # 👥 two speakers (the most Gemini allows in one request)
+    return (
+        (f"{API}/interactions", {
+            "model": model,
+            "input": [{"type": "user_input", "content": [{
+                "type": "text", "text": t["text"],
+                "annotations": [{"type": "speech_metadata", "speaker": names[t["speaker"]], "style": style}]}
+                for t in turns]}],
+            "response_format": {"type": "audio"},
+            "generation_config": {"speech_config": {"mode": "conversational", "speakers": [
+                {"speaker": names[i], "voice": v} for i, v in enumerate(voices[:2])]}},
+        }),
+        (f"{API}/models/{model}:generateContent", {
+            "contents": [{"parts": [{"text": f"TTS the following conversation ({style}):\n" + "\n".join(
+                f"{names[t['speaker']]}: {t['text']}" for t in turns)}]}],
+            "generationConfig": {"responseModalities": ["AUDIO"], "speechConfig": {
+                "multiSpeakerVoiceConfig": {"speakerVoiceConfigs": [
+                    {"speaker": names[i], "voiceConfig": {"prebuiltVoiceConfig": {"voiceName": v}}}
+                    for i, v in enumerate(voices[:2])]}}},
+        }),
+    )
+
+
+def synthesize_turns(api_key, turns, voices, style=None, client=None, timeout=60.0, models=None):
+    """turns: [{"text", "speaker": 0|1}], voices: [voice] or [voice A, voice B]. Returns WAV bytes."""
     style = style or STYLE
     if not api_key:
         raise RuntimeError("no GEMINI_API_KEY")
-    voice = voice or voice_name()
     headers = {"x-goog-api-key": api_key, "Content-Type": "application/json"}
     own = client is None
     client = client or httpx.Client(timeout=httpx.Timeout(timeout, connect=10.0))
     errors = []
     try:
-        for model in tts_models():
-            requests = (
-                (f"{API}/interactions", {
-                    "model": model,
-                    "input": [{"type": "user_input", "content": [{
-                        "type": "text", "text": text,
-                        "annotations": [{"type": "speech_metadata", "style": style}]}]}],
-                    "response_format": {"type": "audio"},
-                    "generation_config": {"speech_config": [{"voice": voice}]},
-                }),
-                (f"{API}/models/{model}:generateContent", {
-                    "contents": [{"parts": [{"text": f"Say in a {style} voice:\n{text}"}]}],
-                    "generationConfig": {"responseModalities": ["AUDIO"], "speechConfig": {
-                        "voiceConfig": {"prebuiltVoiceConfig": {"voiceName": voice}}}},
-                }),
-            )
+        for model in (models or tts_models()):
+            requests = _requests(model, turns, voices, style)
             for url, payload in requests:
                 try:
                     r = client.post(url, json=payload, headers=headers)
@@ -200,6 +233,7 @@ def init_schema(config):
         with conn:
             conn.execute("CREATE TABLE IF NOT EXISTS voice_usage (user_id INTEGER, day TEXT, n INTEGER NOT NULL, "
                          "PRIMARY KEY (user_id, day))")
+            conn.execute("CREATE TABLE IF NOT EXISTS voice_prefs (user_id INTEGER PRIMARY KEY, voice TEXT, style TEXT)")
     finally:
         conn.close()
 
@@ -224,6 +258,51 @@ def take_quota(config, uid, limit, now=None):
         conn.close()
 
 
+def used_today(config, uid, now=None):
+    day = datetime.fromtimestamp(now or time.time(), TZ_KH).strftime("%Y-%m-%d")
+    conn = _db(config)
+    try:
+        row = conn.execute("SELECT n FROM voice_usage WHERE user_id=? AND day=?", (uid, day)).fetchone()
+        return int(row["n"]) if row else 0
+    except sqlite3.Error:
+        return 0
+    finally:
+        conn.close()
+
+
+def get_pref(config, uid):
+    """(voice, style) the member picked in Voice Studio for /say — (None, None) when not set."""
+    conn = _db(config)
+    try:
+        row = conn.execute("SELECT voice, style FROM voice_prefs WHERE user_id=?", (uid,)).fetchone()
+        return (row["voice"], row["style"]) if row else (None, None)
+    except sqlite3.Error:
+        return None, None
+    finally:
+        conn.close()
+
+
+def set_pref(config, uid, voice, style=None):
+    init_schema(config)
+    conn = _db(config)
+    try:
+        with conn:
+            if voice:
+                conn.execute("INSERT INTO voice_prefs(user_id, voice, style) VALUES (?, ?, ?) ON CONFLICT(user_id) "
+                             "DO UPDATE SET voice=excluded.voice, style=excluded.style", (uid, voice, style or None))
+            else:
+                conn.execute("DELETE FROM voice_prefs WHERE user_id=?", (uid,))
+    finally:
+        conn.close()
+
+
+def daily_limit():
+    try:
+        return int(os.getenv("TTS_DAILY_LIMIT", "20"))
+    except ValueError:
+        return 20
+
+
 def refund_quota(config, uid, now=None):
     day = datetime.fromtimestamp(now or time.time(), TZ_KH).strftime("%Y-%m-%d")
     conn = _db(config)
@@ -241,7 +320,8 @@ def register(bot, config, synth=None):
     from telebot.types import InlineKeyboardButton, InlineKeyboardMarkup
 
     init_schema(config)
-    synth = synth or (lambda text, voice: synthesize(getattr(config, "GEMINI_API_KEY", ""), text, voice))
+    synth = synth or (lambda text, voice, style=None: synthesize(getattr(config, "GEMINI_API_KEY", ""), text, voice,
+                                                                style=style))
     spoken = OrderedDict()   # key -> text waiting behind a 🔊 button
     lock = threading.Lock()
     counter = [0]
@@ -250,10 +330,7 @@ def register(bot, config, synth=None):
         return uid == getattr(config, "OWNER_ID", 0) or uid in getattr(config, "ADMIN_IDS", [])
 
     def limit():
-        try:
-            return int(os.getenv("TTS_DAILY_LIMIT", "20"))
-        except ValueError:
-            return 20
+        return daily_limit()
 
     def remember(text):
         with lock:
@@ -282,7 +359,8 @@ def register(bot, config, synth=None):
         except Exception:
             pass
         try:
-            wav = synth(text, voice_name())
+            voice, style = get_pref(config, uid)
+            wav = synth(text, voice, style) if voice else synth(text, voice_name())
         except Exception as exc:
             logger.warning("TTS failed (%s: %s)", type(exc).__name__, str(exc)[:200])
             if not privileged(uid):
@@ -299,11 +377,32 @@ def register(bot, config, synth=None):
                            duration=wav_seconds(wav), **kwargs)
         return True
 
-    def voice_menu(uid):
+    me = {}
+
+    def bot_username():
+        if "u" not in me:
+            try:
+                me["u"] = bot.get_me().username
+            except Exception:
+                return "TeamSmosSneabot"
+        return me["u"]
+
+    def voice_menu(uid, private=True):
+        from telebot.types import WebAppInfo
+        import voice_web
         m = InlineKeyboardMarkup()
+        url = voice_web.studio_url()
+        if private:
+            m.row(InlineKeyboardButton("🎙️ បើក Voice Studio — ៣០ សំឡេង AI", web_app=WebAppInfo(url=url)))
+        else:   # web apps can't open from a group button — go through the bot's private chat
+            m.row(InlineKeyboardButton("🎙️ Voice Studio — ៣០ សំឡេង AI", url=f"https://t.me/{bot_username()}?start=go_say"))
         m.row(InlineKeyboardButton("🎧 ស្ដាប់សំឡេង Cooler Bot", callback_data="tts:hi"))
-        text = ("🎙️ <b>Cooler Voice — សំឡេង Cooler Bot</b>\n"
-                "🧑 សំឡេងក្មេងប្រុសស្រស់ថ្លា អាយុ ១៨-២២ ឆ្នាំ\n\n"
+        voice, _style = get_pref(config, uid)
+        mine = f"⭐ សំឡេង /say របស់អ្នក៖ <b>{html.escape(voice)}</b>\n\n" if voice else ""
+        text = ("🎙️ <b>Cooler Voice — Voice-over AI</b>\n\n"
+                "🎛️ <b>Voice Studio</b> (ចុចប៊ូតុងខាងក្រោម)៖ ជ្រើស ៣០ សំឡេង ប្រុស/ស្រី · "
+                "ស្ទីល (ផ្សាយពាណិជ្ជកម្ម · ព័ត៌មាន · និទានរឿង · ខ្សឹប …) · សន្ទនា ២ នាក់ · "
+                "ស្ដាប់ គំរូមុន · ទាញយក WAV ឬផ្ញើចូល Telegram\n\n" + mine +
                 "• <code>/say អត្ថបទ</code> — Bot អានជាសំឡេង\n"
                 "• Reply <code>/say</code> លើសារណាមួយ — អានសារនោះ\n"
                 "• ផ្ញើ Voice Note — AI ស្ដាប់ ឆ្លើយ ហើយចុច 🔊 ដើម្បីស្ដាប់ចម្លើយ\n\n"
@@ -318,14 +417,14 @@ def register(bot, config, synth=None):
         if not text and src is not None:
             text = getattr(src, "text", None) or getattr(src, "caption", None) or ""
         if not text.strip():
-            body, markup = voice_menu(message.from_user.id)
+            body, markup = voice_menu(message.from_user.id, message.chat.type == "private")
             bot.reply_to(message, body, reply_markup=markup, parse_mode="HTML")
             return
         speak(message.chat.id, message.from_user.id, text, reply_to=message.message_id)
 
     @bot.message_handler(commands=["voice", "voices"])
     def voice_cmd(message):
-        body, markup = voice_menu(message.from_user.id)
+        body, markup = voice_menu(message.from_user.id, message.chat.type == "private")
         bot.reply_to(message, body, reply_markup=markup, parse_mode="HTML")
 
     @bot.callback_query_handler(func=lambda c: (c.data or "").startswith("tts:"))
@@ -340,7 +439,7 @@ def register(bot, config, synth=None):
             return
         if action == "menu":
             bot.answer_callback_query(call.id)
-            body, markup = voice_menu(uid)
+            body, markup = voice_menu(uid, getattr(call.message.chat, "type", "private") == "private")
             bot.send_message(chat_id, body, reply_markup=markup, parse_mode="HTML")
             return
         if action == "p":

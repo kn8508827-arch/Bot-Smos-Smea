@@ -47,6 +47,27 @@ class HubChat(unittest.TestCase):
         self.assertEqual(code, 200)
         self.assertTrue(out["reply"])
 
+    def test_voice_message(self):
+        import base64
+        got = []
+        def hear(uid, blob, mime, name):
+            got.append((uid, blob, mime))
+            return "🎧 «សួស្តី Cooler Bot»\n\nសួស្តី Papa! 😎"
+        audio = "data:audio/wav;base64," + base64.b64encode(b"RIFF1234WAVE").decode()
+        code, out = hub.chat_response(self.c, json.dumps({"initData": make_init({"id": 55, "first_name": "Vid"}),
+                                                          "audio": audio}).encode(), ask=self.ask, ask_voice=hear)
+        self.assertEqual(code, 200)
+        self.assertEqual(got[0][0], 55)
+        self.assertEqual(got[0][2], "audio/wav")
+        self.assertEqual(out["heard"], "សួស្តី Cooler Bot")
+        self.assertEqual(out["reply"], "សួស្តី Papa! 😎")
+        self.assertEqual(self.calls, [])
+
+    def test_voice_bad_type(self):
+        code, _ = hub.chat_response(self.c, json.dumps({"initData": make_init({"id": 55}),
+                                                        "audio": "data:image/png;base64,AAAA"}).encode(), ask=self.ask)
+        self.assertEqual(code, 400)
+
     def test_bad_json(self):
         code, _ = hub.chat_response(self.c, b"{nope")
         self.assertEqual(code, 400)

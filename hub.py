@@ -333,10 +333,31 @@ HUB_CHAT_NOTE = (
     "short paragraphs, emojis are fine. Keep the same personality and memory as in Telegram."
 )
 HUB_CHAT_MAX = 1500
+HUB_VOICE_MAX = 3_000_000      # bytes of audio (~90 s of 16 kHz mono WAV)
+HUB_VOICE_TYPES = ("audio/wav", "audio/x-wav", "audio/mpeg", "audio/mp4", "audio/aac", "audio/ogg", "audio/webm")
 
 
-def chat_response(config, body, now=None, ask=None):
-    """POST /hub/chat {initData, text} → {"reply": str}. Chat with Cooler Bot right inside the Hub.
+def _voice_blob(value):
+    """'data:audio/wav;base64,....' → (bytes, mime) or (None, None)."""
+    import re as _re
+    m = _re.match(r"data:([\w/.+-]+)(?:;[^,]*)?;base64,", str(value or ""))
+    if not m:
+        return None, None
+    mime = m.group(1).lower()
+    if mime not in HUB_VOICE_TYPES:
+        return None, None
+    try:
+        blob = base64.b64decode(value[m.end():], validate=False)
+    except (ValueError, TypeError):
+        return None, None
+    if not blob or len(blob) > HUB_VOICE_MAX:
+        return None, None
+    return blob, mime
+
+
+def chat_response(config, body, now=None, ask=None, ask_voice=None):
+    """POST /hub/chat {initData, text | audio} → {"reply": str, "heard": str}. Chat with Cooler Bot inside the Hub.
+    audio = a recorded voice message as a data URL (the Hub records 16 kHz WAV); Cooler Bot hears it and answers.
 
     Same brain as the Telegram chat (ai_assistant.ask_ai: memory, rate limit and daily quota per user).
     Text chat is open to everyone the bot already lets chat; Telegram's signed initData proves who asks."""
@@ -351,11 +372,31 @@ def chat_response(config, body, now=None, ask=None):
     user = icom_live.verify_init_data(data.get("initData", ""), getattr(config, "BOT_TOKEN", ""), now)
     if not user:
         return 401, {"error": "open_in_telegram", "msg": "សូមបើកពី Cooler Hub ក្នុង Telegram"}
+    uid = int(user["id"])
+    name = str(user.get("first_name") or "")[:64] or None
+    if data.get("audio"):
+        blob, mime = _voice_blob(data.get("audio"))
+        if blob is None:
+            return 400, {"error": "audio", "msg": "🎤 សំឡេងមិនត្រឹមត្រូវ ឬវែងពេក — ថតម្ដងទៀត"}
+        if ask_voice is None:
+            def ask_voice(u, b, m, n):
+                import ai_assistant
+                import async_runner
+                return async_runner.run_sync(ai_assistant.ask_ai_with_audio(user_id=u, audio_bytes=b, mime_type=m,
+                                                                            user_name=n), timeout=120)
+        try:
+            reply = str(ask_voice(uid, blob, mime, name) or "").strip()
+        except Exception as exc:
+            logger.warning("hub voice chat error (%s)", type(exc).__name__)
+            return 200, {"reply": "😅 ខ្ញុំស្ដាប់មិនទាន់ច្បាស់ — និយាយម្ដងទៀតណា", "heard": ""}
+        heard = ""
+        if reply.startswith("🎧") and "\n\n" in reply:
+            head, reply = reply.split("\n\n", 1)
+            heard = head.lstrip("🎧 ").strip("«» ")
+        return 200, {"reply": reply[:4000] or "🤔", "heard": heard[:300]}
     text = str(data.get("text") or "").strip()[:HUB_CHAT_MAX]
     if not text:
         return 400, {"error": "empty", "msg": "សរសេរអ្វីមួយមកខ្ញុំសិន 😊"}
-    uid = int(user["id"])
-    name = str(user.get("first_name") or "")[:64] or None
     if ask is None:
         def ask(u, t, n):
             import ai_assistant

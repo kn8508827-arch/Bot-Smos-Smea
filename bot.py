@@ -92,6 +92,9 @@ bot = telebot.TeleBot(TOKEN, threaded=True, num_threads=BOT_THREADS, exception_h
 # Paid membership gate (1$/user, 5$/group per 30 days). MUST be registered first so it runs
 # before every other handler. SUBSCRIPTION_ENABLED=false turns it off.
 _subscription = subscription.register(bot, config)
+# 🧭 /imagine /song /translate … typed on their own → clear guide + example buttons, next message is used
+import guided
+guided.register(bot, config)
 # 🕘 Staff attendance (/work · /staff · /setwork): GPS + selfie check-in/out, owner notified at once.
 # Registered right after the paywall so its location/selfie steps win over the other photo/location handlers.
 import attendance

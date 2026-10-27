@@ -191,7 +191,7 @@ def _checks(bot, config):
         wav = voice_studio.synthesize_turns(key, [{"text": "សួស្ដី", "speaker": 0}, {"text": "បាទ សួស្ដី", "speaker": 1}],
                                             ["Puck", "Kore"], style="friendly", timeout=50,
                                             models=["gemini-3.8-flash-tts"])
-        return f"HD · 2 voices · {len(wav) // 1024} KB"
+        return f"HD · 2 voices · {len(wav) // 1024} KB · {voice_studio.LAST_DIALOGUE['how']}"
 
     def weather():
         import weather_service

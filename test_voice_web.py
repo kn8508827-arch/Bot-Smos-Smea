@@ -152,10 +152,33 @@ class PayloadTest(unittest.TestCase):
         self.assertTrue(url.endswith("/interactions"))
         sc = p["generation_config"]["speech_config"]
         self.assertEqual(sc["mode"], "conversational")
-        self.assertEqual(sc["speakers"], [{"speaker": "A", "voice": "Puck"}, {"speaker": "B", "voice": "Kore"}])
-        self.assertEqual([c["annotations"][0]["speaker"] for c in p["input"][0]["content"]], ["A", "B"])
-        url, p = reqs[1]
+        self.assertEqual(sc["speakers"], [{"speaker": "Joe", "voice": "Puck"}, {"speaker": "Jane", "voice": "Kore"}])
+        self.assertEqual([c["annotations"][0]["speaker"] for c in p["input"][0]["content"]], ["Joe", "Jane"])
+        url, p = reqs[2]
         self.assertIn("multiSpeakerVoiceConfig", p["generationConfig"]["speechConfig"])
+
+    def test_dialogue_falls_back_to_stitching(self):
+        import httpx
+        sent = []
+
+        def handler(req):
+            body = json.loads(req.content)
+            sent.append(body)
+            sc = (body.get("generation_config") or {}).get("speech_config")
+            if isinstance(sc, dict) or "contents" in body and "multiSpeakerVoiceConfig" in json.dumps(body):
+                return httpx.Response(400, json={"error": {"message": "multi-speaker not supported"}})
+            voice = sc[0]["voice"] if sc else "x"
+            pcm = (b"\x01\x00" if voice == "Puck" else b"\x02\x00") * 2400
+            return httpx.Response(200, json={"steps": [{"content": [{"type": "audio", "data": __import__("base64").b64encode(
+                voice_studio.pcm_to_wav(pcm)).decode(), "mime_type": "audio/wav"}]}]})
+        client = httpx.Client(transport=httpx.MockTransport(handler))
+        wav = voice_studio.synthesize_turns("k", [{"text": "a", "speaker": 0}, {"text": "b", "speaker": 1}],
+                                            ["Puck", "Kore"], style="s", client=client, models=["m"])
+        pcm, rate = voice_studio.wav_pcm(wav)
+        self.assertEqual(rate, 24000)
+        self.assertEqual(len(pcm), 2 * 4800 + 2 * int(24000 * 0.3))
+        self.assertEqual(pcm[:2], b"\x01\x00")
+        self.assertEqual(pcm[-2:], b"\x02\x00")
 
     def test_single_payload_unchanged(self):
         url, p = voice_studio._requests("m", [{"text": "hi"}], ["Puck"], "s")[0]

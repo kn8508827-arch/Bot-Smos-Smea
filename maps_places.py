@@ -168,6 +168,13 @@ def search(api_key, kind, lat=None, lon=None, place="", client=None, timeout=Non
         for model in [os.getenv("MAPS_AI_MODEL", "").strip(), *MODELS]:
             if not model:
                 continue
+            # Gemini 3 "thinks" before searching Maps — keep that short so the answer comes in seconds
+            gc = dict(payload["generationConfig"])
+            if model.startswith("gemini-3"):
+                gc["thinkingConfig"] = {"thinkingLevel": "low"}
+            elif model.startswith("gemini-2.5"):
+                gc["thinkingConfig"] = {"thinkingBudget": 0}
+            payload = {**payload, "generationConfig": gc}
             try:
                 r = client.post(f"{API}/models/{model}:generateContent", json=payload, headers=headers)
             except httpx.TimeoutException as exc:

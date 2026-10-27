@@ -325,6 +325,9 @@ def clean_markdown_for_telegram(text: str) -> str:
     """ការពារកុំឱ្យ Telegram Parse Error ដោយសារសញ្ញា Markdown មិនពេញលេញ"""
     if not text:
         return ""
+    text = re.sub(r"(?m)^\s*#{1,6}\s+", "", text)          # "### Title" → "Title" (Telegram shows # literally)
+    text = re.sub(r"(?m)^\s*(?:-{3,}|\*{3,}|_{3,})\s*$", "", text)   # "---" separators
+    text = re.sub(r"\n{3,}", "\n\n", text)
     if text.count("*") % 2 != 0:
         text = text.replace("*", "")
     if text.count("_") % 2 != 0:

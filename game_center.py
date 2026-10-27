@@ -1,6 +1,7 @@
-"""🎮 Game Center — instant games inside Telegram (animated dice), points and leaderboards.
+"""🎮 Cooler Game Center — instant games inside Telegram, points and leaderboards.
 
-  /play     menu: 🎲 dice duel vs Cooler Bot, 🎯 darts, 🏀 basketball, ⚽ football, 🎳 bowling, 🎰 slot
+  /play     menu: Cooler Dice, Cooler Darts, Cooler Basketball, Cooler Football,
+            Cooler Bowling, Cooler Slot, and Cooler Rock–Paper–Scissors
   /duel     in a group: challenge anyone — first to accept rolls against you
   /gametop  today's leaderboard (game points)
 
@@ -11,6 +12,7 @@ Game points also add a little to community points (capped per day to stop farmin
 import html
 import logging
 import os
+import random
 import sqlite3
 import threading
 import time
@@ -26,14 +28,27 @@ COOLDOWN = 4.0
 
 GAMES = {
     # key: (emoji, Khmer name, scorer(value) -> (game_points, Khmer verdict))
-    "dice": ("🎲", "ឡុកឡាក់ប្រកួត Bot", None),
-    "dart": ("🎯", "បាញ់ព្រួញ", lambda v: (10, "🎯 ចំកណ្ដាល BULLSEYE!") if v == 6 else ((4, "ជិតហើយ! 👏") if v >= 4 else (0, "ខុសគោលដៅ 😅"))),
-    "ball": ("🏀", "បោះបាល់បោះ", lambda v: (8, "🏀 ចូល! SWISH!") if v == 5 else ((5, "ចូល! 🔥") if v == 4 else (0, "មិនចូល 😬"))),
-    "foot": ("⚽", "ទាត់បាល់", lambda v: (8, "⚽ GOOOAL! 🔥") if v >= 4 else ((5, "ចូលទី! ⚽") if v == 3 else (0, "អ្នកចាំទីចាប់បាន 🧤"))),
-    "bowl": ("🎳", "បោះប៊ូលីង", lambda v: (10, "🎳 STRIKE!") if v == 6 else ((4, "ដួលច្រើន! 👍") if v >= 4 else (1, "ដួលបន្តិច 😅"))),
-    "slot": ("🎰", "ម៉ាស៊ីនសំណាង", lambda v: (50, "🎰 JACKPOT 777! 💰💰💰") if v == 64 else ((20, "🎉 ៣ ដូចគ្នា!") if v in (1, 22, 43) else (0, "សាកម្ដងទៀត 🍀"))),
+    "dice": ("🎲", "Cooler Dice", None),
+    "dart": ("🎯", "Cooler Darts", lambda v: (10, "🎯 ចំកណ្ដាល BULLSEYE!") if v == 6 else ((4, "ជិតហើយ! 👏") if v >= 4 else (0, "ខុសគោលដៅ 😅"))),
+    "ball": ("🏀", "Cooler Basketball", lambda v: (8, "🏀 ចូល! SWISH!") if v == 5 else ((5, "ចូល! 🔥") if v == 4 else (0, "មិនចូល 😬"))),
+    "foot": ("⚽", "Cooler Football", lambda v: (8, "⚽ GOOOAL! 🔥") if v >= 4 else ((5, "ចូលទី! ⚽") if v == 3 else (0, "អ្នកចាំទីចាប់បាន 🧤"))),
+    "bowl": ("🎳", "Cooler Bowling", lambda v: (10, "🎳 STRIKE!") if v == 6 else ((4, "ដួលច្រើន! 👍") if v >= 4 else (1, "ដួលបន្តិច 😅"))),
+    "slot": ("🎰", "Cooler Slot", lambda v: (50, "🎰 JACKPOT 777! 💰💰💰") if v == 64 else ((20, "🎉 ៣ ដូចគ្នា!") if v in (1, 22, 43) else (0, "សាកម្ដងទៀត 🍀"))),
 }
 _EMOJI = {k: g[0] for k, g in GAMES.items()}
+RPS_CHOICES = {
+    "rock": ("🪨", "ថ្ម"),
+    "paper": ("📄", "ក្រដាស"),
+    "scissors": ("✂️", "កន្ត្រៃ"),
+}
+RPS_OPPONENTS = {
+    color: (
+        f"Cooler {color.title()}",
+        os.path.join(os.path.dirname(__file__), "assets", f"cooler_opponent_{color}.png"),
+    )
+    for color in ("red", "green")
+}
+_RPS_WINS = {("rock", "scissors"), ("scissors", "paper"), ("paper", "rock")}
 
 
 def today():
@@ -43,10 +58,21 @@ def today():
 def dice_duel(player, bot_value):
     """(points, verdict) for a dice duel."""
     if player > bot_value:
-        return 6, "🏆 អ្នកឈ្នះ Cooler Bot!"
+        return 6, "🏆 អ្នកឈ្នះ Cooler!"
     if player == bot_value:
         return 2, "🤝 ស្មើ!"
-    return 0, "😎 Cooler Bot ឈ្នះ! សាកម្ដងទៀត"
+    return 0, "😎 Cooler ឈ្នះ! សាកម្ដងទៀត"
+
+
+def rps_duel(player, cooler):
+    """Return (points, verdict, won) for Rock–Paper–Scissors."""
+    if player not in RPS_CHOICES or cooler not in RPS_CHOICES:
+        raise ValueError("player and Cooler choices must be rock, paper, or scissors")
+    if player == cooler:
+        return 2, "🤝 ស្មើ!", False
+    if (player, cooler) in _RPS_WINS:
+        return 8, "🏆 អ្នកឈ្នះ Cooler!", True
+    return 0, "😎 Cooler ឈ្នះ! សាកម្ដងទៀត", False
 
 
 @contextmanager
@@ -107,16 +133,39 @@ def register(bot, config):
         m = InlineKeyboardMarkup()
         keys = list(GAMES)
         for i in range(0, len(keys), 3):
-            m.row(*[InlineKeyboardButton(f"{GAMES[k][0]} {GAMES[k][1].split()[0]}", callback_data=f"gc:p:{k}") for k in keys[i:i + 3]])
-        m.row(InlineKeyboardButton("⚔️ ប្រកួតមិត្ត (Group)", callback_data="gc:duel"),
-              InlineKeyboardButton("🏆 Top ថ្ងៃនេះ", callback_data="gc:top"))
+            m.row(*[InlineKeyboardButton(f"{GAMES[k][0]} {GAMES[k][1]}", callback_data=f"gc:p:{k}") for k in keys[i:i + 3]])
+        m.row(InlineKeyboardButton("🪨 Cooler Rock–Paper–Scissors", callback_data="gc:rps"))
+        m.row(InlineKeyboardButton("⚔️ Cooler Dice Duel (Group)", callback_data="gc:duel"),
+              InlineKeyboardButton("🏆 Cooler Top ថ្ងៃនេះ", callback_data="gc:top"))
         m.row(InlineKeyboardButton("🕹️ ហ្គេមផ្សេងទៀត", callback_data="nav:games"),
               InlineKeyboardButton("🏠 ម៉ឺនុយមេ", callback_data="nav:main"))
         return m
 
-    MENU_TEXT = ("🎮 <b>Game Center</b>\nលេងភ្លាមក្នុង Telegram — ចុចហ្គេម 👇\n\n"
-                 "🎲 ឡុកឡាក់ប្រកួត Bot · 🎯 បាញ់ព្រួញ · 🏀 បាល់បោះ\n⚽ ទាត់បាល់ · 🎳 ប៊ូលីង · 🎰 ម៉ាស៊ីនសំណាង\n"
-                 "⚔️ ប្រកួតជាមួយមិត្តក្នុង Group\n\n🏆 ប្រមូលពិន្ទុ ឡើង Top ប្រចាំថ្ងៃ!")
+    MENU_TEXT = ("🎮 <b>Cooler Game Center</b>\nលេងភ្លាមក្នុង Telegram — ចុចហ្គេម 👇\n\n"
+                 "🎲 Cooler Dice · 🎯 Cooler Darts · 🏀 Cooler Basketball\n⚽ Cooler Football · 🎳 Cooler Bowling · 🎰 Cooler Slot\n"
+                 "🪨 Cooler Rock–Paper–Scissors\n"
+                 "⚔️ Cooler Dice Duel ជាមួយមិត្តក្នុង Group\n\n🏆 ប្រមូលពិន្ទុ ឡើង Cooler Top ប្រចាំថ្ងៃ!")
+
+    def rps_keyboard(opponent_color):
+        m = InlineKeyboardMarkup()
+        m.row(*[
+            InlineKeyboardButton(f"{emoji} {label}", callback_data=f"gc:rps:{opponent_color}:{key}")
+            for key, (emoji, label) in RPS_CHOICES.items()
+        ])
+        m.row(InlineKeyboardButton("🎮 ម៉ឺនុយហ្គេម", callback_data="gc:menu"))
+        return m
+
+    def rps_prompt(chat_id, opponent_color):
+        opponent_name, image_path = RPS_OPPONENTS[opponent_color]
+        caption = (f"🎮 <b>Cooler Rock–Paper–Scissors</b>\n"
+                   f"{opponent_name} កំពុងប្រកួតជាមួយអ្នក — ជ្រើសមួយ!")
+        keyboard = rps_keyboard(opponent_color)
+        try:
+            with open(image_path, "rb") as photo:
+                bot.send_photo(chat_id, photo, caption=caption, parse_mode="HTML", reply_markup=keyboard)
+        except Exception as exc:
+            logger.warning("Cooler opponent picture unavailable (%s)", type(exc).__name__)
+            bot.send_message(chat_id, caption, parse_mode="HTML", reply_markup=keyboard)
 
     def again(key):
         m = InlineKeyboardMarkup()
@@ -135,12 +184,18 @@ def register(bot, config):
         except Exception as exc:
             logger.warning("game center reply failed (%s)", type(exc).__name__)
 
-    def play(chat_id, user, key, reply_to=None):
+    def claim_play(user_id):
         now = time.monotonic()
         with lock:
-            if now - last_play.get(user.id, 0) < COOLDOWN:
+            previous = last_play.get(user_id)
+            if previous is not None and now - previous < COOLDOWN:
                 return False
-            last_play[user.id] = now
+            last_play[user_id] = now
+        return True
+
+    def play(chat_id, user, key, reply_to=None):
+        if not claim_play(user.id):
+            return False
         name = html.escape(getattr(user, "first_name", None) or "អ្នកលេង")
         emoji, title, scorer = GAMES[key]
         msg = bot.send_dice(chat_id, emoji=emoji, reply_to_message_id=reply_to)
@@ -148,7 +203,7 @@ def register(bot, config):
         if key == "dice":
             bot_msg = bot.send_dice(chat_id, emoji="🎲")
             pts, verdict = dice_duel(value, bot_msg.dice.value)
-            detail = f"{name} 🎲 <b>{value}</b>  vs  Cooler Bot 🎲 <b>{bot_msg.dice.value}</b>"
+            detail = f"{name} 🎲 <b>{value}</b>  vs  Cooler 🎲 <b>{bot_msg.dice.value}</b>"
         else:
             pts, verdict = scorer(value)
             detail = f"{name} · {emoji} {title}"
@@ -164,11 +219,11 @@ def register(bot, config):
     def top_text(chat_title=None):
         rows = leaderboard(config)
         if not rows:
-            return "🏆 <b>Top ថ្ងៃនេះ</b>\n\nមិនទាន់មានអ្នកលេង — លេងមុនគេ ហើយឈរលេខ ១! 🚀"
+            return "🏆 <b>Cooler Top ថ្ងៃនេះ</b>\n\nមិនទាន់មានអ្នកលេង — លេងមុនគេ ហើយឈរលេខ ១! 🚀"
         medals = ["🥇", "🥈", "🥉"] + [f"{i}." for i in range(4, 11)]
         lines = [f"{medals[i]} {html.escape(r['name'] or '?')} — <b>{r['points']}</b> (🏅{r['wins']}/{r['plays']})"
                  for i, r in enumerate(rows)]
-        return "🏆 <b>Top Game ថ្ងៃនេះ</b>\n\n" + "\n".join(lines) + "\n\n<i>កំណត់ឡើងវិញរៀងរាល់ថ្ងៃ ម៉ោង ១២ យប់</i>"
+        return "🏆 <b>Cooler Top Game ថ្ងៃនេះ</b>\n\n" + "\n".join(lines) + "\n\n<i>កំណត់ឡើងវិញរៀងរាល់ថ្ងៃ ម៉ោង ១២ យប់</i>"
 
     def duel_offer(chat, user, reply_to=None):
         if getattr(chat, "type", None) not in ("group", "supergroup"):
@@ -176,8 +231,8 @@ def register(bot, config):
             return
         name = getattr(user, "first_name", None) or "អ្នកលេង"
         m = InlineKeyboardMarkup()
-        m.row(InlineKeyboardButton("⚔️ ទទួលការប្រកួត!", callback_data=f"gc:acc:{user.id}"))
-        msg = bot.send_message(chat.id, f"⚔️ <b>{html.escape(name)}</b> ចង់ប្រកួតឡុកឡាក់ 🎲\nអ្នកណាហ៊ានទទួល? (២ នាទី)",
+        m.row(InlineKeyboardButton("⚔️ ទទួល Cooler Dice Duel!", callback_data=f"gc:acc:{user.id}"))
+        msg = bot.send_message(chat.id, f"⚔️ Cooler Dice Duel · <b>{html.escape(name)}</b> ចង់ប្រកួតឡុកឡាក់ 🎲\nអ្នកណាហ៊ានទទួល? (២ នាទី)",
                                parse_mode="HTML", reply_markup=m, reply_to_message_id=reply_to)
         with lock:
             duels[(chat.id, msg.message_id)] = {"uid": user.id, "name": name, "user": user, "expires": time.monotonic() + 120}
@@ -220,8 +275,8 @@ def register(bot, config):
 
         def announce():
             m = InlineKeyboardMarkup()
-            m.row(InlineKeyboardButton("⚔️ ប្រកួតម្ដងទៀត", callback_data="gc:duel"), InlineKeyboardButton("🏆 Top", callback_data="gc:top"))
-            bot.send_message(chat_id, f"⚔️ {html.escape(a_name)} 🎲 <b>{va}</b>  vs  {html.escape(b_name)} 🎲 <b>{vb}</b>\n<b>{result}</b>",
+            m.row(InlineKeyboardButton("⚔️ Cooler Dice Duel ម្ដងទៀត", callback_data="gc:duel"), InlineKeyboardButton("🏆 Cooler Top", callback_data="gc:top"))
+            bot.send_message(chat_id, f"⚔️ Cooler Dice Duel · {html.escape(a_name)} 🎲 <b>{va}</b>  vs  {html.escape(b_name)} 🎲 <b>{vb}</b>\n<b>{result}</b>",
                              parse_mode="HTML", reply_markup=m)
         later(announce)
 
@@ -255,6 +310,37 @@ def register(bot, config):
         if action == "acc":
             duel_accept(call)
             return
+        if action == "rps":
+            if len(parts) == 2:
+                bot.answer_callback_query(call.id)
+                rps_prompt(message.chat.id, random.choice(tuple(RPS_OPPONENTS)))
+                return
+            if len(parts) != 4 or parts[2] not in RPS_OPPONENTS or parts[3] not in RPS_CHOICES:
+                bot.answer_callback_query(call.id, "ជម្រើសហ្គេមមិនត្រឹមត្រូវ។", show_alert=True)
+                return
+            if not claim_play(call.from_user.id):
+                bot.answer_callback_query(call.id, "⏳ រង់ចាំបន្តិច...", show_alert=True)
+                return
+            opponent_color = parts[2]
+            opponent_name, _image_path = RPS_OPPONENTS[opponent_color]
+            player_choice = parts[3]
+            cooler_choice = random.choice(tuple(RPS_CHOICES))
+            points, verdict, won = rps_duel(player_choice, cooler_choice)
+            total, bonus = record(config, call.from_user, points, won)
+            player_emoji, player_label = RPS_CHOICES[player_choice]
+            cooler_emoji, cooler_label = RPS_CHOICES[cooler_choice]
+            name = html.escape(getattr(call.from_user, "first_name", None) or "អ្នកលេង")
+            extra = f" · ⭐ +{bonus} ពិន្ទុសហគមន៍" if bonus else ""
+            bot.answer_callback_query(call.id)
+            result_text = (f"{name} {player_emoji} {player_label}  vs  {opponent_name} {cooler_emoji} {cooler_label}\n"
+                           f"<b>{verdict}</b>\n🎮 +{points} · ថ្ងៃនេះ {total}{extra}")
+            if getattr(message, "caption", None) is not None:
+                bot.edit_message_caption(result_text, message.chat.id, message.message_id,
+                                         parse_mode="HTML", reply_markup=rps_keyboard(opponent_color))
+            else:
+                bot.edit_message_text(result_text, message.chat.id, message.message_id,
+                                      parse_mode="HTML", reply_markup=rps_keyboard(opponent_color))
+            return
         if action == "p" and len(parts) > 2 and parts[2] in GAMES:
             ok = play(message.chat.id, call.from_user, parts[2])
             bot.answer_callback_query(call.id, None if ok else "⏳ រង់ចាំបន្តិច...")
@@ -266,7 +352,12 @@ def register(bot, config):
             bot.send_message(message.chat.id, top_text(), parse_mode="HTML", reply_markup=menu())
         else:
             try:
-                bot.edit_message_text(MENU_TEXT, message.chat.id, message.message_id, reply_markup=menu(), parse_mode="HTML")
+                if getattr(message, "caption", None) is not None:
+                    bot.edit_message_caption(MENU_TEXT, message.chat.id, message.message_id,
+                                             reply_markup=menu(), parse_mode="HTML")
+                else:
+                    bot.edit_message_text(MENU_TEXT, message.chat.id, message.message_id,
+                                          reply_markup=menu(), parse_mode="HTML")
             except Exception as exc:
                 if "message is not modified" not in str(exc):
                     bot.send_message(message.chat.id, MENU_TEXT, reply_markup=menu(), parse_mode="HTML")

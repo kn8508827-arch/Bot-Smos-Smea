@@ -417,9 +417,9 @@ def setup_bot_commands():
             BotCommand("code", "🎟️ វាយកូដសម្ងាត់ពី MV"),
             BotCommand("pay", "💳 បង់ 1$ ប្រើគ្រប់មុខងារ 30 ថ្ងៃ"),
             BotCommand("myplan", "📅 ស្ថានភាពសមាជិករបស់ខ្ញុំ"),
-            BotCommand("play", "🎮 Game Center លេងភ្លាម 🎲🎯🏀⚽🎳🎰"),
-            BotCommand("duel", "⚔️ ប្រកួតឡុកឡាក់ជាមួយមិត្ត (Group)"),
-            BotCommand("gametop", "🏆 Top Game ថ្ងៃនេះ"),
+            BotCommand("play", "🎮 Cooler Game Center 🎲🎯🏀⚽🎳🎰🪨"),
+            BotCommand("duel", "⚔️ Cooler Dice Duel ជាមួយមិត្ត (Group)"),
+            BotCommand("gametop", "🏆 Cooler Game Top ថ្ងៃនេះ"),
             BotCommand("fortune", "🔮 ទស្សន៍ទាយ ១២ ឆ្នាំ បាតដៃ សុបិន"),
             BotCommand("number", "🔢 លេខជីវិតតាមថ្ងៃខែឆ្នាំកំណើត"),
             BotCommand("palm", "🖐️ ទាយបាតដៃ (ផ្ញើរូប)"),
@@ -482,12 +482,12 @@ def setup_bot_commands():
             BotCommand("autoanswer", "🤖 Group ឆ្លើយស្វ័យប្រវត្តិ (Admin)"),
             BotCommand("forget", "🗑️ លុបអ្វីដែល Bot ចាំ"),
             BotCommand("kbclear", "🗑️ លុបឯកសារ AI ទាំងអស់"),
-            BotCommand("dice", "🎲 គប់គ្រាប់ឡុកឡាក់"),
-            BotCommand("dart", "🎯 បោះព្រួញ"),
-            BotCommand("basket", "🏀 បោះបាល់បោះ"),
-            BotCommand("football", "⚽ ទាត់បាល់"),
-            BotCommand("bowling", "🎳 Bowling"),
-            BotCommand("slot", "🎰 Slot ម៉ាស៊ីន"),
+            BotCommand("dice", "🎲 Cooler Dice"),
+            BotCommand("dart", "🎯 Cooler Darts"),
+            BotCommand("basket", "🏀 Cooler Basketball"),
+            BotCommand("football", "⚽ Cooler Football"),
+            BotCommand("bowling", "🎳 Cooler Bowling"),
+            BotCommand("slot", "🎰 Cooler Slot"),
             BotCommand("market", "📈 ដុល្លារ មាស ព័ត៌មាន"),
             BotCommand("askfamily", "👨‍👩‍👧 សួរ AI អំពីកូន និងសត្វ"),
         ]
@@ -1233,7 +1233,7 @@ def _category_view(key, user_id=None):
         m.row(B("📚 AI ឆ្លើយតាមឯកសារ (ហាង & Group)", callback_data="kb:menu"))
     elif key == "fun":
         text = "🎮 <b>កម្សាន្ត & ហ្វេន</b>\nលេងហ្គេម ឆ្លើយ Quiz ប្រមូលពិន្ទុ យក Fan Card 🃏"
-        m.row(B("🎮 Game Center — លេងភ្លាម 🎲🎯🏀⚽🎳🎰", callback_data="gc:menu"))
+        m.row(B("🎮 Cooler Game Center 🎲🎯🏀⚽🎳🎰🪨", callback_data="gc:menu"))
         m.row(B(f"🕹️ ហ្គេមទាំងអស់ ({fan_features.GAME_COUNT})", callback_data="nav:games"), B("🧠 Quiz", callback_data="community:menu:quiz:0"))
         m.row(B("🃏 Fan Card", callback_data="community:menu:card:0"), B("🎁 Check-in", callback_data="community:menu:checkin:0"))
         m.row(B("🔮 ទស្សន៍ទាយ · បាតដៃ · សុបិន", callback_data="fort:menu"))
@@ -1369,7 +1369,7 @@ def _handle_nav_callback(call, data):
         _show_in_place(call, "🌟 <b>សហគមន៍ VidCooler</b>\nប្រមូលពិន្ទុ ឡើងកម្រិត ហើយប្រកួតលើ Leaderboard!", _community_nav_keyboard())
     elif key == "games":
         games_kb = _fan.games_markup(getattr(message.chat, "type", None) == "private")
-        games_kb.row(InlineKeyboardButton("🎮 Game Center — លេងភ្លាមក្នុង Telegram", callback_data="gc:menu"))
+        games_kb.row(InlineKeyboardButton("🎮 Cooler Game Center — លេងភ្លាមក្នុង Telegram", callback_data="gc:menu"))
         games_kb.row(_home_button())
         _show_in_place(call, f"🎮 <b>ហ្គេម Vid Cooler — {fan_features.GAME_COUNT} ហ្គេម</b>\n👨‍👩‍👧 មនុស្សធំ · 🚀 3D · ⚡ ល្បឿន\nចុចដើម្បីលេងភ្លាម 👇", games_kb)
     elif key == "rap":
@@ -1503,7 +1503,7 @@ def send_help(message):
         "• /trip - កន្លែងដើរលេងល្អៗនៅកម្ពុជា\n"
         "• /pay - បង់ 1$ ប្រើគ្រប់មុខងារ 30 ថ្ងៃ (Group 5$)\n"
         "• /myplan - ស្ថានភាពសមាជិក\n"
-        "• /play - 🎮 Game Center 🎲🎯🏀⚽🎳🎰 · /duel - ប្រកួតមិត្ត · /gametop - Top ថ្ងៃនេះ\n"
+        "• /play - 🎮 Cooler Game Center 🎲🎯🏀⚽🎳🎰🪨 · /duel - Cooler Dice Duel ជាមួយមិត្ត · /gametop - Cooler Game Top ថ្ងៃនេះ\n"
         "• /fortune - ទស្សន៍ទាយ ១២ ឆ្នាំខ្មែរ\n"
         "• /number - លេខជីវិត · /palm - ទាយបាតដៃ · /dream - ទាយសុបិន\n"
         "• /parent - មើលកូន ១-៦ ឆ្នាំ\n"

@@ -34,6 +34,14 @@ Then 2-4 bullet reasons (point at concrete signs: domain spelling, urgency, mone
 Then 1-2 bullets "ធ្វើអ្វី" (e.g. don't click, call the bank's official number, block & report).
 Never say something is 100% safe. Content:
 """
+SCAM_GUIDE = ("🚨 <b>ឆែក Scam — ការពារកុំឲ្យគេបោក</b>\n\n"
+              "👇 <b>ផ្ញើមកខ្ញុំឥឡូវ</b> (១០ នាទី) មួយក្នុងចំណោមនេះ៖\n"
+              "🔗 Link ដែលគួរសង្ស័យ — ឧ. <code>aba-bonus.xyz</code>\n"
+              "💬 សារដែលគេផ្ញើមក — ចម្លង ឬ <b>Forward</b> មកទីនេះ\n"
+              "📸 Screenshot សារ/Page/ការផ្សាយ\n\n"
+              "🤖 ខ្ញុំប្រាប់ភ្លាម៖ 🔴 គ្រោះថ្នាក់ · 🟠 ប្រយ័ត្ន · 🟢 មើលទៅមិនអីទេ + មូលហេតុ + អ្វីដែលត្រូវធ្វើ\n\n"
+              "💡 ក្នុង Group៖ Reply <code>/scam</code> លើសារណាមួយ")
+SCAM_DEMO = "អបអរសាទរ! លោកអ្នកឈ្នះរង្វាន់ $500 ពី ABA 🎉 ចុច https://aba-bonus.xyz ហើយបញ្ចូលលេខកាត និង OTP ដើម្បីទទួលលុយក្នុង ២៤ ម៉ោង"
 MONEY_PROMPT = """You help people in Cambodia check banknotes (mostly Cambodian riel and US dollars, also Thai baht etc.).
 Look at the photo. A photo can NOT prove a note is genuine: watermark, security thread, raised print, colour-shifting ink
 and UV features must be checked by hand. So never say a note is real or "100%". Reply in simple Khmer, short:
@@ -188,6 +196,7 @@ def register(bot, config, ai=None, rate=None):
                 return KHR_PER_USD_FALLBACK
     waiting_voice = {}   # user_id -> expires (monotonic)
     waiting_money = {}   # user_id -> expires: /money then a photo
+    waiting_scam = {}    # user_id -> expires: /scam then the suspicious text / link / photo / forward
 
     def now_kh():
         return datetime.now(TZ_KH)
@@ -239,13 +248,49 @@ def register(bot, config, ai=None, rate=None):
             parts, src_text = [], ""
         content = "\n".join(x for x in (src_text, arg) if x)
         if not content and not parts:
-            bot.reply_to(message, "🚨 <b>ឆែក Scam</b>\nReply <code>/scam</code> លើសារ/រូប ដែលគួរសង្ស័យ ឬវាយ៖\n"
-                                  "<code>/scam https://aba-bonus.xyz ឈ្នះ $500</code>", parse_mode="HTML")
+            waiting_scam[message.from_user.id] = time.monotonic() + 600
+            m = InlineKeyboardMarkup()
+            m.row(InlineKeyboardButton("🧪 សាកមើលឧទាហរណ៍", callback_data="scam:demo"))
+            m.row(InlineKeyboardButton("❌ បោះបង់", callback_data="scam:cancel"))
+            bot.reply_to(message, SCAM_GUIDE, reply_markup=m, parse_mode="HTML")
             return
         fwd = src is not None and (getattr(src, "forward_origin", None) or getattr(src, "forward_from", None)
                                    or getattr(src, "forward_from_chat", None))
         prompt = SCAM_PROMPT + content[:3000] + ("\n(This was forwarded from someone else.)" if fwd else "")
         run_ai(message, parts, prompt, "🚨 <b>លទ្ធផលឆែក Scam</b>\n\n", "")
+
+    def wants_scam(message):
+        exp = waiting_scam.get(getattr(getattr(message, "from_user", None), "id", None))
+        if exp is None or exp < time.monotonic():
+            return False
+        text = (getattr(message, "text", None) or "")
+        return not text.startswith("/")
+
+    @bot.message_handler(func=wants_scam, content_types=["text", "photo", "document"])
+    def scam_follow_up(message):
+        """After /scam, the next message (link, text, screenshot or forwarded message) is checked."""
+        waiting_scam.pop(message.from_user.id, None)
+        try:
+            parts, src_text = media_parts(message)
+        except Exception:
+            parts, src_text = [], ""
+        content = "\n".join(x for x in (src_text, getattr(message, "text", None) or "") if x)
+        fwd = (getattr(message, "forward_origin", None) or getattr(message, "forward_from", None)
+               or getattr(message, "forward_from_chat", None))
+        prompt = SCAM_PROMPT + content[:3000] + ("\n(This was forwarded from someone else.)" if fwd else "")
+        run_ai(message, parts, prompt, "🚨 <b>លទ្ធផលឆែក Scam</b>\n\n", "")
+
+    @bot.callback_query_handler(func=lambda c: (c.data or "").startswith("scam:"))
+    def scam_cb(call):
+        bot.answer_callback_query(call.id)
+        if call.data == "scam:cancel":
+            waiting_scam.pop(call.from_user.id, None)
+            bot.send_message(call.message.chat.id, "✅ បោះបង់ — វាយ /scam ពេលណាចង់ឆែក")
+            return
+        waiting_scam.pop(call.from_user.id, None)
+        bot.send_message(call.message.chat.id, "🧪 <b>ឧទាហរណ៍</b> — សារដែលគេច្រើនផ្ញើ៖\n<i>" + html.escape(SCAM_DEMO) + "</i>",
+                         parse_mode="HTML")
+        run_ai(call.message, [], SCAM_PROMPT + SCAM_DEMO, "🚨 <b>លទ្ធផលឆែក Scam</b>\n\n", "")
 
     # ---------- 💵 banknote check ----------
     MONEY_USAGE = ("💵 <b>ពិនិត្យលុយ</b>\nថតរូបក្រដាសប្រាក់ (មុខ ឬក្រោយ ឲ្យច្បាស់ ពន្លឺល្អ) ផ្ញើមកឥឡូវ\n"

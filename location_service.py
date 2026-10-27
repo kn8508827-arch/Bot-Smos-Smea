@@ -30,6 +30,8 @@ OVERPASS_URLS = (
     "https://overpass.private.coffee/api/interpreter",
     "https://maps.mail.ru/osm/tools/overpass/api/interpreter",
     "https://overpass.kumi.systems/api/interpreter",
+    "https://lz4.overpass-api.de/api/interpreter",
+    "https://z.overpass-api.de/api/interpreter",
 )
 NOMINATIM_URL = "https://nominatim.openstreetmap.org/search"
 USER_AGENT = "CoolerBot-Cambodia-Location-Search/1.0"

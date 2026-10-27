@@ -4,13 +4,17 @@ Staff (private chat with the bot):
   /work — menu · 🟢 ចូលធ្វើការ / 🔴 ចេញពីការងារ → 1) send current location (must be within
   ATT_RADIUS metres of the workplace) → 2) take a selfie → saved, owner notified at once.
   /joinstaff — ask the owner to be added as staff (owner taps ✅ / ❌).
+  📲 Scan the workplace QR (/workscan) → the bot picks 🟢 in or 🔴 out by itself → location → selfie.
+  In a group, /work shows buttons that open the private chat straight at check-in / check-out.
 
 Owner:
   /setwork — send the workplace location once (centre of the allowed circle)
+  /workqr  — a printable QR poster for the door: staff scan it with the phone camera to check in/out
   /staff   — today's board: who came, late, left, still missing; remove staff
 Work hours: ATT_START (08:00) – ATT_END (18:00), ATT_GRACE_MIN (5) minutes before "late".
 Location and photo are recorded only at check-in / check-out, never in between.
 """
+import copy
 import html
 import logging
 import math
@@ -23,7 +27,7 @@ from datetime import datetime, timedelta, timezone
 logger = logging.getLogger(__name__)
 TZ_KH = timezone(timedelta(hours=7))
 STEP_SECONDS = 300           # time allowed between the location and the selfie
-FREE_COMMANDS = {"work", "workin", "workout", "joinstaff", "staff", "setwork"}
+FREE_COMMANDS = {"work", "workin", "workout", "workscan", "workqr", "joinstaff", "staff", "setwork"}
 
 
 def settings():
@@ -117,6 +121,64 @@ def fmt_dur(minutes):
     return f"{h}ម៉ោង {m:02d}នាទី" if h else f"{m}នាទី"
 
 
+WORK_WORDS = ("ធ្វើការ", "ម៉ោងចូល", "ម៉ោងចេញ", "វត្តមាន", "check in", "check-in", "checkin", "check out", "checkout",
+              "attendance", "បុគ្គលិក", "ការងារ", "ស្កេនចូល", "scan ចូល")
+_QR = ("qr", "ឃ្យូអា", "គ្យូអា", "ស្កេន", "scan")
+_HOW = ("ម៉េច", "របៀប", "យ៉ាងម៉េច", "how", "where", "នៅណា", "មានទេ", "មាន", "ចុច", "ណា", "?", "？", "ឯណា", "អត់")
+
+
+def work_intent(text):
+    """True for questions like «QR ចូលធ្វើការនៅណា?» / «ចុចម៉ោងចូលធ្វើការម៉េច» (not for /commands)."""
+    t = (text or "").casefold()
+    if not t or t.startswith("/") or len(t) > 300:
+        return False
+    if not any(w in t for w in WORK_WORDS):
+        return False
+    return any(w in t for w in _QR) or (any(w in t for w in ("ម៉ោងចូល", "ម៉ោងចេញ", "វត្តមាន", "check", "attendance",
+                                                              "ចូលធ្វើការ", "ចេញពីការងារ", "ចេញការងារ"))
+                                         and any(w in t for w in _HOW))
+
+
+def next_kind(config, uid, day=None):
+    """What a QR scan means right now: 'in' if not checked in today (or already checked out), else 'out'."""
+    day = day or now_kh().strftime("%Y-%m-%d")
+    mine = [r for r in today_logs(config, day) if r["user_id"] == uid]
+    return "out" if mine and mine[-1]["kind"] == "in" else "in"
+
+
+def qr_poster(link, start, end):
+    """PNG poster to print and stick at the workplace door (QR → t.me/<bot>?start=go_workscan)."""
+    import io
+    import qrcode
+    from PIL import Image, ImageDraw
+    import card_render as cr
+    base = cr.aurora("ocean", seed=7)
+    cr.glass(base, (90, 120, cr.W - 90, cr.H - 130), radius=56, alpha=70)
+    d = ImageDraw.Draw(base)
+    d.text((cr.W // 2, 220), cr.L("ស្កេនចូល / ចេញការងារ", "Scan to check in / out"), font=cr.font(66, 800),
+           fill=(255, 255, 255), anchor="mm")
+    d.text((cr.W // 2, 300), cr.L(f"ម៉ោងធ្វើការ {start} – {end}", f"Work hours {start} – {end}"), font=cr.font(40, 500),
+           fill=(200, 245, 255), anchor="mm")
+    q = qrcode.QRCode(box_size=14, border=2, error_correction=qrcode.constants.ERROR_CORRECT_M)
+    q.add_data(link)
+    q.make(fit=True)
+    qr = q.make_image(fill_color="black", back_color="white").convert("RGB").resize((560, 560), Image.NEAREST)
+    card = Image.new("RGB", (620, 620), "white")
+    card.paste(qr, (30, 30))
+    mask = Image.new("L", card.size, 0)
+    ImageDraw.Draw(mask).rounded_rectangle((0, 0, 619, 619), radius=40, fill=255)
+    base.paste(card, ((cr.W - 620) // 2, 370), mask)
+    steps = [cr.L("1. បើក Camera ស្កេន QR", "1. Scan with the camera"),
+             cr.L("2. ចុច «ផ្ញើទីតាំង»", "2. Send your location"),
+             cr.L("3. ថត Selfie — រួចរាល់!", "3. Take a selfie — done!")]
+    for i, line in enumerate(steps):
+        d.text((cr.W // 2, 1060 + i * 62), cr.clean(line), font=cr.font(40, 600), fill=(255, 255, 255), anchor="mm")
+    cr.footer(base)
+    buf = io.BytesIO()
+    base.convert("RGB").save(buf, format="PNG", optimize=True)
+    return buf.getvalue()
+
+
 def register(bot, config):
     """Register right after the paywall: staff location/photo steps must win over other handlers."""
     from telebot.types import (InlineKeyboardButton, InlineKeyboardMarkup, KeyboardButton, ReplyKeyboardMarkup,
@@ -157,11 +219,52 @@ def register(bot, config):
         except Exception as exc:
             logger.warning("attendance owner notice failed (%s)", type(exc).__name__)
 
-    def menu_markup():
+    me = {}
+
+    def username():
+        if "u" not in me:
+            try:
+                me["u"] = bot.get_me().username
+            except Exception:
+                return "TeamSmosSneabot"
+        return me["u"]
+
+    def scan_link():
+        return f"https://t.me/{username()}?start=go_workscan"
+
+    def menu_markup(uid=None):
         m = InlineKeyboardMarkup()
         m.row(InlineKeyboardButton("🟢 ចូលធ្វើការ", callback_data="att:in"),
               InlineKeyboardButton("🔴 ចេញពីការងារ", callback_data="att:out"))
+        if uid is not None and privileged(uid):
+            m.row(InlineKeyboardButton("📲 QR បិទនៅកន្លែងធ្វើការ", callback_data="att:qr"),
+                  InlineKeyboardButton("👥 វត្តមានថ្ងៃនេះ", callback_data="att:board"))
         return m
+
+    def group_markup():
+        m = InlineKeyboardMarkup()
+        m.row(InlineKeyboardButton("🟢 ចូលធ្វើការ", url=f"https://t.me/{username()}?start=go_workin"),
+              InlineKeyboardButton("🔴 ចេញពីការងារ", url=f"https://t.me/{username()}?start=go_workout"))
+        return m
+
+    def send_qr(chat_id):
+        s = settings()
+        hm = lambda t: f"{t[0]:02d}:{t[1]:02d}"
+        caption = ("📲 <b>QR ចូល/ចេញការងារ</b>\n\n"
+                   "🖨️ Print ហើយបិទនៅទ្វារ ឬតុទទួលភ្ញៀវ\n"
+                   "1️⃣ បុគ្គលិកបើក Camera ស្កេន QR → បើក Bot ភ្លាម\n"
+                   "2️⃣ Bot ដឹងខ្លួនថា ចូល 🟢 ឬ ចេញ 🔴\n"
+                   "3️⃣ ផ្ញើទីតាំង 📍 → ថត Selfie 🤳 → រួចរាល់ · Owner ទទួលដំណឹងភ្លាម\n\n"
+                   f"🔗 Link ដដែល៖ {scan_link()}\n"
+                   "🔒 សុវត្ថិភាព៖ ស្កេនពីផ្ទះមិនបានទេ — ត្រូវនៅក្នុងរង្វង់ទីតាំង + ថតមុខ")
+        if not place(config):
+            caption += "\n\n⚙️ កុំភ្លេច /setwork ដើម្បីកំណត់ទីតាំងកន្លែងធ្វើការ"
+        try:
+            bot.send_photo(chat_id, qr_poster(scan_link(), hm(s["start"]), hm(s["end"])), caption=caption,
+                           parse_mode="HTML")
+        except Exception as exc:
+            logger.warning("work QR poster failed (%s)", type(exc).__name__)
+            bot.send_message(chat_id, caption, parse_mode="HTML", disable_web_page_preview=True)
 
     def loc_keyboard():
         k = ReplyKeyboardMarkup(resize_keyboard=True, one_time_keyboard=True)
@@ -196,19 +299,33 @@ def register(bot, config):
 
     # ---------- staff ----------
 
-    @bot.message_handler(commands=["work", "workin", "workout"])
+    @bot.message_handler(commands=["work", "workin", "workout", "workscan"])
     def work_cmd(message):
-        if not private(message):
-            bot.reply_to(message, "🕘 សូមចុចចូល/ចេញការងារ ក្នុង Private Chat ជាមួយ Bot (/work)")
+        if not private(message):   # location + selfie are private: buttons open the bot's chat right at the step
+            bot.reply_to(message, "🕘 <b>ចូល/ចេញការងារ</b>\nចុចប៊ូតុងខាងក្រោម → Bot បើក Chat ផ្ទាល់ → "
+                                  "ផ្ញើទីតាំង 📍 → ថត Selfie 🤳\n📲 ឬស្កេន QR នៅកន្លែងធ្វើការ",
+                         reply_markup=group_markup(), parse_mode="HTML")
             return
         cmd = (message.text or "").split()[0][1:].split("@")[0].lower()
         uid = message.from_user.id
-        if cmd == "workin":
+        if cmd == "workscan":
+            kind = next_kind(config, uid)
+            bot.send_message(message.chat.id, "📲 ស្កេន QR រួច — " + ("🟢 <b>ចូលធ្វើការ</b>" if kind == "in"
+                                                                    else "🔴 <b>ចេញពីការងារ</b>"), parse_mode="HTML")
+            start(message.chat.id, uid, kind)
+        elif cmd == "workin":
             start(message.chat.id, uid, "in")
         elif cmd == "workout":
             start(message.chat.id, uid, "out")
         else:
-            bot.reply_to(message, menu_text(uid), reply_markup=menu_markup(), parse_mode="HTML")
+            bot.reply_to(message, menu_text(uid), reply_markup=menu_markup(uid), parse_mode="HTML")
+
+    @bot.message_handler(commands=["workqr"])
+    def workqr_cmd(message):
+        if not privileged(message.from_user.id):
+            bot.reply_to(message, "📲 QR ចូលធ្វើការ មាននៅកន្លែងធ្វើការ — ស្កេនវាដោយ Camera ឬវាយ /work")
+            return
+        send_qr(message.chat.id)
 
     @bot.message_handler(commands=["joinstaff"])
     def join_cmd(message):
@@ -241,6 +358,20 @@ def register(bot, config):
         if parts[1] in ("in", "out"):
             bot.answer_callback_query(call.id)
             start(call.message.chat.id, uid, parts[1])
+            return
+        if not privileged(uid):
+            bot.answer_callback_query(call.id, "⛔ សម្រាប់ Owner ប៉ុណ្ណោះ", show_alert=True)
+            return
+        if parts[1] == "qr":
+            bot.answer_callback_query(call.id, "📲 ...")
+            send_qr(call.message.chat.id)
+            return
+        if parts[1] == "board":
+            bot.answer_callback_query(call.id)
+            fake = copy.copy(call.message)
+            fake.from_user = call.from_user
+            fake.text = "/staff"
+            staff_cmd(fake)
             return
         if not privileged(uid):
             bot.answer_callback_query(call.id, "⛔ សម្រាប់ Owner ប៉ុណ្ណោះ", show_alert=True)
@@ -353,7 +484,8 @@ def register(bot, config):
     def staff_cmd(message):
         if not privileged(message.from_user.id):
             if private(message):
-                bot.reply_to(message, menu_text(message.from_user.id), reply_markup=menu_markup(), parse_mode="HTML")
+                bot.reply_to(message, menu_text(message.from_user.id), reply_markup=menu_markup(message.from_user.id),
+                         parse_mode="HTML")
             return
         now = now_kh()
         day = now.strftime("%Y-%m-%d")
@@ -382,6 +514,18 @@ def register(bot, config):
             lines.append(f"\n📨 សំណើរង់ចាំ៖ {pending}")
         if not place(config):
             lines.append("\n⚙️ មិនទាន់កំណត់ទីតាំងកន្លែងធ្វើការ — /setwork")
+        lines.append("\n📲 QR សម្រាប់បិទនៅកន្លែងធ្វើការ៖ /workqr")
         bot.reply_to(message, "\n".join(lines), reply_markup=m if staff else None, parse_mode="HTML")
 
-    return {"busy": busy, "steps": steps}
+    def intent_reply(message):
+        """Answer «QR ចូលធ្វើការ?» in plain words: the menu (private) or the buttons (group)."""
+        uid = message.from_user.id
+        if not private(message):
+            bot.reply_to(message, "🕘 <b>ចូល/ចេញការងារ</b> — មាន 📲 QR នៅកន្លែងធ្វើការ ឬចុចប៊ូតុងខាងក្រោម\n"
+                                  "→ ផ្ញើទីតាំង 📍 → ថត Selfie 🤳", reply_markup=group_markup(), parse_mode="HTML")
+            return
+        extra = ("\n\n📲 <b>QR</b>៖ ស្កេន QR ដែលបិទនៅកន្លែងធ្វើការដោយ Camera — Bot បើក ហើយដឹងខ្លួនថាចូល ឬចេញ"
+                 + ("\n👑 Owner៖ ចុច «📲 QR បិទនៅកន្លែងធ្វើការ» ដើម្បីបាន Poster សម្រាប់ Print" if privileged(uid) else ""))
+        bot.reply_to(message, menu_text(uid) + extra, reply_markup=menu_markup(uid), parse_mode="HTML")
+
+    return {"busy": busy, "steps": steps, "intent_reply": intent_reply}

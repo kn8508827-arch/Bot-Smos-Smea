@@ -119,14 +119,14 @@ QUESTIONS = [
 
     # ---- 🎮 Cooler Bot & games ----
     (COOL, "Cooler Bot ហៅម្ចាស់របស់វាថាអ្វី?", ["Boss", "Papa", "Bro", "Sir"], 1, "Papa! 👑 Cooler Bot ស្រឡាញ់ Papa ណាស់"),
-    (COOL, "ក្នុងហ្គេម Blue Gold Rush មានកាក់ពណ៌អ្វីខ្លះ?", ["ក្រហម និងស", "ខៀវ និងមាស", "បៃតង និងលឿង", "ខ្មៅ និងប្រាក់"], 1, "កាក់ខៀវ Team និងកាក់មាស Collaboration 🪙"),
-    (COOL, "Sky Bike ក្នុង Blue Gold Rush ហោះខ្ពស់ប៉ុន្មាន?", ["២-៥ ម៉ែត្រ", "១៥-២០ ម៉ែត្រ", "១០០ ម៉ែត្រ", "ហោះមិនរួចទេ"], 1, "១៥ ទៅ ២០ ម៉ែត្រ 🚲☁️ ទៅលេង /games មើល!"),
-    (COOL, "ហ្គេមណាជាកង់សំណាងសម្រាប់លេងជាក្រុម?", ["Logo Crush 3D", "Blue Gold Rush", "Spin & Drink", "Sky Islands"], 2, "Spin & Drink 🎡"),
-    (COOL, "ក្នុង Logo Crush 3D ត្រូវផ្គូផ្គង logo ដូចគ្នាយ៉ាងតិចប៉ុន្មាន?", ["២", "៣", "៥", "១០"], 1, "៣ ឬច្រើនជាងនេះ 🧩"),
+    (COOL, "ក្នុងហ្គេម Cooler Rush មានកាក់ពណ៌អ្វីខ្លះ?", ["ក្រហម និងស", "ខៀវ និងមាស", "បៃតង និងលឿង", "ខ្មៅ និងប្រាក់"], 1, "កាក់ខៀវ Team និងកាក់មាស Collaboration 🪙"),
+    (COOL, "Sky Bike ក្នុង Cooler Rush ហោះខ្ពស់ប៉ុន្មាន?", ["២-៥ ម៉ែត្រ", "១៥-២០ ម៉ែត្រ", "១០០ ម៉ែត្រ", "ហោះមិនរួចទេ"], 1, "១៥ ទៅ ២០ ម៉ែត្រ 🚲☁️ ទៅលេង /games មើល!"),
+    (COOL, "ហ្គេមណាជាកង់សំណាងសម្រាប់លេងជាក្រុម?", ["Cooler Crush", "Cooler Rush", "Cooler Drink", "Sky Islands"], 2, "Cooler Drink 🎡"),
+    (COOL, "ក្នុង Cooler Crush ត្រូវផ្គូផ្គង logo ដូចគ្នាយ៉ាងតិចប៉ុន្មាន?", ["២", "៣", "៥", "១០"], 1, "៣ ឬច្រើនជាងនេះ 🧩"),
     (COOL, "តើ command អ្វីដែល AI សរសេរ rap ថ្មីឲ្យអ្នក?", ["/song", "/rap", "/sing", "/mic"], 1, "/rap 🎤 សាកមើល!"),
     (COOL, "Check-in រៀងរាល់ថ្ងៃ (/checkin) ទទួលបានប៉ុន្មានពិន្ទុ?", ["១", "៥", "១០", "១០០"], 1, "+៥ ពិន្ទុ រៀងរាល់ថ្ងៃ 🎁"),
     (COOL, "អញ្ជើញមិត្តភក្តិថ្មីតាម /invite អ្នកទាំងពីរទទួលបានប៉ុន្មានពិន្ទុ?", ["៥", "១០", "២៥", "១០០"], 2, "+២៥ ពិន្ទុម្នាក់ 🤝"),
-    (COOL, "Rank ខ្ពស់បំផុតក្នុង Blue Gold Rush ឈ្មោះអ្វី?", ["Mythic", "Champion", "Smos Snea Immortal", "Rookie"], 2, "Smos Snea Immortal 🫶 នៅ Level 100!"),
+    (COOL, "Rank ខ្ពស់បំផុតក្នុង Cooler Rush ឈ្មោះអ្វី?", ["Mythic", "Champion", "Smos Snea Immortal", "Rookie"], 2, "Smos Snea Immortal 🫶 នៅ Level 100!"),
 ]
 
 CATEGORIES = (KH, GEN, FUN, COOL)

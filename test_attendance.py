@@ -47,6 +47,45 @@ class AttendanceTests(unittest.TestCase):
             self.run_msg(msg(STAFF, ctype="location", location=SimpleNamespace(latitude=lat, longitude=lon)))
             self.run_msg(msg(STAFF, ctype="photo", photo=[SimpleNamespace(file_id="SELFIE")]))
 
+    def test_qr_scan_picks_in_then_out(self):
+        day = datetime(2026, 10, 26, 7, 55, tzinfo=att.TZ_KH)
+        with patch.object(att, "now_kh", return_value=day):
+            self.assertEqual(att.next_kind(self.config, STAFF), "in")
+            self.run_msg(msg(STAFF, "/workscan", entities=None))
+            self.assertEqual(self.api["steps"][STAFF]["kind"], "in")
+            self.run_msg(msg(STAFF, ctype="location", location=SimpleNamespace(latitude=11.5565, longitude=104.9283)))
+            self.run_msg(msg(STAFF, ctype="photo", photo=[SimpleNamespace(file_id="S")]))
+            self.assertEqual(att.next_kind(self.config, STAFF), "out")
+            self.run_msg(msg(STAFF, "/workscan", entities=None))
+            self.assertEqual(self.api["steps"][STAFF]["kind"], "out")
+
+    def test_group_work_gives_buttons_not_a_loop(self):
+        m = msg(STAFF, "/work@TeamSmosSneabot", entities=None)
+        m.chat = SimpleNamespace(id=-100, type="supergroup")
+        with patch.object(self.bot, "get_me", return_value=SimpleNamespace(username="TeamSmosSneabot")):
+            self.run_msg(m)
+        kb = self.bot.reply_to.call_args.kwargs["reply_markup"].keyboard[0]
+        self.assertEqual([b.url for b in kb], ["https://t.me/TeamSmosSneabot?start=go_workin",
+                                               "https://t.me/TeamSmosSneabot?start=go_workout"])
+
+    def test_owner_gets_qr_poster(self):
+        with patch.object(self.bot, "get_me", return_value=SimpleNamespace(username="TeamSmosSneabot")):
+            self.run_msg(msg(OWNER, "/workqr", entities=None))
+        png = self.bot.send_photo.call_args.args[1]
+        self.assertEqual(png[:4], b"\x89PNG")
+        self.assertIn("go_workscan", self.bot.send_photo.call_args.kwargs["caption"])
+        self.run_msg(msg(STAFF, "/workqr", entities=None))
+        self.assertEqual(self.bot.send_photo.call_count, 1)
+
+    def test_work_intent(self):
+        for t in ("QR ម៉ោងចូលធ្វើការ", "ស្កេន QR ចូលធ្វើការនៅណា", "ចុចម៉ោងចូលធ្វើការម៉េច?", "check in qr"):
+            self.assertTrue(att.work_intent(t), t)
+        for t in ("QR បង់លុយ", "ខ្ញុំធ្វើការហត់ណាស់", "/work", "សួស្ដី"):
+            self.assertFalse(att.work_intent(t), t)
+        import subscription
+        self.assertIsNone(subscription.pay_intent("QR ម៉ោងចូលធ្វើការ"))
+        self.assertEqual(subscription.pay_intent("QR បង់លុយ"), "qr")
+
     def test_distance(self):
         self.assertLess(att.distance_m(*HOME, 11.5565, 104.9283), 20)
 

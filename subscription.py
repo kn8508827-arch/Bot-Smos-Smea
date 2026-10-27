@@ -44,10 +44,11 @@ ALL_CONTENT = ["text", "photo", "voice", "audio", "video", "video_note", "docume
 FREE_COMMANDS = {
     "start", "help", "menu", "about", "pay", "subscribe", "member", "myplan", "plan", "addgroup",
     "follow", "social", "tiktok", "contact", "vidcooler", "sos", "hub", "app",
-    "work", "workin", "workout", "joinstaff", "staff", "setwork", "tpnews", "msgconnect", "msglink", "msgunlink",   # 🕘 staff attendance (staff may not be members)
+    "work", "workin", "workout", "workscan", "workqr", "joinstaff", "staff", "setwork", "tpnews", "msgconnect", "msglink", "msgunlink",   # 🕘 staff attendance (staff may not be members)
 }
 FREE_CALLBACKS = ("hub:", "khqr:", "att:", "tpn:", "nav:main", "nav:about", "nav:cat:", "nav:team", "nav:events", "sub:", "follow:menu")
-GROUP_FREE_COMMANDS = {"pay", "subscribe", "member", "myplan", "plan", "leave", "groups", "group", "tpnews"}
+GROUP_FREE_COMMANDS = {"pay", "subscribe", "member", "myplan", "plan", "leave", "groups", "group", "tpnews",
+                       "work", "workin", "workout"}   # 🕘 staff get the check-in buttons in any group
 KINDS = ("u", "g", "c")   # person · group · group pass (credit to add the bot to one new group)
 
 
@@ -294,6 +295,12 @@ def pay_intent(text):
     t = (text or "").casefold()
     if not t or t.startswith("/") or len(t) > 300:
         return None
+    try:
+        import attendance
+        if attendance.work_intent(t):
+            return None          # «QR ចូលធ្វើការ» is the staff check-in QR, not the payment QR
+    except Exception:
+        pass
     has = lambda words: any(w in t for w in words)
     group = has(_GROUP_WORDS) and (has(("ដាក់", "add", "ចូល")) or has(_PAY_WORDS))
     if has(_QR_WORDS):

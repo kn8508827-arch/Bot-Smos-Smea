@@ -98,7 +98,7 @@ guided.register(bot, config)
 # 🕘 Staff attendance (/work · /staff · /setwork): GPS + selfie check-in/out, owner notified at once.
 # Registered right after the paywall so its location/selfie steps win over the other photo/location handlers.
 import attendance
-attendance.register(bot, config)
+_attendance = attendance.register(bot, config)
 # 🎙️ /live — walkie-talkie interpreter (voice → translated voice); before the generic voice / AI chat handlers
 import live_translate
 live_translate.register(bot, config)
@@ -1882,6 +1882,13 @@ def echo_all(message):
     user_text = message.text
     if not user_text:
         return
+    # 🕘 "QR ចូលធ្វើការ?", "ចុចម៉ោងចូលធ្វើការម៉េច?" → the check-in menu / buttons (not the payment QR)
+    try:
+        if attendance.work_intent(user_text):
+            _attendance["intent_reply"](message)
+            return
+    except Exception as exc:
+        logger.warning("work intent failed (%s)", type(exc).__name__)
     # 💳 "QR?", "បង់ម៉េច?", "សមាជិកប៉ុន្មាន?" → show the QR / prices right away (no need to know /pay)
     try:
         if _subscription.text_intent(message):

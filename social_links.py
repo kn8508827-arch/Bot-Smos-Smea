@@ -12,7 +12,7 @@ SOCIALS = (
     ("tiktok", "🎵 TikTok @vidcooler52", "SOCIAL_TIKTOK_URL", "https://www.tiktok.com/@vidcooler52"),
     ("youtube", "▶️ YouTube", "SOCIAL_YOUTUBE_URL", ""),
     ("facebook", "📘 Facebook", "SOCIAL_FACEBOOK_URL", ""),
-    ("telegram", "💬 ទាក់ទង Vid Cooler (Telegram)", "SOCIAL_TELEGRAM_URL", ""),
+    ("telegram", "💬 Telegram @VidCooler52", "SOCIAL_TELEGRAM_URL", "https://t.me/VidCooler52"),
 )
 
 FOLLOW_TEXT = (

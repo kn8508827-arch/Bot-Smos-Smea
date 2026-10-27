@@ -96,6 +96,11 @@ def personal_data(config, user, bot_username, now=None):
             "m": {"a": bool(owner or until > now), "o": owner,
                   "u": "" if owner or until <= now else sub.fmt_date(until)[:10],
                   "l": 0 if owner or until <= now else int((until - now) // 86400) + 1, "t": sub.settings().days}}
+    try:   # 👑 VIP → the Hub shows the black-gold card and golden name
+        if not owner and until > now and sub.paid_until(config, "v", uid) > now:
+            data["m"]["v"] = 1
+    except Exception:
+        pass
     try:
         import khmer_calendar as kc
         import calendar_brief as cb

@@ -131,18 +131,16 @@ def _requests(model, turns, voices, style):
                     "voiceConfig": {"prebuiltVoiceConfig": {"voiceName": voices[0]}}}},
             }),
         )
-    names = ["A", "B"]          # 👥 two speakers (the most Gemini allows in one request)
-    return (
-        (f"{API}/interactions", {
-            "model": model,
-            "input": [{"type": "user_input", "content": [{
-                "type": "text", "text": t["text"],
+    names = ["Joe", "Jane"]     # 👥 two speakers (the most Gemini allows); names only map turns → voices
+    content = [{"type": "text", "text": t["text"],
                 "annotations": [{"type": "speech_metadata", "speaker": names[t["speaker"]], "style": style}]}
-                for t in turns]}],
-            "response_format": {"type": "audio"},
-            "generation_config": {"speech_config": {"mode": "conversational", "speakers": [
-                {"speaker": names[i], "voice": v} for i, v in enumerate(voices[:2])]}},
-        }),
+               for t in turns]
+    speakers = [{"speaker": names[i], "voice": v} for i, v in enumerate(voices[:2])]
+    base = {"model": model, "input": [{"type": "user_input", "content": content}], "response_format": {"type": "audio"}}
+    return (
+        (f"{API}/interactions", {**base, "generation_config": {"speech_config": {"mode": "conversational",
+                                                                                 "speakers": speakers}}}),
+        (f"{API}/interactions", {**base, "generation_config": {"speech_config": {"speakers": speakers}}}),
         (f"{API}/models/{model}:generateContent", {
             "contents": [{"parts": [{"text": f"TTS the following conversation ({style}):\n" + "\n".join(
                 f"{names[t['speaker']]}: {t['text']}" for t in turns)}]}],
@@ -152,6 +150,36 @@ def _requests(model, turns, voices, style):
                     for i, v in enumerate(voices[:2])]}}},
         }),
     )
+
+
+LAST_DIALOGUE = {"how": ""}     # how the last 2-person clip was made (shown in /selftest)
+
+
+def wav_pcm(wav):
+    """(pcm bytes, sample rate) from a 16-bit mono WAV."""
+    rate, pos = 24000, 12
+    while pos + 8 <= len(wav):
+        cid, size = wav[pos:pos + 4], struct.unpack("<I", wav[pos + 4:pos + 8])[0]
+        if cid == b"fmt ":
+            rate = struct.unpack("<I", wav[pos + 12:pos + 16])[0]
+        elif cid == b"data":
+            return wav[pos + 8:pos + 8 + size], rate
+        pos += 8 + size + (size & 1)
+    return wav[44:], rate
+
+
+def stitch_turns(api_key, turns, voices, style, client=None, timeout=60.0, models=None, gap=0.3):
+    """Dialogue the safe way: each turn in its own voice, joined with a short pause (one call per turn)."""
+    pcm, rate = b"", 24000
+    for t in turns:
+        wav = synthesize_turns(api_key, [{"text": t["text"], "speaker": 0}], [voices[t["speaker"]]], style=style,
+                               client=client, timeout=timeout, models=models)
+        part, r = wav_pcm(wav)
+        if pcm and r != rate:
+            raise RuntimeError("sample rates differ")
+        rate = r
+        pcm += (b"\x00\x00" * int(rate * gap) if pcm else b"") + part
+    return pcm_to_wav(pcm, rate)
 
 
 def synthesize_turns(api_key, turns, voices, style=None, client=None, timeout=60.0, models=None):
@@ -175,16 +203,31 @@ def synthesize_turns(api_key, turns, voices, style=None, client=None, timeout=60
                 if r.status_code == 200:
                     found = _find_audio(r.json())
                     if found:
+                        if len(voices) == 2:
+                            LAST_DIALOGUE["how"] = "native 2-speaker" + (" (generateContent)" if "generateContent" in url else "")
                         return _as_wav(*found)
                     errors.append(f"{model}: no audio")
                     continue
-                errors.append(f"{model}: HTTP {r.status_code}")
+                why = ""
+                try:
+                    why = str(((r.json() or {}).get("error") or {}).get("message") or "")[:90]
+                except Exception:
+                    pass
+                errors.append(f"{model}: HTTP {r.status_code}" + (f" {why}" if why else ""))
                 if r.status_code in (401, 403):
                     raise PermissionError("Invalid Key")
+        if len(voices) == 2 and len(turns) <= 16:
+            logger.warning("2-speaker TTS failed (%s) — joining single-voice turns", "; ".join(errors)[:300])
+            try:
+                wav = stitch_turns(api_key, turns, voices, style, client=client, timeout=timeout, models=models)
+                LAST_DIALOGUE["how"] = "joined turns (" + "; ".join(errors)[-120:] + ")"
+                return wav
+            except Exception as exc:
+                errors.append(f"stitch: {str(exc)[:120]}")
     finally:
         if own:
             client.close()
-    raise RuntimeError("; ".join(errors)[:300])
+    raise RuntimeError("; ".join(errors)[:400])
 
 
 def wav_to_ogg(wav):

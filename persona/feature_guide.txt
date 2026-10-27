@@ -38,7 +38,7 @@
 - Prompt Studio៖ /prompt · ទស្សន៍ទាយ៖ /fortune /palm /dream /number
 
 ## ហ្គេម និងសហគមន៍
-- ហ្គេម៖ /games (Cooler Fly, Blue Gold Rush ...) · /play · /quiz · /checkin រាល់ថ្ងៃ
+- ហ្គេម៖ /games (Cooler Fly, Cooler Rush, Cooler Crush, Cooler Drink ...) · /play · /quiz · /checkin រាល់ថ្ងៃ
 - Fan Card៖ /card · ពិន្ទុ៖ /profile /leaderboard · អញ្ជើញមិត្ត៖ /invite
 
 ## Group

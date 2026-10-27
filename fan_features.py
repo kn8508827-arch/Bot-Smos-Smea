@@ -20,9 +20,9 @@ logger = logging.getLogger(__name__)
 GAMES = (
     # (key, button label, env var, default URL) — the big games, each its own site
     ("fly", "🚀 Cooler Fly 3D", "GAME_COOLER_FLY_URL", "https://kn8508827-arch.github.io/Blue-Gold-Rush/cooler-fly/"),
-    ("bgr", "⚡ Blue Gold Rush", "GAME_BLUE_GOLD_RUSH_URL", "https://kn8508827-arch.github.io/Blue-Gold-Rush/"),
-    ("logo", "🧩 Logo Crush 3D", "GAME_LOGO_CRUSH_URL", "https://logo-crush-3d-production.up.railway.app/"),
-    ("spin", "🎡 Spin & Drink", "GAME_SPIN_AND_DRINK_URL", "https://spin-and-drink-production.up.railway.app/"),
+    ("bgr", "⚡ Cooler Rush", "GAME_BLUE_GOLD_RUSH_URL", "https://kn8508827-arch.github.io/Blue-Gold-Rush/"),
+    ("logo", "🧩 Cooler Crush", "GAME_LOGO_CRUSH_URL", "https://logo-crush-3d-production.up.railway.app/"),
+    ("spin", "🎡 Cooler Drink", "GAME_SPIN_AND_DRINK_URL", "https://spin-and-drink-production.up.railway.app/"),
 )
 ARCADE_URL_DEFAULT = "https://kn8508827-arch.github.io/Blue-Gold-Rush/arcade/"
 # Arcade games get their own buttons (opened with ?g=<key>) so players see every game.

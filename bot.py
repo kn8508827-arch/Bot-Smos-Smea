@@ -88,6 +88,9 @@ BOT_THREADS = max(2, int(os.getenv("BOT_THREADS", "8") or 8))
 _exception_handler = ops_monitor.AlertingExceptionHandler(
     config, lambda chat_id, text: bot.send_message(chat_id, text, parse_mode="HTML"))
 bot = telebot.TeleBot(TOKEN, threaded=True, num_threads=BOT_THREADS, exception_handler=_exception_handler)
+# 🎨 Colourful buttons (green = go/pay, red = cancel/delete, blue = links/menu) + ✨ animated emoji (/emojikit, Premium)
+import button_style  # noqa: E402
+button_style.install(bot, config)
 
 # Paid membership gate (1$/user, 5$/group per 30 days). MUST be registered first so it runs
 # before every other handler. SUBSCRIPTION_ENABLED=false turns it off.

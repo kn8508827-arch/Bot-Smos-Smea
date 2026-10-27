@@ -111,6 +111,55 @@ def generate_image(api_key, prompt, aspect="1:1", client=None):
     raise RuntimeError("; ".join(errors)[:300])
 
 
+def image_limit():
+    try:
+        return int(os.getenv("IMAGINE_DAILY_LIMIT", "5"))
+    except ValueError:
+        return 5
+
+
+def _kh_day():
+    return time.strftime("%Y-%m-%d", time.gmtime(time.time() + 7 * 3600))
+
+
+def images_used(config, uid):
+    conn = _db(config)
+    try:
+        row = conn.execute("SELECT n FROM image_usage WHERE user_id=? AND day=?", (uid, _kh_day())).fetchone()
+        return int(row["n"]) if row else 0
+    except sqlite3.Error:
+        return 0
+    finally:
+        conn.close()
+
+
+def take_image(config, uid, unlimited=False):
+    """Count one /imagine picture (shared by the bot and the Hub's AI Studio); False when over today's limit."""
+    if unlimited or image_limit() <= 0:
+        return True
+    day = _kh_day()
+    conn = _db(config)
+    try:
+        with conn:
+            row = conn.execute("SELECT n FROM image_usage WHERE user_id=? AND day=?", (uid, day)).fetchone()
+            if row and row["n"] >= image_limit():
+                return False
+            conn.execute("INSERT INTO image_usage(user_id, day, n) VALUES (?, ?, 1) ON CONFLICT(user_id, day) "
+                         "DO UPDATE SET n=n+1", (uid, day))
+        return True
+    finally:
+        conn.close()
+
+
+def give_image_back(config, uid):
+    conn = _db(config)
+    try:
+        with conn:
+            conn.execute("UPDATE image_usage SET n=MAX(0, n-1) WHERE user_id=? AND day=?", (uid, _kh_day()))
+    finally:
+        conn.close()
+
+
 IMAGINE_STYLE = ("Create one high-quality, original image. If people appear they must be fictional (not real "
                  "celebrities). No text in the image unless asked. Request: ")
 
@@ -250,35 +299,13 @@ def register(bot, config, ask=None, make_image=None):
         return uid == getattr(config, "OWNER_ID", 0) or uid in getattr(config, "ADMIN_IDS", [])
 
     def img_limit():
-        try:
-            return int(os.getenv("IMAGINE_DAILY_LIMIT", "5"))
-        except ValueError:
-            return 5
+        return image_limit()
 
     def take_image_quota(uid):
-        if privileged(uid) or img_limit() <= 0:
-            return True
-        day = time.strftime("%Y-%m-%d", time.gmtime(time.time() + 7 * 3600))
-        conn = _db(config)
-        try:
-            with conn:
-                row = conn.execute("SELECT n FROM image_usage WHERE user_id=? AND day=?", (uid, day)).fetchone()
-                if row and row["n"] >= img_limit():
-                    return False
-                conn.execute("INSERT INTO image_usage(user_id, day, n) VALUES (?, ?, 1) ON CONFLICT(user_id, day) "
-                             "DO UPDATE SET n=n+1", (uid, day))
-            return True
-        finally:
-            conn.close()
+        return take_image(config, uid, privileged(uid))
 
     def give_back(uid):
-        day = time.strftime("%Y-%m-%d", time.gmtime(time.time() + 7 * 3600))
-        conn = _db(config)
-        try:
-            with conn:
-                conn.execute("UPDATE image_usage SET n=MAX(0, n-1) WHERE user_id=? AND day=?", (uid, day))
-        finally:
-            conn.close()
+        give_image_back(config, uid)
 
     ASPECTS = {"ឈរ": "9:16", "portrait": "9:16", "tiktok": "9:16", "ដេក": "16:9", "wide": "16:9", "youtube": "16:9"}
 

@@ -514,6 +514,9 @@ def register(bot, config, ask=None, client=None, observe=None):
 
         def do_GET(self):
             u = urlparse(self.path)
+            if u.path.startswith("/studio/file/"):    # ✨ AI Studio pictures / audio (studio_web.py)
+                import studio_web
+                return self._send_voice(studio_web.handle_get(u.path))
             if u.path.startswith("/voice/file/"):     # 🎙️ Voice Studio download (voice_web.py)
                 import voice_web
                 return self._send_voice(voice_web.handle_get(u.path))
@@ -550,6 +553,15 @@ def register(bot, config, ask=None, client=None, observe=None):
                     out = (500, {"error": "server"})
                 code, data = out or (404, {"error": "not_found"})
                 return self._send_bytes(code, json.dumps(data, ensure_ascii=False).encode(), "application/json")
+            if urlparse(self.path).path.startswith("/studio/"):  # ✨ AI Studio (studio_web.py) — photos up to ~6 MB
+                import studio_web
+                body = self.rfile.read(min(int(self.headers.get("Content-Length") or 0), 9_000_000))
+                try:
+                    out = studio_web.handle_post(urlparse(self.path).path, config, body, bot)
+                except Exception as exc:
+                    logger.warning("ai studio error (%s)", type(exc).__name__)
+                    out = (500, b'{"error":"server"}', "application/json", {})
+                return self._send_voice(out)
             if urlparse(self.path).path.startswith("/voice/"):   # 🎙️ Voice Studio (voice_web.py)
                 import voice_web
                 body = self.rfile.read(min(int(self.headers.get("Content-Length") or 0), 60_000))

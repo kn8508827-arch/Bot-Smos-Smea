@@ -250,7 +250,7 @@ def register(bot, config, ai=None, rate=None):
         if not content and not parts:
             waiting_scam[message.from_user.id] = time.monotonic() + 600
             m = InlineKeyboardMarkup()
-            m.row(InlineKeyboardButton("🧪 សាកមើលឧទាហរណ៍", callback_data="scam:demo"))
+            m.row(InlineKeyboardButton("🧪 មើលឧទាហរណ៍សារបោក", callback_data="scam:demo"))
             m.row(InlineKeyboardButton("❌ បោះបង់", callback_data="scam:cancel"))
             bot.reply_to(message, SCAM_GUIDE, reply_markup=m, parse_mode="HTML")
             return
@@ -288,7 +288,7 @@ def register(bot, config, ai=None, rate=None):
             bot.send_message(call.message.chat.id, "✅ បោះបង់ — វាយ /scam ពេលណាចង់ឆែក")
             return
         waiting_scam.pop(call.from_user.id, None)
-        bot.send_message(call.message.chat.id, "🧪 <b>ឧទាហរណ៍</b> — សារដែលគេច្រើនផ្ញើ៖\n<i>" + html.escape(SCAM_DEMO) + "</i>",
+        bot.send_message(call.message.chat.id, "🧪 <b>ឧទាហរណ៍សារបោកប្រាស់</b> (ក្លែង — គ្មាននរណាផ្ដល់លុយនេះទេ ⚠️)\nចោរច្រើនផ្ញើសារបែបនេះ៖\n<i>" + html.escape(SCAM_DEMO) + "</i>",
                          parse_mode="HTML")
         run_ai(call.message, [], SCAM_PROMPT + SCAM_DEMO, "🚨 <b>លទ្ធផលឆែក Scam</b>\n\n", "")
 

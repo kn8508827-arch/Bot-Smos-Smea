@@ -249,6 +249,8 @@ def install(bot, config):
 
     @bot.message_handler(commands=["emojikit"], func=lambda m: _is_owner(config, m))
     def emojikit_cmd(message):
+        # A fresh /emojikit command cancels any previous pending sample.
+        _waiting.discard(message.from_user.id)
         arg = ((message.text or "").split(maxsplit=1) + [""])[1].strip().lower()
         if arg in ("off", "on"):
             set_emoji(arg == "on")
@@ -272,8 +274,16 @@ def install(bot, config):
 
     _waiting = set()
 
-    @bot.message_handler(func=lambda m: getattr(getattr(m, "from_user", None), "id", None) in _waiting,
-                         content_types=["text"])
+    def waiting_for_emoji(message):
+        user_id = getattr(getattr(message, "from_user", None), "id", None)
+        if user_id not in _waiting:
+            return False
+        if (message.text or "").lstrip().startswith("/"):
+            _waiting.discard(user_id)
+            return False
+        return True
+
+    @bot.message_handler(func=waiting_for_emoji, content_types=["text"])
     def emojikit_learn(message):
         _waiting.discard(message.from_user.id)
         pairs = learn(message.text, getattr(message, "entities", None))
